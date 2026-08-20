@@ -1,0 +1,122 @@
+"use client";
+
+import React, { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useAuth } from "../../../hooks/useAuth";
+import { Shield, Lock, Mail, ArrowRight, AlertCircle, Loader2 } from "lucide-react";
+
+export default function LoginPage() {
+  const router = useRouter();
+  const { login } = useAuth();
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setIsSubmitting(true);
+
+    try {
+      await login(email, password);
+      router.push("/dashboard/projects");
+    } catch (err: any) {
+      setError(err.message || "Giriş başarısız. Lütfen bilgilerinizi kontrol ediniz.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6 py-12">
+      <div className="w-full max-w-md space-y-8">
+        {/* Header */}
+        <div className="flex flex-col items-center text-center">
+          <Link href="/" className="flex items-center gap-2 text-2xl font-bold tracking-tight">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/20 text-primary">
+              <Shield className="h-6 w-6" />
+            </div>
+            <span>ApiSentinel</span>
+          </Link>
+          <h2 className="mt-6 text-2xl font-bold tracking-tight">Hesabınıza Giriş Yapın</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            API ve Webhook güvenliğinizi tek panelden yönetin
+          </p>
+        </div>
+
+        {/* Error Alert */}
+        {error && (
+          <div className="flex items-center gap-2 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="mt-8 space-y-4 rounded-xl border border-border bg-card p-6 shadow-sm">
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+              E-posta Adresi
+            </label>
+            <div className="relative flex items-center">
+              <Mail className="absolute left-3 h-4 w-4 text-muted-foreground" />
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="developer@example.com"
+                className="w-full rounded-lg border border-input bg-background/50 py-2 pl-9 pr-3 text-sm placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+              Şifre
+            </label>
+            <div className="relative flex items-center">
+              <Lock className="absolute left-3 h-4 w-4 text-muted-foreground" />
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full rounded-lg border border-input bg-background/50 py-2 pl-9 pr-3 text-sm placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:opacity-50"
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Giriş Yapılıyor...</span>
+              </>
+            ) : (
+              <>
+                <span>Giriş Yap</span>
+                <ArrowRight className="h-4 w-4" />
+              </>
+            )}
+          </button>
+        </form>
+
+        <p className="text-center text-sm text-muted-foreground">
+          Hesabınız yok mu?{" "}
+          <Link href="/register" className="font-semibold text-primary hover:underline">
+            Kayıt Olun
+          </Link>
+        </p>
+      </div>
+    </div>
+  );
+}

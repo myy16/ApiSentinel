@@ -1,0 +1,35 @@
+{
+  "name": "apisentinel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Developer Security & Integration Platform",
+  "workspaces": [
+    "packages/*",
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev:backend": "npm run dev --workspace=backend",
+    "dev:frontend": "npm run dev --workspace=frontend",
+    "dev": "npm run dev:backend",
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "db:generate": "npm run db:generate --workspace=backend",
+    "db:migrate": "npm run db:migrate --workspace=backend",
+    "db:studio": "npm run db:studio --workspace=backend"
+  },
+  "keywords": [
+    "security",
+    "api",
+    "webhook",
+    "replay",
+    "mock",
+    "scanner",
+    "developer-tools"
+  ],
+  "author": "ApiSentinel Team",
+  "license": "MIT"
+}
