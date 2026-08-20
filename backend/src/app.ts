@@ -1,13 +1,16 @@
-import Fastify from "fastify";
+import Fastify, { FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import sensible from "@fastify/sensible";
 import { logger } from "./lib/logger.js";
 import { authRoutes } from "./modules/auth/auth.routes.js";
 import { projectRoutes } from "./modules/project/project.routes.js";
+import { endpointRoutes } from "./modules/endpoint/endpoint.routes.js";
+import { ingestionRoutes } from "./modules/ingestion/ingestion.routes.js";
+import { requestRoutes } from "./modules/request/request.routes.js";
 
-export function buildApp() {
+export function buildApp(): FastifyInstance {
   const app = Fastify({
-    logger,
+    loggerInstance: logger,
     disableRequestLogging: false,
   });
 
@@ -29,9 +32,14 @@ export function buildApp() {
     };
   });
 
-  // API Routes
+  // Public Webhook Gateway (Ingestion)
+  app.register(ingestionRoutes, { prefix: "/hook" });
+
+  // Authenticated Management API Routes
   app.register(authRoutes, { prefix: "/api/auth" });
   app.register(projectRoutes, { prefix: "/api/projects" });
+  app.register(endpointRoutes, { prefix: "/api" });
+  app.register(requestRoutes, { prefix: "/api" });
 
   // Global error handler (conforming to project.md section 34 Error Model)
   app.setErrorHandler((error, request, reply) => {

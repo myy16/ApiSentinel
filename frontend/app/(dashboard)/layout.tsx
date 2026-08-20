@@ -11,11 +11,27 @@ import {
   LogOut,
   Building2,
   Loader2,
+  Globe,
+  Radio,
+  ShieldAlert,
+  Repeat,
+  Sparkles,
+  FileCode,
+  Terminal,
+  Settings,
 } from "lucide-react";
 
 const navItems = [
   { name: "Genel Bakış", href: "/overview", icon: LayoutDashboard },
   { name: "Projeler", href: "/projects", icon: FolderGit2 },
+  { name: "Endpoints", href: "/endpoints", icon: Globe },
+  { name: "Canlı İstekler", href: "/requests", icon: Radio },
+  { name: "Güvenlik Bulguları", href: "/security", icon: ShieldAlert },
+  { name: "Replay Lab", href: "/replay", icon: Repeat },
+  { name: "Mock Lab", href: "/mock", icon: Sparkles },
+  { name: "Sözleşmeler", href: "/contracts", icon: FileCode },
+  { name: "Local Agent", href: "/agents", icon: Terminal },
+  { name: "Ayarlar", href: "/settings", icon: Settings },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
