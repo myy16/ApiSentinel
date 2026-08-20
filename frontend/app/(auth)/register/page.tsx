@@ -29,7 +29,7 @@ export default function RegisterPage() {
 
     try {
       await register(email, password, orgName || undefined);
-      router.push("/dashboard/projects");
+      router.push("/projects");
     } catch (err: any) {
       setError(err.message || "Kayıt başarısız. Lütfen bilgilerinizi kontrol ediniz.");
     } finally {

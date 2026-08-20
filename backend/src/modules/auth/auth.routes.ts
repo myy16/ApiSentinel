@@ -6,5 +6,6 @@ export async function authRoutes(app: FastifyInstance) {
   app.post("/register", AuthController.register);
   app.post("/login", AuthController.login);
   app.post("/refresh", AuthController.refresh);
+  app.post("/logout", { preHandler: [authenticate] }, AuthController.logout);
   app.get("/me", { preHandler: [authenticate] }, AuthController.me);
 }

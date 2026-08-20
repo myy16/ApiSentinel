@@ -8,13 +8,6 @@ import {
   Shield,
   LayoutDashboard,
   FolderGit2,
-  Radio,
-  ShieldAlert,
-  Repeat,
-  Sparkles,
-  FileCode,
-  Terminal,
-  Settings,
   LogOut,
   Building2,
   Loader2,
@@ -23,13 +16,6 @@ import {
 const navItems = [
   { name: "Genel Bakış", href: "/overview", icon: LayoutDashboard },
   { name: "Projeler", href: "/projects", icon: FolderGit2 },
-  { name: "Canlı İstekler", href: "/requests", icon: Radio },
-  { name: "Güvenlik Bulguları", href: "/security", icon: ShieldAlert },
-  { name: "Replay Lab", href: "/replay", icon: Repeat },
-  { name: "Mock Lab", href: "/mock", icon: Sparkles },
-  { name: "Sözleşmeler", href: "/contracts", icon: FileCode },
-  { name: "Local Agent", href: "/agents", icon: Terminal },
-  { name: "Ayarlar", href: "/settings", icon: Settings },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -107,8 +93,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* User Footer */}
         <div className="border-t border-border p-4">
           <button
-            onClick={() => {
-              logout();
+            onClick={async () => {
+              await logout();
               router.push("/login");
             }}
             className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-destructive transition hover:bg-destructive/10"

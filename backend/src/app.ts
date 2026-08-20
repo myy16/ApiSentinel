@@ -1,13 +1,13 @@
-import Fastify, { FastifyInstance } from "fastify";
+import Fastify from "fastify";
 import cors from "@fastify/cors";
 import sensible from "@fastify/sensible";
 import { logger } from "./lib/logger.js";
 import { authRoutes } from "./modules/auth/auth.routes.js";
 import { projectRoutes } from "./modules/project/project.routes.js";
 
-export function buildApp(): FastifyInstance {
+export function buildApp() {
   const app = Fastify({
-    loggerInstance: logger,
+    logger,
     disableRequestLogging: false,
   });
 

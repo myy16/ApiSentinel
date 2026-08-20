@@ -11,7 +11,7 @@ interface AuthState {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, organizationName?: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   setOrganization: (org: Organization) => void;
 }
 
@@ -88,7 +88,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem("apisentinel_org", JSON.stringify(data.organization));
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    const token = accessToken;
+
+    if (token) {
+      try {
+        await apiFetch<void>("/api/auth/logout", { method: "POST", token });
+      } catch {
+        // Local session must still be cleared if the network request fails.
+      }
+    }
+
     setAccessToken(null);
     setUser(null);
     setOrganization(null);
@@ -97,7 +107,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem("apisentinel_refresh_token");
     localStorage.removeItem("apisentinel_user");
     localStorage.removeItem("apisentinel_org");
-  }, []);
+  }, [accessToken]);
 
   const selectOrg = useCallback((org: Organization) => {
     setOrganization(org);

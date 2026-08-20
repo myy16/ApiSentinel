@@ -22,7 +22,7 @@ export default function LoginPage() {
 
     try {
       await login(email, password);
-      router.push("/dashboard/projects");
+      router.push("/projects");
     } catch (err: any) {
       setError(err.message || "Giriş başarısız. Lütfen bilgilerinizi kontrol ediniz.");
     } finally {

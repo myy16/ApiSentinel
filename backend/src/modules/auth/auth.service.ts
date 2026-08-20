@@ -89,7 +89,7 @@ export class AuthService {
     });
 
     let organization = null;
-    let role = UserRole.DEVELOPER;
+    let role: UserRole = UserRole.DEVELOPER;
 
     if (membership) {
       organization = await db.query.organizations.findFirst({

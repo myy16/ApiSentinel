@@ -61,6 +61,23 @@ describe("API Security & Validation Integration Tests", () => {
       const body = JSON.parse(response.payload);
       expect(body.error.code).toBe("AUTH_INVALID");
     });
+
+    it("should allow an authenticated user to log out", async () => {
+      const token = await generateAccessToken({
+        userId: "user-uuid-123",
+        email: "developer@apisentinel.dev",
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/auth/logout",
+        headers: {
+          authorization: `Bearer ${token}`,
+        },
+      });
+
+      expect(response.statusCode).toBe(204);
+    });
   });
 
   describe("Project Routes Security & Tenant Isolation", () => {

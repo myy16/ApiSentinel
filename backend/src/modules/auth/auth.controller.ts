@@ -54,6 +54,12 @@ export class AuthController {
     return reply.status(200).send(result);
   }
 
+  static async logout(_request: FastifyRequest, reply: FastifyReply) {
+    // Access tokens are stateless at this stage. The client clears both tokens;
+    // server-side refresh-token revocation will be introduced with persistent sessions.
+    return reply.status(204).send();
+  }
+
   static async me(request: FastifyRequest, reply: FastifyReply) {
     if (!request.user) {
       return reply.status(401).send({
