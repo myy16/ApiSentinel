@@ -14,10 +14,13 @@ type Querier interface {
 	CreateCapturedRequest(ctx context.Context, arg CreateCapturedRequestParams) (CapturedRequest, error)
 	CreateEndpoint(ctx context.Context, arg CreateEndpointParams) (Endpoint, error)
 	CreateMembership(ctx context.Context, arg CreateMembershipParams) (Membership, error)
+	CreateMockRule(ctx context.Context, arg CreateMockRuleParams) (MockRule, error)
 	CreateOrganization(ctx context.Context, name string) (Organization, error)
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
+	CreateReplayJob(ctx context.Context, arg CreateReplayJobParams) (ReplayJob, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error)
 	DeleteEndpoint(ctx context.Context, arg DeleteEndpointParams) error
+	DeleteMockRule(ctx context.Context, arg DeleteMockRuleParams) error
 	DeleteProject(ctx context.Context, arg DeleteProjectParams) error
 	GetCapturedRequestByID(ctx context.Context, id pgtype.UUID) (GetCapturedRequestByIDRow, error)
 	GetEndpointByID(ctx context.Context, arg GetEndpointByIDParams) (Endpoint, error)
@@ -28,12 +31,15 @@ type Querier interface {
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error)
 	ListEndpointsByProject(ctx context.Context, projectID pgtype.UUID) ([]ListEndpointsByProjectRow, error)
+	ListMockRulesByEndpoint(ctx context.Context, endpointID pgtype.UUID) ([]MockRule, error)
 	ListProjectsByOrg(ctx context.Context, organizationID pgtype.UUID) ([]Project, error)
+	ListReplayJobsByProject(ctx context.Context, arg ListReplayJobsByProjectParams) ([]ListReplayJobsByProjectRow, error)
 	ListRequestsByEndpoint(ctx context.Context, arg ListRequestsByEndpointParams) ([]CapturedRequest, error)
 	ListRequestsByProject(ctx context.Context, arg ListRequestsByProjectParams) ([]ListRequestsByProjectRow, error)
 	ListUserMemberships(ctx context.Context, userID pgtype.UUID) ([]ListUserMembershipsRow, error)
 	UpdateEndpoint(ctx context.Context, arg UpdateEndpointParams) (Endpoint, error)
 	UpdateProject(ctx context.Context, arg UpdateProjectParams) (Project, error)
+	UpdateReplayJobResult(ctx context.Context, arg UpdateReplayJobResultParams) (ReplayJob, error)
 }
 
 var _ Querier = (*Queries)(nil)

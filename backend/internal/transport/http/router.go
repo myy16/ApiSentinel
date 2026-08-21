@@ -17,6 +17,8 @@ type Handlers struct {
 	IngestionHandler *IngestionHandler
 	RequestHandler   *RequestHandler
 	SSEHandler       *SSEHandler
+	ReplayHandler    *ReplayHandler
+	MockHandler      *MockHandler
 }
 
 func SetupRouter(h *Handlers, jwtSecret string) *chi.Mux {
@@ -68,12 +70,16 @@ func SetupRouter(h *Handlers, jwtSecret string) *chi.Mux {
 			protected.With(middleware.RequireTenant).Get("/projects/{id}", h.ProjectHandler.Get)
 			protected.With(middleware.RequireTenant).Delete("/projects/{id}", h.ProjectHandler.Delete)
 
-			// Endpoints
+			// Endpoints & Mocks
 			protected.With(middleware.RequireTenant).Get("/projects/{projectId}/endpoints", h.EndpointHandler.List)
 			protected.With(middleware.RequireTenant).Post("/projects/{projectId}/endpoints", h.EndpointHandler.Create)
+			protected.With(middleware.RequireTenant).Get("/endpoints/{endpointId}/mocks", h.MockHandler.List)
+			protected.With(middleware.RequireTenant).Post("/endpoints/{endpointId}/mocks", h.MockHandler.Create)
 
-			// Requests
+			// Requests & Replay
 			protected.With(middleware.RequireTenant).Get("/projects/{projectId}/requests", h.RequestHandler.ListByProject)
+			protected.With(middleware.RequireTenant).Post("/requests/{id}/replay", h.ReplayHandler.Execute)
+			protected.With(middleware.RequireTenant).Get("/projects/{projectId}/replays", h.ReplayHandler.ListByProject)
 
 			// Realtime SSE Stream
 			protected.Get("/projects/{projectId}/events/stream", h.SSEHandler.Stream)

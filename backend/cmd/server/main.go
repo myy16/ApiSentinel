@@ -57,6 +57,8 @@ func main() {
 	endpointService := service.NewEndpointService(queries)
 	ingestionService := service.NewIngestionService(queries, valkeyClient)
 	requestService := service.NewRequestService(queries)
+	replayService := service.NewReplayService(queries)
+	mockService := service.NewMockService(queries)
 
 	// 4. HTTP Handlers & Router
 	handlers := &transporthttp.Handlers{
@@ -66,6 +68,8 @@ func main() {
 		IngestionHandler: transporthttp.NewIngestionHandler(ingestionService),
 		RequestHandler:   transporthttp.NewRequestHandler(requestService),
 		SSEHandler:       transporthttp.NewSSEHandler(valkeyClient),
+		ReplayHandler:    transporthttp.NewReplayHandler(replayService),
+		MockHandler:      transporthttp.NewMockHandler(mockService),
 	}
 
 	router := transporthttp.SetupRouter(handlers, cfg.JWTSecret)
