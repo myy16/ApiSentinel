@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/apisentinel/apisentinel/internal/ai"
 	"github.com/apisentinel/apisentinel/internal/config"
 	"github.com/apisentinel/apisentinel/internal/database"
 	"github.com/apisentinel/apisentinel/internal/service"
@@ -59,6 +60,7 @@ func main() {
 	requestService := service.NewRequestService(queries)
 	replayService := service.NewReplayService(queries)
 	mockService := service.NewMockService(queries)
+	explainer := ai.NewExplainer("")
 
 	// 4. HTTP Handlers & Router
 	handlers := &transporthttp.Handlers{
@@ -70,6 +72,7 @@ func main() {
 		SSEHandler:       transporthttp.NewSSEHandler(valkeyClient),
 		ReplayHandler:    transporthttp.NewReplayHandler(replayService),
 		MockHandler:      transporthttp.NewMockHandler(mockService),
+		AIHandler:        transporthttp.NewAIHandler(explainer),
 	}
 
 	router := transporthttp.SetupRouter(handlers, cfg.JWTSecret)

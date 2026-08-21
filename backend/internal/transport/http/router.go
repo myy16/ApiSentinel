@@ -19,6 +19,7 @@ type Handlers struct {
 	SSEHandler       *SSEHandler
 	ReplayHandler    *ReplayHandler
 	MockHandler      *MockHandler
+	AIHandler        *AIHandler
 }
 
 func SetupRouter(h *Handlers, jwtSecret string) *chi.Mux {
@@ -80,6 +81,9 @@ func SetupRouter(h *Handlers, jwtSecret string) *chi.Mux {
 			protected.With(middleware.RequireTenant).Get("/projects/{projectId}/requests", h.RequestHandler.ListByProject)
 			protected.With(middleware.RequireTenant).Post("/requests/{id}/replay", h.ReplayHandler.Execute)
 			protected.With(middleware.RequireTenant).Get("/projects/{projectId}/replays", h.ReplayHandler.ListByProject)
+
+			// AI Finding Explanations
+			protected.Post("/ai/explain", h.AIHandler.ExplainFinding)
 
 			// Realtime SSE Stream
 			protected.Get("/projects/{projectId}/events/stream", h.SSEHandler.Stream)
