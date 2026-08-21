@@ -13,6 +13,8 @@ node_modules
 # Build outputs
 dist
 build
+bin
+*.exe
 .next
 out
 

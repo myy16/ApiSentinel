@@ -1,0 +1,99 @@
+package http
+
+import (
+	"encoding/json"
+	"net/http"
+
+	"github.com/apisentinel/apisentinel/internal/middleware"
+	"github.com/go-chi/chi/v5"
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
+)
+
+type Handlers struct {
+	AuthHandler      *AuthHandler
+	ProjectHandler   *ProjectHandler
+	EndpointHandler  *EndpointHandler
+	IngestionHandler *IngestionHandler
+	RequestHandler   *RequestHandler
+	SSEHandler       *SSEHandler
+}
+
+func SetupRouter(h *Handlers, jwtSecret string) *chi.Mux {
+	r := chi.NewRouter()
+
+	// Global Middlewares
+	r.Use(chimiddleware.RequestID)
+	r.Use(chimiddleware.RealIP)
+	r.Use(chimiddleware.Logger)
+	r.Use(chimiddleware.Recoverer)
+
+	// CORS Setup
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"*"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "x-organization-id"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	}))
+
+	// Health check
+	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{
+			"status":  "ok",
+			"service": "apisentinel-backend-go",
+			"version": "0.1.0",
+		})
+	})
+
+	// Public Webhook Gateway
+	r.HandleFunc("/hook/{slug}", h.IngestionHandler.HandleWebhook)
+
+	// API Routes
+	r.Route("/api", func(api chi.Router) {
+		// Public Auth
+		api.Post("/auth/register", h.AuthHandler.Register)
+		api.Post("/auth/login", h.AuthHandler.Login)
+
+		// Protected Routes
+		api.Group(func(protected chi.Router) {
+			protected.Use(middleware.Auth(jwtSecret))
+
+			protected.Get("/auth/me", h.AuthHandler.Me)
+
+			// Projects
+			protected.With(middleware.RequireTenant).Get("/projects", h.ProjectHandler.List)
+			protected.With(middleware.RequireTenant).Post("/projects", h.ProjectHandler.Create)
+			protected.With(middleware.RequireTenant).Get("/projects/{id}", h.ProjectHandler.Get)
+			protected.With(middleware.RequireTenant).Delete("/projects/{id}", h.ProjectHandler.Delete)
+
+			// Endpoints
+			protected.With(middleware.RequireTenant).Get("/projects/{projectId}/endpoints", h.EndpointHandler.List)
+			protected.With(middleware.RequireTenant).Post("/projects/{projectId}/endpoints", h.EndpointHandler.Create)
+
+			// Requests
+			protected.With(middleware.RequireTenant).Get("/projects/{projectId}/requests", h.RequestHandler.ListByProject)
+
+			// Realtime SSE Stream
+			protected.Get("/projects/{projectId}/events/stream", h.SSEHandler.Stream)
+		})
+	})
+
+	return r
+}
+
+func writeJSON(w http.ResponseWriter, status int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(data)
+}
+
+func writeError(w http.ResponseWriter, status int, code, message string) {
+	writeJSON(w, status, map[string]interface{}{
+		"error": map[string]string{
+			"code":    code,
+			"message": message,
+		},
+	})
+}
