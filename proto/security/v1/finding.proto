@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package apisentinel.security.v1;
+
+option go_package = "github.com/apisentinel/apisentinel/pkg/genproto/security/v1;securityv1";
+
+enum Severity {
+  SEVERITY_UNSPECIFIED = 0;
+  SEVERITY_INFO = 1;
+  SEVERITY_LOW = 2;
+  SEVERITY_MEDIUM = 3;
+  SEVERITY_HIGH = 4;
+  SEVERITY_CRITICAL = 5;
+}
+
+enum PolicyAction {
+  POLICY_ACTION_UNSPECIFIED = 0;
+  POLICY_ACTION_ALLOW = 1;
+  POLICY_ACTION_WARN = 2;
+  POLICY_ACTION_ALERT = 3;
+  POLICY_ACTION_MASK = 4;
+  POLICY_ACTION_BLOCK = 5;
+}
+
+message SecurityFinding {
+  string id = 1;
+  string request_id = 2;
+  string rule_id = 3;
+  string category = 4;
+  string type = 5;
+  Severity severity = 6;
+  PolicyAction action = 7;
+  string field_path = 8;
+  string message = 9;
+  string evidence_masked = 10;
+  double confidence = 11;
+  string created_at = 12;
+}

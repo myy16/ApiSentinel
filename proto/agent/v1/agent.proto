@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package apisentinel.agent.v1;
+
+import "proto/security/v1/finding.proto";
+import "proto/replay/v1/replay.proto";
+
+option go_package = "github.com/apisentinel/apisentinel/pkg/genproto/agent/v1;agentv1";
+
+service AgentService {
+  // Bi-directional streaming tunnel for connected agent
+  rpc ConnectSession(stream AgentMessage) returns (stream CloudMessage);
+
+  // Unary RPC for batch CLI scans
+  rpc SyncScanResults(SyncScanRequest) returns (SyncScanResponse);
+}
+
+message AgentMessage {
+  string agent_id = 1;
+  oneof payload {
+    AgentHeartbeat heartbeat = 2;
+    AgentScanEvent scan_event = 3;
+    apisentinel.replay.v1.ReplayResponse replay_result = 4;
+  }
+}
+
+message CloudMessage {
+  oneof payload {
+    CloudHeartbeatAck heartbeat_ack = 1;
+    apisentinel.replay.v1.ReplayRequest replay_command = 2;
+    ConfigUpdate config_update = 3;
+  }
+}
+
+message AgentHeartbeat {
+  string hostname = 1;
+  string os = 2;
+  string version = 3;
+  int64 timestamp = 4;
+}
+
+message CloudHeartbeatAck {
+  int64 timestamp = 1;
+}
+
+message AgentScanEvent {
+  string event_id = 1;
+  string scan_type = 2; // "PRE_PUSH", "PRE_COMMIT", "CLI"
+  string repository = 3;
+  repeated apisentinel.security.v1.SecurityFinding findings = 4;
+}
+
+message ConfigUpdate {
+  repeated string secret_patterns = 1;
+  bool block_on_secret = 2;
+}
+
+message SyncScanRequest {
+  string agent_id = 1;
+  string repository = 2;
+  string branch = 3;
+  string commit_hash = 4;
+  repeated apisentinel.security.v1.SecurityFinding findings = 5;
+}
+
+message SyncScanResponse {
+  bool accepted = 1;
+  string action = 2; // "ALLOW", "BLOCK", "WARN"
+  string message = 3;
+}

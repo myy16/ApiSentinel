@@ -39,3 +39,6 @@ Thumbs.db
 # Database & Valkey storage
 data/
 drizzle/meta/
+
+# Local project notes
+project.md
