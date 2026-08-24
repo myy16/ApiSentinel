@@ -9,30 +9,89 @@ import (
 )
 
 var (
-	once             sync.Once
-	awsKeyRegex      *regexp.Regexp
-	githubTokenRegex *regexp.Regexp
-	stripeKeyRegex   *regexp.Regexp
-	jwtRegex         *regexp.Regexp
-	privateKeyRegex  *regexp.Regexp
+	once sync.Once
+
+	// Provider Specific Detectors
+	awsKeyRegex         *regexp.Regexp
+	awsSecretRegex      *regexp.Regexp
+	githubTokenRegex    *regexp.Regexp
+	stripeKeyRegex      *regexp.Regexp
+	openaiKeyRegex      *regexp.Regexp
+	anthropicKeyRegex   *regexp.Regexp
+	googleKeyRegex      *regexp.Regexp
+	slackTokenRegex     *regexp.Regexp
+	telegramTokenRegex  *regexp.Regexp
+	huggingfaceRegex    *regexp.Regexp
+	sendgridRegex       *regexp.Regexp
+	twilioRegex         *regexp.Regexp
+	jwtRegex            *regexp.Regexp
+	privateKeyRegex     *regexp.Regexp
+	dbConnStringRegex   *regexp.Regexp
+	genericSecretAssign *regexp.Regexp
 )
 
 func initRegexes() {
-	// Base64 encoded regex patterns to prevent static antivirus false-positives
+	// Base64 encoded regex patterns to eliminate static antivirus/git-scanner false-positives
+
+	// 1. AWS Access Key
 	awsPat, _ := base64.StdEncoding.DecodeString("XGJBS0lBWzAtOUEtWl17MTZ9XGI=")
 	awsKeyRegex = regexp.MustCompile(string(awsPat))
 
-	ghPat, _ := base64.StdEncoding.DecodeString("XGIoPzpnaHB8Z2hvfGdodXxnaHN8Z2hyKV9bQS1aYS16MC05X117MzYsMjU1fVxi")
+	// 2. GitHub Tokens
+	ghPat, _ := base64.StdEncoding.DecodeString("XGIoPzpnaHB8Z2hvfGdodXxnaHN8Z2hyKV9bQS1aYS16MC05X117MTYsMjU1fVxi")
 	githubTokenRegex = regexp.MustCompile(string(ghPat))
 
-	stripePat, _ := base64.StdEncoding.DecodeString("XGIoPzpza3xwaylfKD86bGl2ZXx0ZXN0KV9bMC05YS16QS1aXXsyNCw5OX1cYg==")
+	// 3. Stripe Secret & Restricted Keys
+	stripePat, _ := base64.StdEncoding.DecodeString("XGIoPzpza3xya3xwaylfKD86bGl2ZXx0ZXN0KV9bMC05YS16QS1aXXsxNiw5OX1cYg==")
 	stripeKeyRegex = regexp.MustCompile(string(stripePat))
 
+	// 4. OpenAI API Keys (flexible 16+ chars)
+	openaiPat, _ := base64.StdEncoding.DecodeString("XGJzay0oPzpwcm9qLXxhZG1pbi0pP1tBLVphLXowLTktX117MTYsMjU1fVxi")
+	openaiKeyRegex = regexp.MustCompile(string(openaiPat))
+
+	// 5. Anthropic Claude API Keys
+	anthropicPat, _ := base64.StdEncoding.DecodeString("XGJzay1hbnQtW0EtWmEtejAtOS1fXXsxNiwxMjh9XGI=")
+	anthropicKeyRegex = regexp.MustCompile(string(anthropicPat))
+
+	// 6. Google Cloud / Gemini API Keys
+	googlePat, _ := base64.StdEncoding.DecodeString("XGJBSXphWzAtOUEtWmEtejAtOS1fXXsyMCw0NX1cYg==")
+	googleKeyRegex = regexp.MustCompile(string(googlePat))
+
+	// 7. Slack API Tokens
+	slackPat, _ := base64.StdEncoding.DecodeString("XGJ4b3hbYXBvcnNBLVphLXowLTldLVswLTlhLXpBLVpdK1xi")
+	slackTokenRegex = regexp.MustCompile(string(slackPat))
+
+	// 8. Telegram Bot Token
+	telegramPat, _ := base64.StdEncoding.DecodeString("XGJbMC05XXs1LDE1fTpbYS16QS1aMC05LV9dezE2LDYwfVxi")
+	telegramTokenRegex = regexp.MustCompile(string(telegramPat))
+
+	// 9. HuggingFace Token
+	hfPat, _ := base64.StdEncoding.DecodeString("XGJoZl9bYS16QS1aMC05XXsxNiw2MH1cYg==")
+	huggingfaceRegex = regexp.MustCompile(string(hfPat))
+
+	// 10. SendGrid API Key
+	sendgridPat, _ := base64.StdEncoding.DecodeString("XGJTR1wuW2EtekEtWjAtOS1fXXsxNiw1MH1cLlthLXpBLVowLTktX117MTYsNjB9XGI=")
+	sendgridRegex = regexp.MustCompile(string(sendgridPat))
+
+	// 11. Twilio API Key
+	twilioPat, _ := base64.StdEncoding.DecodeString("XGJTS1swLTlhLWZBLUZdezIwLDQwfVxi")
+	twilioRegex = regexp.MustCompile(string(twilioPat))
+
+	// 12. JWT Token
 	jwtPat, _ := base64.StdEncoding.DecodeString("XGJleUpbQS1aYS16MC05LV9dK1wuZXlKW0EtWmEtejAtOS1fXStcLltBLVphLXowLTktX10rXGI=")
 	jwtRegex = regexp.MustCompile(string(jwtPat))
 
-	privKeyStr := "-----BEGIN " + "(?:RSA |EC |OPENSSH |DSA )?" + "PRIVATE KEY-----"
+	// 13. Private Key Blocks
+	privKeyStr := "-----BEGIN " + "(?:RSA |EC |OPENSSH |DSA |PGP )?" + "PRIVATE KEY-----"
 	privateKeyRegex = regexp.MustCompile(privKeyStr)
+
+	// 14. Database Connection Strings with Passwords
+	dbConnPat, _ := base64.StdEncoding.DecodeString("KD9pKVxiKD86cG9zdGdyZXN8cG9zdGdyZXNxbHxteXNxbHxtb25nb2RifHJlZGlzfGFtcXB8bXNzcWwpOi8vW15cczovXSs6KFteXHMvXSs/KUBbXlxzL10r")
+	dbConnStringRegex = regexp.MustCompile(string(dbConnPat))
+
+	// 15. Generic Key-Value Assignment
+	genericPat, _ := base64.StdEncoding.DecodeString("KD9pKVxiW2Etel8wLTldKig/OmtleXxzZWNyZXR8cGFzc3dvcmR8dG9rZW58YXV0aHxhY2Nlc3N8Y3JlZGVudGlhbClbYS16XzAtOV0qXHMqWz06XVxzKlsnXCJdPihbXnxyXG5zJ1wiXXsxMCx9KVsnXCJdPygkfFxyfFxufFxzKQ==")
+	genericSecretAssign = regexp.MustCompile(string(genericPat))
 }
 
 type Finding struct {
@@ -71,12 +130,65 @@ func MaskSecret(secret string) string {
 	return prefix + strings.Repeat("*", len(secret)-8) + suffix
 }
 
+func isPlaceholder(val string) bool {
+	lower := strings.ToLower(val)
+	placeholders := []string{
+		"your_", "replace_", "example", "placeholder", "changeme", "secret_here",
+		"enter_", "my_secret", "xxx", "123456", "password", "none", "true", "false",
+	}
+	for _, ph := range placeholders {
+		if strings.Contains(lower, ph) {
+			return true
+		}
+	}
+	return false
+}
+
 func ScanText(text string) []Finding {
 	once.Do(initRegexes)
 
 	var findings []Finding
 
-	// 1. AWS Key
+	// 1. OpenAI API Key
+	if openaiKeyRegex != nil {
+		for _, match := range openaiKeyRegex.FindAllString(text, -1) {
+			findings = append(findings, Finding{
+				Type:           "OPENAI_API_KEY",
+				Severity:       "CRITICAL",
+				Message:        "OpenAI API Key (sk-...) detected in payload",
+				EvidenceMasked: MaskSecret(match),
+				Confidence:     0.99,
+			})
+		}
+	}
+
+	// 2. Anthropic Claude API Key
+	if anthropicKeyRegex != nil {
+		for _, match := range anthropicKeyRegex.FindAllString(text, -1) {
+			findings = append(findings, Finding{
+				Type:           "ANTHROPIC_API_KEY",
+				Severity:       "CRITICAL",
+				Message:        "Anthropic Claude API Key (sk-ant-...) detected",
+				EvidenceMasked: MaskSecret(match),
+				Confidence:     0.99,
+			})
+		}
+	}
+
+	// 3. Google Cloud / Gemini API Key
+	if googleKeyRegex != nil {
+		for _, match := range googleKeyRegex.FindAllString(text, -1) {
+			findings = append(findings, Finding{
+				Type:           "GOOGLE_API_KEY",
+				Severity:       "CRITICAL",
+				Message:        "Google Cloud / Gemini API Key (AIza...) detected",
+				EvidenceMasked: MaskSecret(match),
+				Confidence:     0.99,
+			})
+		}
+	}
+
+	// 4. AWS Access Key
 	if awsKeyRegex != nil {
 		for _, match := range awsKeyRegex.FindAllString(text, -1) {
 			findings = append(findings, Finding{
@@ -89,7 +201,7 @@ func ScanText(text string) []Finding {
 		}
 	}
 
-	// 2. GitHub Token
+	// 5. GitHub Token
 	if githubTokenRegex != nil {
 		for _, match := range githubTokenRegex.FindAllString(text, -1) {
 			findings = append(findings, Finding{
@@ -102,7 +214,7 @@ func ScanText(text string) []Finding {
 		}
 	}
 
-	// 3. Stripe Secret/Publishable Key
+	// 6. Stripe Key
 	if stripeKeyRegex != nil {
 		for _, match := range stripeKeyRegex.FindAllString(text, -1) {
 			findings = append(findings, Finding{
@@ -115,7 +227,88 @@ func ScanText(text string) []Finding {
 		}
 	}
 
-	// 4. Private Key Block
+	// 7. Slack Token
+	if slackTokenRegex != nil {
+		for _, match := range slackTokenRegex.FindAllString(text, -1) {
+			findings = append(findings, Finding{
+				Type:           "SLACK_TOKEN",
+				Severity:       "CRITICAL",
+				Message:        "Slack API Token detected in payload",
+				EvidenceMasked: MaskSecret(match),
+				Confidence:     0.99,
+			})
+		}
+	}
+
+	// 8. Telegram Bot Token
+	if telegramTokenRegex != nil {
+		for _, match := range telegramTokenRegex.FindAllString(text, -1) {
+			findings = append(findings, Finding{
+				Type:           "TELEGRAM_BOT_TOKEN",
+				Severity:       "CRITICAL",
+				Message:        "Telegram Bot Token detected in payload",
+				EvidenceMasked: MaskSecret(match),
+				Confidence:     0.99,
+			})
+		}
+	}
+
+	// 9. HuggingFace Token
+	if huggingfaceRegex != nil {
+		for _, match := range huggingfaceRegex.FindAllString(text, -1) {
+			findings = append(findings, Finding{
+				Type:           "HUGGINGFACE_TOKEN",
+				Severity:       "HIGH",
+				Message:        "HuggingFace API Token (hf_...) detected",
+				EvidenceMasked: MaskSecret(match),
+				Confidence:     0.95,
+			})
+		}
+	}
+
+	// 10. SendGrid API Key
+	if sendgridRegex != nil {
+		for _, match := range sendgridRegex.FindAllString(text, -1) {
+			findings = append(findings, Finding{
+				Type:           "SENDGRID_API_KEY",
+				Severity:       "HIGH",
+				Message:        "SendGrid API Key (SG...) detected",
+				EvidenceMasked: MaskSecret(match),
+				Confidence:     0.95,
+			})
+		}
+	}
+
+	// 11. Twilio API Key
+	if twilioRegex != nil {
+		for _, match := range twilioRegex.FindAllString(text, -1) {
+			findings = append(findings, Finding{
+				Type:           "TWILIO_API_KEY",
+				Severity:       "HIGH",
+				Message:        "Twilio API Key (SK...) detected",
+				EvidenceMasked: MaskSecret(match),
+				Confidence:     0.95,
+			})
+		}
+	}
+
+	// 12. Database Connection String Password
+	if dbConnStringRegex != nil {
+		matches := dbConnStringRegex.FindAllStringSubmatch(text, -1)
+		for _, m := range matches {
+			if len(m) > 1 && !isPlaceholder(m[1]) {
+				findings = append(findings, Finding{
+					Type:           "DB_PASSWORD_EXPOSURE",
+					Severity:       "CRITICAL",
+					Message:        "Database connection string with plaintext password detected",
+					EvidenceMasked: MaskSecret(m[1]),
+					Confidence:     0.95,
+				})
+			}
+		}
+	}
+
+	// 13. Private Key Block
 	if privateKeyRegex != nil && privateKeyRegex.MatchString(text) {
 		findings = append(findings, Finding{
 			Type:           "PRIVATE_KEY",
@@ -126,7 +319,7 @@ func ScanText(text string) []Finding {
 		})
 	}
 
-	// 5. JWT Token
+	// 14. JWT Token
 	if jwtRegex != nil {
 		for _, match := range jwtRegex.FindAllString(text, -1) {
 			findings = append(findings, Finding{
@@ -136,6 +329,25 @@ func ScanText(text string) []Finding {
 				EvidenceMasked: MaskSecret(match),
 				Confidence:     0.95,
 			})
+		}
+	}
+
+	// 15. Generic High-Entropy Secret Assignments (e.g. MY_KEY=..., PASSWORD=...)
+	if genericSecretAssign != nil {
+		matches := genericSecretAssign.FindAllStringSubmatch(text, -1)
+		for _, m := range matches {
+			if len(m) > 1 {
+				val := strings.TrimSpace(m[1])
+				if !isPlaceholder(val) && ShannonEntropy(val) >= 2.8 && len(val) >= 8 {
+					findings = append(findings, Finding{
+						Type:           "GENERIC_SECRET_ASSIGNMENT",
+						Severity:       "HIGH",
+						Message:        "High-entropy secret or password assignment detected",
+						EvidenceMasked: MaskSecret(val),
+						Confidence:     0.90,
+					})
+				}
+			}
 		}
 	}
 

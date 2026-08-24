@@ -18,7 +18,7 @@ services:
       retries: 5
 
   valkey:
-    image: public.ecr.aws/docker/library/redis:7-alpine
+    image: redis:7-alpine
     container_name: apisentinel-valkey
     restart: unless-stopped
     ports:

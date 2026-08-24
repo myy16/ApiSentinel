@@ -62,6 +62,7 @@ func UninstallHook() error {
 }
 
 func GetStagedDiff() (string, error) {
+	// Scan all staged files across the repository without exclusions
 	out, err := exec.Command("git", "diff", "--cached").Output()
 	if err != nil {
 		return "", err
