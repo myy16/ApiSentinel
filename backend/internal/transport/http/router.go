@@ -50,6 +50,9 @@ func SetupRouter(h *Handlers, jwtSecret string) *chi.Mux {
 		})
 	})
 
+	// Swagger UI Documentation (/docs & /swagger)
+	RegisterSwagger(r)
+
 	// Public Webhook Gateway
 	r.HandleFunc("/hook/{slug}", h.IngestionHandler.HandleWebhook)
 
