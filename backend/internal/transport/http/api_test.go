@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apisentinel/apisentinel/internal/ai"
 	"github.com/apisentinel/apisentinel/internal/config"
 	"github.com/apisentinel/apisentinel/internal/database"
 	"github.com/apisentinel/apisentinel/internal/service"
@@ -37,16 +38,25 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 	authService := service.NewAuthService(queries, cfg.JWTSecret)
 	projectService := service.NewProjectService(queries)
 	endpointService := service.NewEndpointService(queries)
-	ingestionService := service.NewIngestionService(queries, nil)
+	alertService := service.NewAlertService(queries)
+	forwardingService := service.NewForwardingService(queries)
+	ingestionService := service.NewIngestionService(queries, nil, alertService, forwardingService)
 	requestService := service.NewRequestService(queries)
+	replayService := service.NewReplayService(queries)
+	mockService := service.NewMockService(queries)
 
 	handlers := &Handlers{
-		AuthHandler:      NewAuthHandler(authService),
-		ProjectHandler:   NewProjectHandler(projectService),
-		EndpointHandler:  NewEndpointHandler(endpointService),
-		IngestionHandler: NewIngestionHandler(ingestionService),
-		RequestHandler:   NewRequestHandler(requestService),
-		SSEHandler:       NewSSEHandler(nil),
+		AuthHandler:       NewAuthHandler(authService),
+		ProjectHandler:    NewProjectHandler(projectService),
+		EndpointHandler:   NewEndpointHandler(endpointService),
+		IngestionHandler:  NewIngestionHandler(ingestionService),
+		RequestHandler:    NewRequestHandler(requestService),
+		SSEHandler:        NewSSEHandler(nil),
+		ReplayHandler:     NewReplayHandler(replayService),
+		MockHandler:       NewMockHandler(mockService),
+		AIHandler:         NewAIHandler(ai.NewExplainer("")),
+		AlertHandler:      NewAlertHandler(alertService),
+		ForwardingHandler: NewForwardingHandler(forwardingService),
 	}
 
 	router := SetupRouter(handlers, cfg.JWTSecret)

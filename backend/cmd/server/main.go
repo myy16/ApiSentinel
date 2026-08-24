@@ -57,7 +57,9 @@ func main() {
 	authService := service.NewAuthService(queries, cfg.JWTSecret)
 	projectService := service.NewProjectService(queries)
 	endpointService := service.NewEndpointService(queries)
-	ingestionService := service.NewIngestionService(queries, valkeyClient)
+	alertService := service.NewAlertService(queries)
+	forwardingService := service.NewForwardingService(queries)
+	ingestionService := service.NewIngestionService(queries, valkeyClient, alertService, forwardingService)
 	requestService := service.NewRequestService(queries)
 	replayService := service.NewReplayService(queries)
 	mockService := service.NewMockService(queries)
@@ -73,15 +75,17 @@ func main() {
 
 	// 5. HTTP Handlers & Router (Port 3001)
 	handlers := &transporthttp.Handlers{
-		AuthHandler:      transporthttp.NewAuthHandler(authService),
-		ProjectHandler:   transporthttp.NewProjectHandler(projectService),
-		EndpointHandler:  transporthttp.NewEndpointHandler(endpointService),
-		IngestionHandler: transporthttp.NewIngestionHandler(ingestionService),
-		RequestHandler:   transporthttp.NewRequestHandler(requestService),
-		SSEHandler:       transporthttp.NewSSEHandler(valkeyClient),
-		ReplayHandler:    transporthttp.NewReplayHandler(replayService),
-		MockHandler:      transporthttp.NewMockHandler(mockService),
-		AIHandler:        transporthttp.NewAIHandler(explainer),
+		AuthHandler:       transporthttp.NewAuthHandler(authService),
+		ProjectHandler:    transporthttp.NewProjectHandler(projectService),
+		EndpointHandler:   transporthttp.NewEndpointHandler(endpointService),
+		IngestionHandler:  transporthttp.NewIngestionHandler(ingestionService),
+		RequestHandler:    transporthttp.NewRequestHandler(requestService),
+		SSEHandler:        transporthttp.NewSSEHandler(valkeyClient),
+		ReplayHandler:     transporthttp.NewReplayHandler(replayService),
+		MockHandler:       transporthttp.NewMockHandler(mockService),
+		AIHandler:         transporthttp.NewAIHandler(explainer),
+		AlertHandler:      transporthttp.NewAlertHandler(alertService),
+		ForwardingHandler: transporthttp.NewForwardingHandler(forwardingService),
 	}
 
 	router := transporthttp.SetupRouter(handlers, cfg.JWTSecret)

@@ -11,7 +11,9 @@ import (
 )
 
 type Querier interface {
+	CreateAlertChannel(ctx context.Context, arg CreateAlertChannelParams) (AlertChannel, error)
 	CreateCapturedRequest(ctx context.Context, arg CreateCapturedRequestParams) (CapturedRequest, error)
+	CreateDLQRecord(ctx context.Context, arg CreateDLQRecordParams) (ForwardingDlq, error)
 	CreateEndpoint(ctx context.Context, arg CreateEndpointParams) (Endpoint, error)
 	CreateMembership(ctx context.Context, arg CreateMembershipParams) (Membership, error)
 	CreateMockRule(ctx context.Context, arg CreateMockRuleParams) (MockRule, error)
@@ -19,17 +21,23 @@ type Querier interface {
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
 	CreateReplayJob(ctx context.Context, arg CreateReplayJobParams) (ReplayJob, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error)
+	DeleteAlertChannel(ctx context.Context, id pgtype.UUID) error
 	DeleteEndpoint(ctx context.Context, arg DeleteEndpointParams) error
 	DeleteMockRule(ctx context.Context, arg DeleteMockRuleParams) error
 	DeleteProject(ctx context.Context, arg DeleteProjectParams) error
+	GetAlertChannelByID(ctx context.Context, id pgtype.UUID) (AlertChannel, error)
 	GetCapturedRequestByID(ctx context.Context, id pgtype.UUID) (GetCapturedRequestByIDRow, error)
+	GetDLQRecordByID(ctx context.Context, id pgtype.UUID) (ForwardingDlq, error)
 	GetEndpointByID(ctx context.Context, arg GetEndpointByIDParams) (Endpoint, error)
 	GetEndpointBySlug(ctx context.Context, slug string) (Endpoint, error)
+	GetForwardingConfigByEndpoint(ctx context.Context, endpointID pgtype.UUID) (ForwardingConfig, error)
 	GetMembership(ctx context.Context, arg GetMembershipParams) (Membership, error)
 	GetOrganizationByID(ctx context.Context, id pgtype.UUID) (Organization, error)
 	GetProjectByID(ctx context.Context, arg GetProjectByIDParams) (Project, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error)
+	ListAlertChannelsByProject(ctx context.Context, projectID pgtype.UUID) ([]AlertChannel, error)
+	ListDLQRecordsByEndpoint(ctx context.Context, endpointID pgtype.UUID) ([]ForwardingDlq, error)
 	ListEndpointsByProject(ctx context.Context, projectID pgtype.UUID) ([]ListEndpointsByProjectRow, error)
 	ListMockRulesByEndpoint(ctx context.Context, endpointID pgtype.UUID) ([]MockRule, error)
 	ListProjectsByOrg(ctx context.Context, organizationID pgtype.UUID) ([]Project, error)
@@ -37,9 +45,12 @@ type Querier interface {
 	ListRequestsByEndpoint(ctx context.Context, arg ListRequestsByEndpointParams) ([]CapturedRequest, error)
 	ListRequestsByProject(ctx context.Context, arg ListRequestsByProjectParams) ([]ListRequestsByProjectRow, error)
 	ListUserMemberships(ctx context.Context, userID pgtype.UUID) ([]ListUserMembershipsRow, error)
+	ToggleAlertChannel(ctx context.Context, arg ToggleAlertChannelParams) (AlertChannel, error)
+	UpdateDLQStatus(ctx context.Context, arg UpdateDLQStatusParams) (ForwardingDlq, error)
 	UpdateEndpoint(ctx context.Context, arg UpdateEndpointParams) (Endpoint, error)
 	UpdateProject(ctx context.Context, arg UpdateProjectParams) (Project, error)
 	UpdateReplayJobResult(ctx context.Context, arg UpdateReplayJobResultParams) (ReplayJob, error)
+	UpsertForwardingConfig(ctx context.Context, arg UpsertForwardingConfigParams) (ForwardingConfig, error)
 }
 
 var _ Querier = (*Queries)(nil)

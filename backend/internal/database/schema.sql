@@ -142,3 +142,46 @@ CREATE TABLE IF NOT EXISTS agents (
     last_seen_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- 13. Alert Channels (Slack, Discord, Telegram, Webhook)
+CREATE TABLE IF NOT EXISTS alert_channels (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name VARCHAR(150) NOT NULL,
+    channel_type VARCHAR(50) NOT NULL,
+    webhook_url TEXT NOT NULL,
+    min_severity VARCHAR(20) NOT NULL DEFAULT 'HIGH',
+    is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_alert_channels_project_id ON alert_channels(project_id);
+
+-- 14. Forwarding Configurations
+CREATE TABLE IF NOT EXISTS forwarding_configs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    endpoint_id UUID UNIQUE NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,
+    target_url TEXT NOT NULL,
+    max_retries INT NOT NULL DEFAULT 3,
+    timeout_ms INT NOT NULL DEFAULT 5000,
+    custom_headers JSONB NOT NULL DEFAULT '{}'::jsonb,
+    is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 15. Forwarding Dead Letter Queue (DLQ)
+CREATE TABLE IF NOT EXISTS forwarding_dlq (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    endpoint_id UUID NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,
+    request_id UUID NOT NULL REFERENCES captured_requests(id) ON DELETE CASCADE,
+    target_url TEXT NOT NULL,
+    attempts INT NOT NULL DEFAULT 0,
+    last_error TEXT,
+    payload TEXT,
+    status VARCHAR(30) NOT NULL DEFAULT 'FAILED',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_forwarding_dlq_endpoint ON forwarding_dlq(endpoint_id, created_at DESC);
+

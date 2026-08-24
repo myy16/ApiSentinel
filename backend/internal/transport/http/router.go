@@ -11,15 +11,17 @@ import (
 )
 
 type Handlers struct {
-	AuthHandler      *AuthHandler
-	ProjectHandler   *ProjectHandler
-	EndpointHandler  *EndpointHandler
-	IngestionHandler *IngestionHandler
-	RequestHandler   *RequestHandler
-	SSEHandler       *SSEHandler
-	ReplayHandler    *ReplayHandler
-	MockHandler      *MockHandler
-	AIHandler        *AIHandler
+	AuthHandler       *AuthHandler
+	ProjectHandler    *ProjectHandler
+	EndpointHandler   *EndpointHandler
+	IngestionHandler  *IngestionHandler
+	RequestHandler    *RequestHandler
+	SSEHandler        *SSEHandler
+	ReplayHandler     *ReplayHandler
+	MockHandler       *MockHandler
+	AIHandler         *AIHandler
+	AlertHandler      *AlertHandler
+	ForwardingHandler *ForwardingHandler
 }
 
 func SetupRouter(h *Handlers, jwtSecret string) *chi.Mux {
@@ -74,11 +76,20 @@ func SetupRouter(h *Handlers, jwtSecret string) *chi.Mux {
 			protected.With(middleware.RequireTenant).Get("/projects/{id}", h.ProjectHandler.Get)
 			protected.With(middleware.RequireTenant).Delete("/projects/{id}", h.ProjectHandler.Delete)
 
-			// Endpoints & Mocks
+			// Endpoints & Mocks & Forwarding
 			protected.With(middleware.RequireTenant).Get("/projects/{projectId}/endpoints", h.EndpointHandler.List)
 			protected.With(middleware.RequireTenant).Post("/projects/{projectId}/endpoints", h.EndpointHandler.Create)
 			protected.With(middleware.RequireTenant).Get("/endpoints/{endpointId}/mocks", h.MockHandler.List)
 			protected.With(middleware.RequireTenant).Post("/endpoints/{endpointId}/mocks", h.MockHandler.Create)
+			protected.With(middleware.RequireTenant).Post("/endpoints/{endpointId}/forwarding", h.ForwardingHandler.SaveConfig)
+			protected.With(middleware.RequireTenant).Get("/endpoints/{endpointId}/forwarding", h.ForwardingHandler.GetConfig)
+			protected.With(middleware.RequireTenant).Get("/endpoints/{endpointId}/dlq", h.ForwardingHandler.ListDLQ)
+
+			// Multi-Channel Alerting
+			protected.With(middleware.RequireTenant).Post("/projects/{projectId}/alerts", h.AlertHandler.CreateChannel)
+			protected.With(middleware.RequireTenant).Get("/projects/{projectId}/alerts", h.AlertHandler.ListChannels)
+			protected.With(middleware.RequireTenant).Delete("/alerts/{id}", h.AlertHandler.DeleteChannel)
+			protected.With(middleware.RequireTenant).Post("/alerts/{id}/test", h.AlertHandler.SendTestAlert)
 
 			// Requests & Replay
 			protected.With(middleware.RequireTenant).Get("/projects/{projectId}/requests", h.RequestHandler.ListByProject)

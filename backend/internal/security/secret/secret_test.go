@@ -59,3 +59,4 @@ func TestSecretDetectors(t *testing.T) {
 	if len(findings) == 0 || findings[0].Type != "DB_PASSWORD_EXPOSURE" {
 		t.Errorf("Expected DB_PASSWORD_EXPOSURE finding, got: %+v", findings)
 	}
+}

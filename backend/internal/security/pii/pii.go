@@ -2,15 +2,15 @@ package pii
 
 import (
 	"regexp"
-	"strconv"
 	"strings"
 )
 
 var (
-	emailRegex = regexp.MustCompile(`(?i)[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}`)
-	phoneRegex = regexp.MustCompile(`(?:\+90|0)?\s*[5]\d{2}\s*\d{3}\s*\d{2}\s*\d{2}`)
+	emailRegex = regexp.MustCompile(`\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b`)
+	phoneRegex = regexp.MustCompile(`\b(?:\+?90|0)?[5][0-9]{9}\b`)
 	tcknRegex  = regexp.MustCompile(`\b[1-9]\d{10}\b`)
 	ccRegex    = regexp.MustCompile(`\b(?:\d[ -]*?){13,19}\b`)
+	ibanRegex  = regexp.MustCompile(`\bTR\d{2}[0-9A-Z]{5}[0-9A-Z]{17}\b`)
 )
 
 type Finding struct {
@@ -53,51 +53,53 @@ func ValidateLuhn(number string) bool {
 	return sum%10 == 0
 }
 
-// 11-digit Turkish National ID (TCKN) mod11 validation
+// TCKN Validation algorithm
 func ValidateTCKN(tckn string) bool {
 	if len(tckn) != 11 || tckn[0] == '0' {
 		return false
 	}
 
-	digits := make([]int, 11)
-	for i := 0; i < 11; i++ {
-		d, err := strconv.Atoi(string(tckn[i]))
-		if err != nil {
+	var digits [11]int
+	for i, r := range tckn {
+		if r < '0' || r > '9' {
 			return false
 		}
-		digits[i] = d
+		digits[i] = int(r - '0')
 	}
 
-	sumOdd := digits[0] + digits[2] + digits[4] + digits[6] + digits[8]
-	sumEven := digits[1] + digits[3] + digits[5] + digits[7]
+	oddSum := digits[0] + digits[2] + digits[4] + digits[6] + digits[8]
+	evenSum := digits[1] + digits[3] + digits[5] + digits[7]
 
-	d10 := ((sumOdd * 7) - sumEven) % 10
+	d10 := ((oddSum * 7) - evenSum) % 10
 	if d10 < 0 {
 		d10 += 10
 	}
-	if d10 != digits[9] {
+	if digits[9] != d10 {
 		return false
 	}
 
-	var sumTotal int
+	var totalSum int
 	for i := 0; i < 10; i++ {
-		sumTotal += digits[i]
+		totalSum += digits[i]
 	}
-	d11 := sumTotal % 10
+	if digits[10] != totalSum%10 {
+		return false
+	}
 
-	return d11 == digits[10]
+	return true
 }
 
 func MaskEmail(email string) string {
 	parts := strings.Split(email, "@")
-	if len(parts) != 2 || len(parts[0]) == 0 {
+	if len(parts) != 2 {
 		return "******"
 	}
 	name := parts[0]
+	domain := parts[1]
 	if len(name) <= 2 {
-		return name[:1] + "***@" + parts[1]
+		return name[:1] + "***@" + domain
 	}
-	return name[:1] + "***" + name[len(name)-1:] + "@" + parts[1]
+	return name[:1] + "***" + name[len(name)-1:] + "@" + domain
 }
 
 func MaskCreditCard(cc string) string {
@@ -110,20 +112,21 @@ func MaskCreditCard(cc string) string {
 	if len(cleaned) < 4 {
 		return "************"
 	}
-	return strings.Repeat("*", len(cleaned)-4) + cleaned[len(cleaned)-4:]
+	last4 := cleaned[len(cleaned)-4:]
+	return strings.Repeat("*", len(cleaned)-4) + last4
 }
 
 func MaskTCKN(tckn string) string {
-	if len(tckn) < 2 {
+	if len(tckn) != 11 {
 		return "***********"
 	}
-	return strings.Repeat("*", len(tckn)-2) + tckn[len(tckn)-2:]
+	return "*********" + tckn[9:]
 }
 
 func ScanText(text string) []Finding {
 	var findings []Finding
 
-	// 1. Credit Card scan with Luhn check
+	// 1. Credit Cards (Luhn Algorithm)
 	for _, match := range ccRegex.FindAllString(text, -1) {
 		if ValidateLuhn(match) {
 			findings = append(findings, Finding{
@@ -136,7 +139,7 @@ func ScanText(text string) []Finding {
 		}
 	}
 
-	// 2. TCKN scan with mod11 check
+	// 2. Turkish National ID (TCKN Algorithm)
 	for _, match := range tcknRegex.FindAllString(text, -1) {
 		if ValidateTCKN(match) {
 			findings = append(findings, Finding{
@@ -144,19 +147,32 @@ func ScanText(text string) []Finding {
 				Severity:       "HIGH",
 				Message:        "Verified Turkish National Identity (TCKN) detected",
 				EvidenceMasked: MaskTCKN(match),
+				Confidence:     0.95,
+			})
+		}
+	}
+
+	// 3. Turkish & International IBAN (mod97 Algorithm)
+	for _, match := range ibanRegex.FindAllString(text, -1) {
+		if ValidateIBAN(match) {
+			findings = append(findings, Finding{
+				Type:           "IBAN",
+				Severity:       "HIGH",
+				Message:        "Valid Turkish IBAN bank account number detected",
+				EvidenceMasked: MaskIBAN(match),
 				Confidence:     0.99,
 			})
 		}
 	}
 
-	// 3. Email scan
+	// 4. Email Addresses
 	for _, match := range emailRegex.FindAllString(text, -1) {
 		findings = append(findings, Finding{
 			Type:           "EMAIL",
 			Severity:       "INFO",
 			Message:        "Personal email address detected",
 			EvidenceMasked: MaskEmail(match),
-			Confidence:     0.95,
+			Confidence:     0.90,
 		})
 	}
 

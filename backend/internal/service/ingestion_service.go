@@ -22,13 +22,22 @@ type IngestionService struct {
 	queries        *database.Queries
 	valkeyClient   *valkey.Client
 	securityEngine *security.Engine
+	alertService   *AlertService
+	forwardingSvc  *ForwardingService
 }
 
-func NewIngestionService(queries *database.Queries, valkeyClient *valkey.Client) *IngestionService {
+func NewIngestionService(
+	queries *database.Queries,
+	valkeyClient *valkey.Client,
+	alertService *AlertService,
+	forwardingSvc *ForwardingService,
+) *IngestionService {
 	return &IngestionService{
 		queries:        queries,
 		valkeyClient:   valkeyClient,
 		securityEngine: security.NewEngine(),
+		alertService:   alertService,
+		forwardingSvc:  forwardingSvc,
 	}
 }
 
@@ -109,6 +118,7 @@ func (s *IngestionService) ProcessWebhook(
 
 	capturedIdStr := uuid.UUID(captured.ID.Bytes).String()
 	projectIdStr := uuid.UUID(endpoint.ProjectID.Bytes).String()
+	endpointIdStr := uuid.UUID(endpoint.ID.Bytes).String()
 
 	// 5. Asynchronously push to Valkey Stream for worker pipeline
 	if s.valkeyClient != nil {
@@ -118,7 +128,7 @@ func (s *IngestionService) ProcessWebhook(
 
 			s.valkeyClient.PublishStream(bgCtx, "stream:requests", map[string]interface{}{
 				"requestId":  capturedIdStr,
-				"endpointId": uuid.UUID(endpoint.ID.Bytes).String(),
+				"endpointId": endpointIdStr,
 				"projectId":  projectIdStr,
 				"rawBody":    string(rawBody),
 			})
@@ -135,6 +145,32 @@ func (s *IngestionService) ProcessWebhook(
 			})
 			s.valkeyClient.PublishEvent(bgCtx, "channel:events:"+projectIdStr, string(eventPayload))
 		}()
+	}
+
+	// 7. Multi-Channel Alert Dispatcher (If CRITICAL/HIGH findings exist)
+	if s.alertService != nil && len(findings) > 0 {
+		var dbFindings []database.SecurityFinding
+		for _, f := range findings {
+			dbFindings = append(dbFindings, database.SecurityFinding{
+				Category:       f.Type,
+				Type:           f.Type,
+				Severity:       f.Severity,
+				Message:        f.Message,
+				EvidenceMasked: pgtype.Text{String: f.EvidenceMasked, Valid: true},
+			})
+		}
+		s.alertService.DispatchForFindings(projectIdStr, "ApiSentinel Project", endpoint.Name, requestId, dbFindings, action)
+	}
+
+	// 8. Upstream Forwarding (If clean webhook)
+	if s.forwardingSvc != nil && action != "BLOCK" {
+		flatHeaders := make(map[string]string)
+		for k, v := range headers {
+			if len(v) > 0 {
+				flatHeaders[k] = v[0]
+			}
+		}
+		s.forwardingSvc.ForwardCleanWebhook(ctx, endpointIdStr, capturedIdStr, httpMethod, flatHeaders, rawBody)
 	}
 
 	if responseStatus == http.StatusForbidden {

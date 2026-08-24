@@ -254,6 +254,96 @@ const openAPIJSON = `{
           "200": { "description": "AI Kök neden, etki analizi ve düzeltme kodu örneği döner" }
         }
       }
+    },
+    "/api/projects/{projectId}/alerts": {
+      "post": {
+        "summary": "11. Bildirim Kanalı Ekle (Slack / Discord / Telegram / Webhook)",
+        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
+        "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "channelType", "webhookUrl"],
+                "properties": {
+                  "name": { "type": "string", "example": "SecOps Slack" },
+                  "channelType": { "type": "string", "enum": ["SLACK", "DISCORD", "TELEGRAM", "WEBHOOK"], "example": "SLACK" },
+                  "webhookUrl": { "type": "string", "example": "https://hooks.slack.com/services/..." },
+                  "minSeverity": { "type": "string", "example": "HIGH" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Bildirim kanalı başarıyla eklendi" }
+        }
+      },
+      "get": {
+        "summary": "12. Proje Bildirim Kanallarını Listele",
+        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
+        "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "Kayıtlı bildirim kanalları listesi" }
+        }
+      }
+    },
+    "/api/alerts/{id}/test": {
+      "post": {
+        "summary": "13. Test Bildirimi Gönder",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "Test bildirimi hedefe başarıyla iletildi" }
+        }
+      }
+    },
+    "/api/endpoints/{endpointId}/forwarding": {
+      "post": {
+        "summary": "14. Upstream Forwarding Yapılandır",
+        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
+        "parameters": [{ "name": "endpointId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["targetUrl"],
+                "properties": {
+                  "targetUrl": { "type": "string", "example": "https://api.mycompany.com/webhooks/stripe" },
+                  "maxRetries": { "type": "integer", "example": 3 },
+                  "timeoutMs": { "type": "integer", "example": 5000 },
+                  "isEnabled": { "type": "boolean", "example": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Upstream iletim ayarları güncellendi" }
+        }
+      },
+      "get": {
+        "summary": "15. Upstream Forwarding Ayarlarını Getir",
+        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
+        "parameters": [{ "name": "endpointId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "Aktif upstream forwarding konfigürasyonu" }
+        }
+      }
+    },
+    "/api/endpoints/{endpointId}/dlq": {
+      "get": {
+        "summary": "16. Dead Letter Queue (DLQ) Listele",
+        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
+        "parameters": [{ "name": "endpointId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "İletilemeyen başarısız webhook kayıtları" }
+        }
+      }
     }
   }
 }`

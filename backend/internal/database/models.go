@@ -20,6 +20,17 @@ type Agent struct {
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 }
 
+type AlertChannel struct {
+	ID          pgtype.UUID        `json:"id"`
+	ProjectID   pgtype.UUID        `json:"project_id"`
+	Name        string             `json:"name"`
+	ChannelType string             `json:"channel_type"`
+	WebhookUrl  string             `json:"webhook_url"`
+	MinSeverity string             `json:"min_severity"`
+	IsEnabled   bool               `json:"is_enabled"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
 type CapturedRequest struct {
 	ID               pgtype.UUID        `json:"id"`
 	EndpointID       pgtype.UUID        `json:"endpoint_id"`
@@ -45,6 +56,30 @@ type Endpoint struct {
 	IsActive    bool               `json:"is_active"`
 	UpstreamUrl pgtype.Text        `json:"upstream_url"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+type ForwardingConfig struct {
+	ID            pgtype.UUID        `json:"id"`
+	EndpointID    pgtype.UUID        `json:"endpoint_id"`
+	TargetUrl     string             `json:"target_url"`
+	MaxRetries    int32              `json:"max_retries"`
+	TimeoutMs     int32              `json:"timeout_ms"`
+	CustomHeaders []byte             `json:"custom_headers"`
+	IsEnabled     bool               `json:"is_enabled"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
+type ForwardingDlq struct {
+	ID            pgtype.UUID        `json:"id"`
+	EndpointID    pgtype.UUID        `json:"endpoint_id"`
+	RequestID     pgtype.UUID        `json:"request_id"`
+	TargetUrl     string             `json:"target_url"`
+	Attempts      int32              `json:"attempts"`
+	LastError     pgtype.Text        `json:"last_error"`
+	Payload       pgtype.Text        `json:"payload"`
+	Status        string             `json:"status"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	LastAttemptAt pgtype.Timestamptz `json:"last_attempt_at"`
 }
 
 type Membership struct {

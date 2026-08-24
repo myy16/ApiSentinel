@@ -27,6 +27,8 @@ const navItems = [
   { name: "Endpoints", href: "/endpoints", icon: Globe },
   { name: "Canlı İstekler", href: "/requests", icon: Radio },
   { name: "Güvenlik Bulguları", href: "/security", icon: ShieldAlert },
+  { name: "Bildirim Kanalları", href: "/alerts", icon: ShieldAlert },
+  { name: "Upstream Forwarding", href: "/forwarding", icon: Repeat },
   { name: "Replay Lab", href: "/replay", icon: Repeat },
   { name: "Mock Lab", href: "/mock", icon: Sparkles },
   { name: "Sözleşmeler", href: "/contracts", icon: FileCode },
