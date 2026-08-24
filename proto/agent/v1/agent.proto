@@ -5,7 +5,7 @@ package apisentinel.agent.v1;
 import "proto/security/v1/finding.proto";
 import "proto/replay/v1/replay.proto";
 
-option go_package = "github.com/apisentinel/apisentinel/pkg/genproto/agent/v1;agentv1";
+option go_package = "github.com/apisentinel/apisentinel/pkg/genproto/proto/agent/v1;agentv1";
 
 service AgentService {
   // Bi-directional streaming tunnel for connected agent

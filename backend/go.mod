@@ -1,6 +1,6 @@
 module github.com/apisentinel/apisentinel
 
-go 1.22.0
+go 1.25.0
 
 require (
 	github.com/go-chi/chi/v5 v5.1.0
@@ -11,7 +11,9 @@ require (
 	github.com/redis/go-redis/v9 v9.6.1
 	github.com/rs/zerolog v1.33.0
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
-	golang.org/x/crypto v0.26.0
+	golang.org/x/crypto v0.51.0
+	google.golang.org/grpc v1.83.1
+	google.golang.org/protobuf v1.36.12
 )
 
 require (
@@ -22,7 +24,9 @@ require (
 	github.com/jackc/puddle/v2 v2.2.1 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.19 // indirect
-	golang.org/x/sync v0.8.0 // indirect
-	golang.org/x/sys v0.23.0 // indirect
-	golang.org/x/text v0.17.0 // indirect
+	golang.org/x/net v0.55.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 )

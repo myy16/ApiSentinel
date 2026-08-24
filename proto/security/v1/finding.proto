@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package apisentinel.security.v1;
 
-option go_package = "github.com/apisentinel/apisentinel/pkg/genproto/security/v1;securityv1";
+option go_package = "github.com/apisentinel/apisentinel/pkg/genproto/proto/security/v1;securityv1";
 
 enum Severity {
   SEVERITY_UNSPECIFIED = 0;

@@ -13,6 +13,7 @@ import (
 	"github.com/apisentinel/apisentinel/internal/config"
 	"github.com/apisentinel/apisentinel/internal/database"
 	"github.com/apisentinel/apisentinel/internal/service"
+	transportgrpc "github.com/apisentinel/apisentinel/internal/transport/grpc"
 	transporthttp "github.com/apisentinel/apisentinel/internal/transport/http"
 	"github.com/apisentinel/apisentinel/internal/valkey"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -62,7 +63,15 @@ func main() {
 	mockService := service.NewMockService(queries)
 	explainer := ai.NewExplainer("")
 
-	// 4. HTTP Handlers & Router
+	// 4. gRPC Server (Port 50051)
+	grpcServer := transportgrpc.NewServer(queries, cfg.GRPCPort)
+	go func() {
+		if err := grpcServer.Start(); err != nil {
+			log.Fatal().Err(err).Msg("gRPC server failed")
+		}
+	}()
+
+	// 5. HTTP Handlers & Router (Port 3001)
 	handlers := &transporthttp.Handlers{
 		AuthHandler:      transporthttp.NewAuthHandler(authService),
 		ProjectHandler:   transporthttp.NewProjectHandler(projectService),
@@ -77,7 +86,7 @@ func main() {
 
 	router := transporthttp.SetupRouter(handlers, cfg.JWTSecret)
 
-	server := &http.Server{
+	httpServer := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Port),
 		Handler:      router,
 		ReadTimeout:  10 * time.Second,
@@ -89,21 +98,22 @@ func main() {
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		log.Info().Int("port", cfg.Port).Msgf("ApiSentinel Go Server listening on http://localhost:%d", cfg.Port)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Info().Int("port", cfg.Port).Msgf("ApiSentinel HTTP Gateway listening on http://localhost:%d", cfg.Port)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatal().Err(err).Msg("HTTP server crashed")
 		}
 	}()
 
 	<-stop
-	log.Info().Msg("Shutting down server gracefully...")
+	log.Info().Msg("Shutting down servers gracefully...")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Error().Err(err).Msg("Server forced to shutdown")
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Error().Err(err).Msg("HTTP server forced to shutdown")
 	}
 
-	log.Info().Msg("ApiSentinel Go Server stopped cleanly.")
+	grpcServer.Stop()
+	log.Info().Msg("ApiSentinel Backend stopped cleanly.")
 }

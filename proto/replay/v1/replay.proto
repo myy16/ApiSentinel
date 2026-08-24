@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package apisentinel.replay.v1;
 
-option go_package = "github.com/apisentinel/apisentinel/pkg/genproto/replay/v1;replayv1";
+option go_package = "github.com/apisentinel/apisentinel/pkg/genproto/proto/replay/v1;replayv1";
 
 message ReplayRequest {
   string job_id = 1;

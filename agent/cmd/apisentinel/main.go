@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
+	"github.com/apisentinel/apisentinel/agent/internal/client"
 	"github.com/apisentinel/apisentinel/agent/internal/git"
 	"github.com/apisentinel/apisentinel/internal/security"
 	"github.com/fatih/color"
@@ -15,6 +19,8 @@ import (
 var (
 	stagedOnly bool
 	targetPath string
+	serverAddr string
+	agentID    string
 )
 
 func main() {
@@ -56,6 +62,23 @@ func main() {
 		},
 	}
 
+	var connectCmd = &cobra.Command{
+		Use:   "connect",
+		Short: "Connect Agent to ApiSentinel Cloud via persistent gRPC tunnel",
+		Run: func(cmd *cobra.Command, args []string) {
+			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer cancel()
+
+			c := client.NewAgentClient(serverAddr, agentID)
+			if err := c.Connect(ctx); err != nil {
+				color.Red("❌ Agent connection error: %v", err)
+				os.Exit(1)
+			}
+		},
+	}
+	connectCmd.Flags().StringVarP(&serverAddr, "server", "s", "localhost:50051", "ApiSentinel Cloud gRPC server address")
+	connectCmd.Flags().StringVarP(&agentID, "agent-id", "a", "", "Custom Agent ID (defaults to hostname)")
+
 	var statusCmd = &cobra.Command{
 		Use:   "status",
 		Short: "Display local agent and git hook status",
@@ -76,7 +99,7 @@ func main() {
 		},
 	}
 
-	rootCmd.AddCommand(scanCmd, installHookCmd, uninstallHookCmd, statusCmd)
+	rootCmd.AddCommand(scanCmd, installHookCmd, uninstallHookCmd, connectCmd, statusCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -100,7 +123,6 @@ func shouldIgnoreFile(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	base := filepath.Base(path)
 
-	// Ignore binary, locks, and bundle artifacts
 	if ext == ".exe" || ext == ".pack" || ext == ".trace" || ext == ".lock" || ext == ".map" {
 		return true
 	}
@@ -135,7 +157,6 @@ func runScan(cmd *cobra.Command, args []string) {
 		}
 		printFindings("Git Staged Changes", findings)
 	} else {
-		// Scan directory recursively
 		err := filepath.Walk(targetPath, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return nil
