@@ -43,6 +43,11 @@ func main() {
 	}
 	log.Info().Msg("Connected to PostgreSQL (PostgreSQL 16)")
 
+	// Auto-migrate database schema
+	if err := database.RunMigrations(ctx, dbPool); err != nil {
+		log.Fatal().Err(err).Msg("Database migration failed")
+	}
+
 	queries := database.New(dbPool)
 
 	// 2. Valkey Connection
@@ -88,7 +93,7 @@ func main() {
 		ForwardingHandler: transporthttp.NewForwardingHandler(forwardingService),
 	}
 
-	router := transporthttp.SetupRouter(handlers, cfg.JWTSecret)
+	router := transporthttp.SetupRouter(handlers, cfg.JWTSecret, queries)
 
 	httpServer := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Port),
