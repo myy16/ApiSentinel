@@ -91,6 +91,8 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries) *chi.
 			protected.With(tenantGuard).Post("/endpoints/{endpointId}/forwarding", h.ForwardingHandler.SaveConfig)
 			protected.With(tenantGuard).Get("/endpoints/{endpointId}/forwarding", h.ForwardingHandler.GetConfig)
 			protected.With(tenantGuard).Get("/endpoints/{endpointId}/dlq", h.ForwardingHandler.ListDLQ)
+			protected.With(tenantGuard).Delete("/endpoints/{endpointId}/dlq", h.ForwardingHandler.PurgeDLQ)
+			protected.With(tenantGuard).Post("/dlq/{id}/retry", h.ForwardingHandler.RetryDLQ)
 			protected.With(tenantGuard).Post("/endpoints/{endpointId}/schema", h.EndpointHandler.SaveSchema)
 			protected.With(tenantGuard).Get("/endpoints/{endpointId}/schema", h.EndpointHandler.GetSchema)
 			protected.With(tenantGuard).Delete("/endpoints/{endpointId}/schema", h.EndpointHandler.DeleteSchema)

@@ -21,6 +21,7 @@ var (
 	targetPath string
 	serverAddr string
 	agentID    string
+	agentToken string
 )
 
 func main() {
@@ -69,7 +70,12 @@ func main() {
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
 
-			c := client.NewAgentClient(serverAddr, agentID)
+			tok := agentToken
+			if tok == "" {
+				tok = os.Getenv("APISENTINEL_TOKEN")
+			}
+
+			c := client.NewAgentClient(serverAddr, agentID, tok)
 			if err := c.Connect(ctx); err != nil {
 				color.Red("❌ Agent connection error: %v", err)
 				os.Exit(1)
@@ -78,6 +84,7 @@ func main() {
 	}
 	connectCmd.Flags().StringVarP(&serverAddr, "server", "s", "localhost:50051", "ApiSentinel Cloud gRPC server address")
 	connectCmd.Flags().StringVarP(&agentID, "agent-id", "a", "", "Custom Agent ID (defaults to hostname)")
+	connectCmd.Flags().StringVarP(&agentToken, "token", "t", "", "Agent Authentication Token (or set APISENTINEL_TOKEN env var)")
 
 	var statusCmd = &cobra.Command{
 		Use:   "status",

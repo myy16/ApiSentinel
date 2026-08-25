@@ -71,8 +71,8 @@ func main() {
 	findingService := service.NewFindingService(queries)
 	explainer := ai.NewExplainer("")
 
-	// 4. gRPC Server (Port 50051)
-	grpcServer := transportgrpc.NewServer(queries, cfg.GRPCPort)
+	// 4. gRPC Server (Port 50051) with Token Auth Interceptor & TLS
+	grpcServer := transportgrpc.NewServer(queries, cfg.GRPCPort, cfg.JWTSecret, os.Getenv("TLS_CERT_FILE"), os.Getenv("TLS_KEY_FILE"))
 	go func() {
 		if err := grpcServer.Start(); err != nil {
 			log.Fatal().Err(err).Msg("gRPC server failed")

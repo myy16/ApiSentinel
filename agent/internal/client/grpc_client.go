@@ -15,15 +15,17 @@ import (
 	"github.com/fatih/color"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
 type AgentClient struct {
 	serverAddr string
 	agentID    string
+	token      string
 	httpClient *http.Client
 }
 
-func NewAgentClient(serverAddr, agentID string) *AgentClient {
+func NewAgentClient(serverAddr, agentID, token string) *AgentClient {
 	if agentID == "" {
 		host, _ := os.Hostname()
 		agentID = fmt.Sprintf("agent_%s_%d", host, time.Now().Unix())
@@ -31,6 +33,7 @@ func NewAgentClient(serverAddr, agentID string) *AgentClient {
 	return &AgentClient{
 		serverAddr: serverAddr,
 		agentID:    agentID,
+		token:      token,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 }
@@ -49,13 +52,20 @@ func (c *AgentClient) Connect(ctx context.Context) error {
 	defer conn.Close()
 
 	client := agentv1.NewAgentServiceClient(conn)
-	stream, err := client.ConnectSession(ctx)
+
+	// Attach authentication metadata
+	streamCtx := ctx
+	if c.token != "" {
+		streamCtx = metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+c.token, "x-agent-token", c.token)
+	}
+
+	stream, err := client.ConnectSession(streamCtx)
 	if err != nil {
-		return fmt.Errorf("failed to open session stream: %w", err)
+		return fmt.Errorf("failed to open authenticated session stream: %w", err)
 	}
 
 	hostname, _ := os.Hostname()
-	color.Green("✅ Connected to ApiSentinel Cloud! (Agent ID: %s)", c.agentID)
+	color.Green("✅ Authenticated & Connected to ApiSentinel Cloud! (Agent ID: %s)", c.agentID)
 	color.White("   Listening for real-time Replay commands and policy updates...")
 
 	// 1. Heartbeat loop (every 5 seconds)

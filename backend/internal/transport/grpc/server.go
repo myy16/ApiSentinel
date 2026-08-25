@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,9 +14,14 @@ import (
 	agentv1 "github.com/apisentinel/apisentinel/pkg/genproto/proto/agent/v1"
 	replayv1 "github.com/apisentinel/apisentinel/pkg/genproto/proto/replay/v1"
 	securityv1 "github.com/apisentinel/apisentinel/pkg/genproto/proto/security/v1"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/reflection"
+	"google.golang.org/grpc/status"
 )
 
 type AgentSession struct {
@@ -29,19 +36,40 @@ type AgentSession struct {
 
 type Server struct {
 	agentv1.UnimplementedAgentServiceServer
-	queries  *database.Queries
-	grpcSrv  *grpc.Server
-	sessions sync.Map // map[string]*AgentSession
-	port     int
+	queries   *database.Queries
+	grpcSrv   *grpc.Server
+	sessions  sync.Map // map[string]*AgentSession
+	port      int
+	jwtSecret string
 }
 
-func NewServer(queries *database.Queries, port int) *Server {
+func NewServer(queries *database.Queries, port int, jwtSecret string, tlsCertFile, tlsKeyFile string) *Server {
 	s := &Server{
-		queries: queries,
-		port:    port,
+		queries:   queries,
+		port:      port,
+		jwtSecret: jwtSecret,
 	}
 
-	grpcServer := grpc.NewServer()
+	var serverOpts []grpc.ServerOption
+
+	// 1. Optional TLS Setup
+	if tlsCertFile != "" && tlsKeyFile != "" {
+		creds, err := credentials.NewServerTLSFromFile(tlsCertFile, tlsKeyFile)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to load TLS certificates for gRPC, falling back to insecure")
+		} else {
+			serverOpts = append(serverOpts, grpc.Creds(creds))
+			log.Info().Msg("gRPC TLS encryption enabled")
+		}
+	}
+
+	// 2. Authentication Interceptors
+	serverOpts = append(serverOpts,
+		grpc.StreamInterceptor(s.streamAuthInterceptor()),
+		grpc.UnaryInterceptor(s.unaryAuthInterceptor()),
+	)
+
+	grpcServer := grpc.NewServer(serverOpts...)
 	agentv1.RegisterAgentServiceServer(grpcServer, s)
 	reflection.Register(grpcServer)
 	s.grpcSrv = grpcServer
@@ -49,13 +77,88 @@ func NewServer(queries *database.Queries, port int) *Server {
 	return s
 }
 
+func (s *Server) streamAuthInterceptor() grpc.StreamServerInterceptor {
+	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		md, ok := metadata.FromIncomingContext(ss.Context())
+		if !ok {
+			if os.Getenv("ALLOW_INSECURE_GRPC") == "true" {
+				return handler(srv, ss)
+			}
+			return status.Errorf(codes.Unauthenticated, "missing gRPC metadata")
+		}
+
+		if err := s.validateToken(md); err != nil {
+			if os.Getenv("ALLOW_INSECURE_GRPC") == "true" {
+				return handler(srv, ss)
+			}
+			return err
+		}
+
+		return handler(srv, ss)
+	}
+}
+
+func (s *Server) unaryAuthInterceptor() grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		md, ok := metadata.FromIncomingContext(ctx)
+		if !ok {
+			if os.Getenv("ALLOW_INSECURE_GRPC") == "true" {
+				return handler(ctx, req)
+			}
+			return nil, status.Errorf(codes.Unauthenticated, "missing gRPC metadata")
+		}
+
+		if err := s.validateToken(md); err != nil {
+			if os.Getenv("ALLOW_INSECURE_GRPC") == "true" {
+				return handler(ctx, req)
+			}
+			return nil, err
+		}
+
+		return handler(ctx, req)
+	}
+}
+
+func (s *Server) validateToken(md metadata.MD) error {
+	tokens := md.Get("authorization")
+	if len(tokens) == 0 {
+		tokens = md.Get("x-agent-token")
+	}
+
+	if len(tokens) == 0 {
+		return status.Errorf(codes.Unauthenticated, "agent authorization token required")
+	}
+
+	rawToken := strings.TrimPrefix(tokens[0], "Bearer ")
+
+	// 1. Check if token matches JWT secret or predefined agent secret
+	if rawToken == s.jwtSecret || (os.Getenv("AGENT_SECRET_KEY") != "" && rawToken == os.Getenv("AGENT_SECRET_KEY")) {
+		return nil
+	}
+
+	// 2. Validate JWT token
+	token, err := jwt.Parse(rawToken, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, jwt.ErrSignatureInvalid
+		}
+		return []byte(s.jwtSecret), nil
+	})
+
+	if err == nil && token.Valid {
+		return nil
+	}
+
+	return status.Errorf(codes.Unauthenticated, "invalid or expired agent authorization token")
+}
+
+
 func (s *Server) Start() error {
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", s.port))
 	if err != nil {
 		return fmt.Errorf("failed to listen on gRPC port %d: %w", s.port, err)
 	}
 
-	log.Info().Int("port", s.port).Msg("ApiSentinel gRPC Server listening")
+	log.Info().Int("port", s.port).Msg("ApiSentinel gRPC Server listening (with Token Auth Interceptor)")
 	return s.grpcSrv.Serve(lis)
 }
 

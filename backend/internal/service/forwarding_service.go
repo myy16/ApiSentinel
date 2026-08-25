@@ -104,8 +104,9 @@ func (s *ForwardingService) ForwardCleanWebhook(ctx context.Context, endpointID 
 		}
 
 		result, err := s.forwarder.ForwardRequest(bgCtx, fwdConfig, method, headers, body)
+		reqUUID, _ := uuid.Parse(reqID)
+
 		if err != nil || (result != nil && result.SavedToDLQ) {
-			reqUUID, _ := uuid.Parse(reqID)
 			errMsg := ""
 			if result != nil {
 				errMsg = result.ErrorMessage
@@ -125,6 +126,18 @@ func (s *ForwardingService) ForwardCleanWebhook(ctx context.Context, endpointID 
 			if dlqErr != nil {
 				log.Error().Err(dlqErr).Msg("Failed to record forwarding failure into DLQ")
 			}
+
+			// Update processing status to DLQ_FAILED
+			_ = s.queries.UpdateRequestProcessingStatus(bgCtx, database.UpdateRequestProcessingStatusParams{
+				ID:               pgtype.UUID{Bytes: reqUUID, Valid: true},
+				ProcessingStatus: "DLQ_FAILED",
+			})
+		} else {
+			// Forwarding succeeded!
+			_ = s.queries.UpdateRequestProcessingStatus(bgCtx, database.UpdateRequestProcessingStatusParams{
+				ID:               pgtype.UUID{Bytes: reqUUID, Valid: true},
+				ProcessingStatus: "FORWARDED",
+			})
 		}
 	}()
 }
@@ -137,4 +150,77 @@ func (s *ForwardingService) ListDLQ(ctx context.Context, endpointID string) ([]d
 
 	return s.queries.ListDLQRecordsByEndpoint(ctx, pgtype.UUID{Bytes: epUUID, Valid: true})
 }
+
+func (s *ForwardingService) RetryDLQRecord(ctx context.Context, dlqID string) error {
+	dlqUUID, err := uuid.Parse(dlqID)
+	if err != nil {
+		return fmt.Errorf("invalid DLQ ID: %w", err)
+	}
+
+	record, err := s.queries.GetDLQRecordByID(ctx, pgtype.UUID{Bytes: dlqUUID, Valid: true})
+	if err != nil {
+		return fmt.Errorf("DLQ record not found: %w", err)
+	}
+
+	cfg, err := s.queries.GetForwardingConfigByEndpoint(ctx, record.EndpointID)
+	if err != nil {
+		return fmt.Errorf("forwarding config not found: %w", err)
+	}
+
+	var customHeaders map[string]string
+	_ = json.Unmarshal(cfg.CustomHeaders, &customHeaders)
+
+	targetURL := cfg.TargetUrl
+	if targetURL == "" {
+		targetURL = record.TargetUrl
+	}
+
+	fwdConfig := forwarding.Config{
+		EndpointID: uuid.UUID(record.EndpointID.Bytes).String(),
+		TargetURL:  targetURL,
+		MaxRetries: 1,
+		TimeoutMs:  int(cfg.TimeoutMs),
+		Headers:    customHeaders,
+		Enabled:    true,
+	}
+
+	bodyBytes := []byte(record.Payload.String)
+	result, fwdErr := s.forwarder.ForwardRequest(ctx, fwdConfig, "POST", customHeaders, bodyBytes)
+
+	if fwdErr == nil && result != nil && result.Success {
+		// Mark as RESOLVED
+		_, _ = s.queries.UpdateDLQStatus(ctx, database.UpdateDLQStatusParams{
+			ID:     record.ID,
+			Status: "RESOLVED",
+		})
+		_ = s.queries.UpdateRequestProcessingStatus(ctx, database.UpdateRequestProcessingStatusParams{
+			ID:               record.RequestID,
+			ProcessingStatus: "FORWARDED",
+		})
+		return nil
+	}
+
+	// Still failed
+	_, _ = s.queries.UpdateDLQStatus(ctx, database.UpdateDLQStatusParams{
+		ID:     record.ID,
+		Status: "FAILED",
+	})
+	if result != nil && result.ErrorMessage != "" {
+		return fmt.Errorf("retry failed: %s", result.ErrorMessage)
+	}
+	if fwdErr != nil {
+		return fmt.Errorf("retry failed: %w", fwdErr)
+	}
+	return fmt.Errorf("retry failed with status code %d", result.StatusCode)
+}
+
+func (s *ForwardingService) PurgeDLQ(ctx context.Context, endpointID string) error {
+	epUUID, err := uuid.Parse(endpointID)
+	if err != nil {
+		return fmt.Errorf("invalid endpoint ID: %w", err)
+	}
+
+	return s.queries.DeleteDLQRecordsByEndpoint(ctx, pgtype.UUID{Bytes: epUUID, Valid: true})
+}
+
 

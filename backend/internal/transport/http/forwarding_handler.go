@@ -78,3 +78,34 @@ func (h *ForwardingHandler) ListDLQ(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, dlqRecords)
 }
+
+func (h *ForwardingHandler) RetryDLQ(w http.ResponseWriter, r *http.Request) {
+	dlqID := chi.URLParam(r, "id")
+	if dlqID == "" {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "DLQ ID is required")
+		return
+	}
+
+	if err := h.fwdService.RetryDLQRecord(r.Context(), dlqID); err != nil {
+		writeError(w, http.StatusBadGateway, "RETRY_FAILED", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "İstek başarıyla yeniden iletildi ve çözüldü!"})
+}
+
+func (h *ForwardingHandler) PurgeDLQ(w http.ResponseWriter, r *http.Request) {
+	endpointID := chi.URLParam(r, "endpointId")
+	if endpointID == "" {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "Endpoint ID is required")
+		return
+	}
+
+	if err := h.fwdService.PurgeDLQ(r.Context(), endpointID); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "DLQ kayıtları temizlendi"})
+}
+

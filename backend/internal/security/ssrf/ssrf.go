@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"strings"
 )
 
@@ -72,6 +73,9 @@ func ValidateURL(rawURL string) (*url.URL, error) {
 		return nil, errors.New("empty hostname")
 	}
 
+	// Check if local dev forwarding is allowed
+	allowLocal := os.Getenv("ALLOW_LOCAL_FORWARDING") == "true" || os.Getenv("ENV") == "development" || os.Getenv("APP_ENV") == "development" || os.Getenv("GIN_MODE") == "debug"
+
 	// Resolve hostname to IP addresses
 	ips, err := net.LookupIP(hostname)
 	if err != nil {
@@ -80,9 +84,13 @@ func ValidateURL(rawURL string) (*url.URL, error) {
 
 	for _, ip := range ips {
 		if IsPrivateIP(ip) {
+			if allowLocal && (ip.IsLoopback() || ip.String() == "127.0.0.1" || ip.String() == "::1") {
+				continue
+			}
 			return nil, ErrPrivateIPBlocked
 		}
 	}
 
 	return parsed, nil
 }
+
