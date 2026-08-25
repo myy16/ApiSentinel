@@ -81,14 +81,19 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries) *chi.
 			protected.With(tenantGuard).Get("/projects/{id}", h.ProjectHandler.Get)
 			protected.With(tenantGuard).Delete("/projects/{id}", h.ProjectHandler.Delete)
 
-			// Endpoints & Mocks & Forwarding
+			// Endpoints & Mocks & Forwarding & Schemas
 			protected.With(tenantGuard).Get("/projects/{projectId}/endpoints", h.EndpointHandler.List)
 			protected.With(tenantGuard).Post("/projects/{projectId}/endpoints", h.EndpointHandler.Create)
+			protected.With(tenantGuard).Put("/projects/{projectId}/endpoints/{endpointId}", h.EndpointHandler.Update)
+			protected.With(tenantGuard).Delete("/projects/{projectId}/endpoints/{endpointId}", h.EndpointHandler.Delete)
 			protected.With(tenantGuard).Get("/endpoints/{endpointId}/mocks", h.MockHandler.List)
 			protected.With(tenantGuard).Post("/endpoints/{endpointId}/mocks", h.MockHandler.Create)
 			protected.With(tenantGuard).Post("/endpoints/{endpointId}/forwarding", h.ForwardingHandler.SaveConfig)
 			protected.With(tenantGuard).Get("/endpoints/{endpointId}/forwarding", h.ForwardingHandler.GetConfig)
 			protected.With(tenantGuard).Get("/endpoints/{endpointId}/dlq", h.ForwardingHandler.ListDLQ)
+			protected.With(tenantGuard).Post("/endpoints/{endpointId}/schema", h.EndpointHandler.SaveSchema)
+			protected.With(tenantGuard).Get("/endpoints/{endpointId}/schema", h.EndpointHandler.GetSchema)
+			protected.With(tenantGuard).Delete("/endpoints/{endpointId}/schema", h.EndpointHandler.DeleteSchema)
 
 			// Multi-Channel Alerting
 			protected.With(tenantGuard).Post("/projects/{projectId}/alerts", h.AlertHandler.CreateChannel)

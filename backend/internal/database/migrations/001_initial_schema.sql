@@ -183,5 +183,12 @@ CREATE TABLE IF NOT EXISTS forwarding_dlq (
     last_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_forwarding_dlq_endpoint ON forwarding_dlq(endpoint_id, created_at DESC);
+-- 16. Endpoint Schemas (Contracts for JSON Schema validation)
+CREATE TABLE IF NOT EXISTS endpoint_schemas (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    endpoint_id UUID UNIQUE NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,
+    json_schema JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 

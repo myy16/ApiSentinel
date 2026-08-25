@@ -58,6 +58,14 @@ type Endpoint struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
+type EndpointSchema struct {
+	ID         pgtype.UUID        `json:"id"`
+	EndpointID pgtype.UUID        `json:"endpoint_id"`
+	JsonSchema []byte             `json:"json_schema"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
 type ForwardingConfig struct {
 	ID            pgtype.UUID        `json:"id"`
 	EndpointID    pgtype.UUID        `json:"endpoint_id"`

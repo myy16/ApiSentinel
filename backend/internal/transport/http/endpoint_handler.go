@@ -53,3 +53,84 @@ func (h *EndpointHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusCreated, ep)
 }
+
+type UpdateEndpointRequest struct {
+	Name        string  `json:"name"`
+	Mode        string  `json:"mode"`
+	IsActive    *bool   `json:"isActive"`
+	UpstreamURL *string `json:"upstreamUrl"`
+}
+
+func (h *EndpointHandler) Update(w http.ResponseWriter, r *http.Request) {
+	projectId := chi.URLParam(r, "projectId")
+	endpointId := chi.URLParam(r, "endpointId")
+
+	var req UpdateEndpointRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Geçersiz istek gövdesi")
+		return
+	}
+
+	ep, err := h.endpointService.UpdateEndpoint(r.Context(), endpointId, projectId, req.Name, req.Mode, req.IsActive, req.UpstreamURL)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, ep)
+}
+
+func (h *EndpointHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	projectId := chi.URLParam(r, "projectId")
+	endpointId := chi.URLParam(r, "endpointId")
+
+	if err := h.endpointService.DeleteEndpoint(r.Context(), endpointId, projectId); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Endpoint başarıyla silindi"})
+}
+
+
+func (h *EndpointHandler) SaveSchema(w http.ResponseWriter, r *http.Request) {
+	endpointId := chi.URLParam(r, "endpointId")
+
+	var schemaData json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&schemaData); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_SCHEMA", "Geçersiz JSON Schema verisi")
+		return
+	}
+
+	res, err := h.endpointService.SaveSchema(r.Context(), endpointId, []byte(schemaData))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (h *EndpointHandler) GetSchema(w http.ResponseWriter, r *http.Request) {
+	endpointId := chi.URLParam(r, "endpointId")
+
+	res, err := h.endpointService.GetSchema(r.Context(), endpointId)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "Bu endpoint için tanımlı JSON Schema bulunamadı")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (h *EndpointHandler) DeleteSchema(w http.ResponseWriter, r *http.Request) {
+	endpointId := chi.URLParam(r, "endpointId")
+
+	if err := h.endpointService.DeleteSchema(r.Context(), endpointId); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "JSON Schema sözleşmesi silindi"})
+}
+

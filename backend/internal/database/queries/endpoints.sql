@@ -41,3 +41,20 @@ FROM endpoints e
 JOIN projects p ON e.project_id = p.id
 WHERE e.id = $1 AND p.organization_id = $2
 LIMIT 1;
+
+-- name: UpsertEndpointSchema :one
+INSERT INTO endpoint_schemas (endpoint_id, json_schema)
+VALUES ($1, $2)
+ON CONFLICT (endpoint_id) DO UPDATE SET
+    json_schema = EXCLUDED.json_schema,
+    updated_at = NOW()
+RETURNING id, endpoint_id, json_schema, created_at, updated_at;
+
+-- name: GetEndpointSchema :one
+SELECT id, endpoint_id, json_schema, created_at, updated_at
+FROM endpoint_schemas
+WHERE endpoint_id = $1 LIMIT 1;
+
+-- name: DeleteEndpointSchema :exec
+DELETE FROM endpoint_schemas
+WHERE endpoint_id = $1;

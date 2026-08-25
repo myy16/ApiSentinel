@@ -46,6 +46,18 @@ export async function apiFetch<T>(endpoint: string, options: FetchOptions = {}):
 
   if (!response.ok) {
     const errorData = data?.error;
+
+    // If token expired, clear local session and redirect to login
+    if (response.status === 401 && typeof window !== "undefined") {
+      const currentPath = window.location.pathname;
+      if (currentPath !== "/login" && currentPath !== "/register") {
+        localStorage.removeItem("apisentinel_access_token");
+        localStorage.removeItem("apisentinel_user");
+        localStorage.removeItem("apisentinel_org");
+        window.location.href = "/login";
+      }
+    }
+
     throw new ApiError(
       errorData?.message || `Request failed with status ${response.status}`,
       errorData?.code || "REQUEST_FAILED",

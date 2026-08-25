@@ -6,12 +6,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/apisentinel/apisentinel/internal/database"
 	"github.com/apisentinel/apisentinel/internal/policy"
 	"github.com/apisentinel/apisentinel/internal/security"
+	"github.com/apisentinel/apisentinel/internal/security/schema"
 	"github.com/apisentinel/apisentinel/internal/valkey"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -72,19 +74,6 @@ func (s *IngestionService) ProcessWebhook(
 	rand.Read(b)
 	requestId := "req_" + hex.EncodeToString(b)
 
-	// 3. Fast Security Inspection & Policy Decision
-	findings := s.securityEngine.Inspect(string(rawBody))
-	decision := policy.Evaluate(findings)
-
-	var responseStatus int32 = http.StatusOK
-	action := string(decision.Action)
-
-	// Handle endpoint mode override or policy block
-	if endpoint.Mode == "BLOCK" || decision.Action == policy.ActionBlock {
-		responseStatus = http.StatusForbidden
-		action = "BLOCK"
-	}
-
 	headersBytes, _ := json.Marshal(headers)
 	queryBytes, _ := json.Marshal(queryParams)
 
@@ -97,6 +86,76 @@ func (s *IngestionService) ProcessWebhook(
 	var pgRawBody pgtype.Text
 	if len(rawBody) > 0 {
 		pgRawBody = pgtype.Text{String: string(rawBody), Valid: true}
+	}
+
+	// 2.5. Check for Mock Mode & Active Mock Rules
+	if endpoint.Mode == "MOCK" {
+		mockRule, mErr := s.queries.GetMatchingMockRule(ctx, endpoint.ID)
+		if mErr == nil {
+			if mockRule.DelayMs > 0 {
+				time.Sleep(time.Duration(mockRule.DelayMs) * time.Millisecond)
+			}
+
+			var mockRespBody map[string]interface{}
+			_ = json.Unmarshal(mockRule.ResponseBody, &mockRespBody)
+			if mockRespBody == nil {
+				mockRespBody = map[string]interface{}{"status": "mocked", "rule": mockRule.Name}
+			}
+
+			// Persist captured request as MOCKED
+			s.queries.CreateCapturedRequest(ctx, database.CreateCapturedRequestParams{
+				EndpointID:       endpoint.ID,
+				RequestID:        requestId,
+				HttpMethod:       httpMethod,
+				Headers:          headersBytes,
+				QueryParams:      queryBytes,
+				RawBody:          pgRawBody,
+				MaskedBody:       pgRawBody,
+				ParsedJson:       parsedJson,
+				ResponseStatus:   pgtype.Int4{Int32: mockRule.StatusCode, Valid: true},
+				ProcessingStatus: "MOCKED",
+			})
+
+			return &IngestionResult{
+				StatusCode:   int(mockRule.StatusCode),
+				RequestID:    requestId,
+				Action:       "MOCK",
+				ResponseBody: mockRespBody,
+			}, nil
+		}
+	}
+
+	// 3. Fast Security Inspection (PII + Secrets)
+	findings := s.securityEngine.Inspect(string(rawBody))
+
+	// 3.5. JSON Schema Contract Validation (if schema is attached to endpoint)
+	schemaRecord, sErr := s.queries.GetEndpointSchema(ctx, endpoint.ID)
+	if sErr == nil && len(schemaRecord.JsonSchema) > 0 && len(rawBody) > 0 {
+		if validator, vErr := schema.NewValidator(string(schemaRecord.JsonSchema)); vErr == nil {
+			if violations, valErr := validator.Validate(rawBody); valErr == nil {
+				for _, v := range violations {
+					findings = append(findings, security.Finding{
+						Category:       "CONTRACT",
+						Type:           "SCHEMA_VIOLATION",
+						Severity:       "HIGH",
+						Message:        fmt.Sprintf("JSON Schema ihlali (Alan: %s): %s", v.FieldPath, v.Message),
+						EvidenceMasked: v.Keyword,
+						Confidence:     1.0,
+					})
+				}
+			}
+		}
+	}
+
+	decision := policy.Evaluate(findings)
+
+	var responseStatus int32 = http.StatusOK
+	action := string(decision.Action)
+
+	// Handle endpoint mode override or policy block
+	if endpoint.Mode == "BLOCK" || decision.Action == policy.ActionBlock {
+		responseStatus = http.StatusForbidden
+		action = "BLOCK"
 	}
 
 	// 4. Save to PostgreSQL

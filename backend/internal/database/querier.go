@@ -25,6 +25,7 @@ type Querier interface {
 	DeleteAlertChannel(ctx context.Context, id pgtype.UUID) error
 	DeleteDLQRecordsByEndpoint(ctx context.Context, endpointID pgtype.UUID) error
 	DeleteEndpoint(ctx context.Context, arg DeleteEndpointParams) error
+	DeleteEndpointSchema(ctx context.Context, endpointID pgtype.UUID) error
 	DeleteMockRule(ctx context.Context, arg DeleteMockRuleParams) error
 	DeleteProject(ctx context.Context, arg DeleteProjectParams) error
 	GetAlertChannelByID(ctx context.Context, id pgtype.UUID) (AlertChannel, error)
@@ -32,6 +33,7 @@ type Querier interface {
 	GetDLQRecordByID(ctx context.Context, id pgtype.UUID) (ForwardingDlq, error)
 	GetEndpointByID(ctx context.Context, arg GetEndpointByIDParams) (Endpoint, error)
 	GetEndpointBySlug(ctx context.Context, slug string) (Endpoint, error)
+	GetEndpointSchema(ctx context.Context, endpointID pgtype.UUID) (EndpointSchema, error)
 	GetEndpointWithOwnership(ctx context.Context, arg GetEndpointWithOwnershipParams) (GetEndpointWithOwnershipRow, error)
 	GetFindingStats(ctx context.Context, projectID pgtype.UUID) (GetFindingStatsRow, error)
 	GetForwardingConfigByEndpoint(ctx context.Context, endpointID pgtype.UUID) (ForwardingConfig, error)
@@ -57,6 +59,7 @@ type Querier interface {
 	UpdateProject(ctx context.Context, arg UpdateProjectParams) (Project, error)
 	UpdateReplayJobResult(ctx context.Context, arg UpdateReplayJobResultParams) (ReplayJob, error)
 	UpdateRequestProcessingStatus(ctx context.Context, arg UpdateRequestProcessingStatusParams) error
+	UpsertEndpointSchema(ctx context.Context, arg UpsertEndpointSchemaParams) (EndpointSchema, error)
 	UpsertForwardingConfig(ctx context.Context, arg UpsertForwardingConfigParams) (ForwardingConfig, error)
 	VerifyProjectOwnership(ctx context.Context, arg VerifyProjectOwnershipParams) (pgtype.UUID, error)
 }

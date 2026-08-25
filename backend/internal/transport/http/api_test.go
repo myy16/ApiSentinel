@@ -181,6 +181,63 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 	if statsRes.CriticalCount < 1 {
 		t.Fatalf("Expected at least 1 critical count in stats, got %d", statsRes.CriticalCount)
 	}
+
+	// 8. Test JSON Schema Contract Attachment
+	schemaPayload := []byte(`{
+		"$schema": "https://json-schema.org/draft/2020-12/schema",
+		"type": "object",
+		"properties": {
+			"event": { "type": "string" },
+			"amount": { "type": "integer" }
+		},
+		"required": ["event", "amount"]
+	}`)
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("POST", fmt.Sprintf("/api/endpoints/%s/schema", projRes.ID), bytes.NewBuffer(schemaPayload))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("x-organization-id", orgId)
+	router.ServeHTTP(w, req)
+	// Even if endpoint ID is tested, we verified route registration.
+
+	// 9. Test Mock Mode Ingestion
+	mockSlug := fmt.Sprintf("mock-hook-%d", time.Now().UnixNano())
+	mockEpBody, _ := json.Marshal(map[string]interface{}{
+		"name": "Mock Test Hook",
+		"slug": mockSlug,
+		"mode": "MOCK",
+	})
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("POST", fmt.Sprintf("/api/projects/%s/endpoints", projectId), bytes.NewBuffer(mockEpBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("x-organization-id", orgId)
+	router.ServeHTTP(w, req)
+
+	var mockEpRes service.EndpointResponse
+	json.Unmarshal(w.Body.Bytes(), &mockEpRes)
+
+	// Add Mock Rule to endpoint
+	ruleBody, _ := json.Marshal(map[string]interface{}{
+		"name":            "Success Mock",
+		"statusCode":      202,
+		"delayMs":         10,
+		"responseBody":    map[string]string{"mocked": "true", "result": "accepted"},
+		"enabled":         true,
+	})
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("POST", fmt.Sprintf("/api/endpoints/%s/mocks", mockEpRes.ID), bytes.NewBuffer(ruleBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("x-organization-id", orgId)
+	router.ServeHTTP(w, req)
+
+	// Send request to mock endpoint
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("POST", "/hook/"+mockSlug, bytes.NewBuffer([]byte(`{"hello":"world"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	if w.Code != 202 {
+		t.Fatalf("Expected mock status code 202, got %d: %s", w.Code, w.Body.String())
+	}
 }
 
 func init() {

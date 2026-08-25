@@ -64,6 +64,16 @@ func (q *Queries) DeleteEndpoint(ctx context.Context, arg DeleteEndpointParams) 
 	return err
 }
 
+const deleteEndpointSchema = `-- name: DeleteEndpointSchema :exec
+DELETE FROM endpoint_schemas
+WHERE endpoint_id = $1
+`
+
+func (q *Queries) DeleteEndpointSchema(ctx context.Context, endpointID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteEndpointSchema, endpointID)
+	return err
+}
+
 const getEndpointByID = `-- name: GetEndpointByID :one
 SELECT id, project_id, slug, name, mode, is_active, upstream_url, created_at
 FROM endpoints
@@ -109,6 +119,25 @@ func (q *Queries) GetEndpointBySlug(ctx context.Context, slug string) (Endpoint,
 		&i.IsActive,
 		&i.UpstreamUrl,
 		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getEndpointSchema = `-- name: GetEndpointSchema :one
+SELECT id, endpoint_id, json_schema, created_at, updated_at
+FROM endpoint_schemas
+WHERE endpoint_id = $1 LIMIT 1
+`
+
+func (q *Queries) GetEndpointSchema(ctx context.Context, endpointID pgtype.UUID) (EndpointSchema, error) {
+	row := q.db.QueryRow(ctx, getEndpointSchema, endpointID)
+	var i EndpointSchema
+	err := row.Scan(
+		&i.ID,
+		&i.EndpointID,
+		&i.JsonSchema,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -229,6 +258,33 @@ func (q *Queries) UpdateEndpoint(ctx context.Context, arg UpdateEndpointParams) 
 		&i.IsActive,
 		&i.UpstreamUrl,
 		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const upsertEndpointSchema = `-- name: UpsertEndpointSchema :one
+INSERT INTO endpoint_schemas (endpoint_id, json_schema)
+VALUES ($1, $2)
+ON CONFLICT (endpoint_id) DO UPDATE SET
+    json_schema = EXCLUDED.json_schema,
+    updated_at = NOW()
+RETURNING id, endpoint_id, json_schema, created_at, updated_at
+`
+
+type UpsertEndpointSchemaParams struct {
+	EndpointID pgtype.UUID `json:"endpoint_id"`
+	JsonSchema []byte      `json:"json_schema"`
+}
+
+func (q *Queries) UpsertEndpointSchema(ctx context.Context, arg UpsertEndpointSchemaParams) (EndpointSchema, error) {
+	row := q.db.QueryRow(ctx, upsertEndpointSchema, arg.EndpointID, arg.JsonSchema)
+	var i EndpointSchema
+	err := row.Scan(
+		&i.ID,
+		&i.EndpointID,
+		&i.JsonSchema,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }

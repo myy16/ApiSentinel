@@ -81,7 +81,7 @@ func (s *AuthService) Register(ctx context.Context, email, password, orgName str
 	userIdStr := uuid.UUID(user.ID.Bytes).String()
 	orgIdStr := uuid.UUID(org.ID.Bytes).String()
 
-	accessToken, err := s.generateToken(userIdStr, orgIdStr, "OWNER", 15*time.Minute)
+	accessToken, err := s.generateToken(userIdStr, orgIdStr, "OWNER", 24*time.Hour)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +127,7 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*AuthR
 	userIdStr := uuid.UUID(user.ID.Bytes).String()
 	orgIdStr := uuid.UUID(firstOrg.OrganizationID.Bytes).String()
 
-	accessToken, err := s.generateToken(userIdStr, orgIdStr, firstOrg.Role, 15*time.Minute)
+	accessToken, err := s.generateToken(userIdStr, orgIdStr, firstOrg.Role, 24*time.Hour)
 	if err != nil {
 		return nil, err
 	}
