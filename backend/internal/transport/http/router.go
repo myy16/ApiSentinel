@@ -23,6 +23,7 @@ type Handlers struct {
 	AIHandler         *AIHandler
 	AlertHandler      *AlertHandler
 	ForwardingHandler *ForwardingHandler
+	FindingHandler    *FindingHandler
 }
 
 func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries) *chi.Mux {
@@ -99,6 +100,12 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries) *chi.
 			protected.With(tenantGuard).Get("/projects/{projectId}/requests", h.RequestHandler.ListByProject)
 			protected.With(tenantGuard).Post("/requests/{id}/replay", h.ReplayHandler.Execute)
 			protected.With(tenantGuard).Get("/projects/{projectId}/replays", h.ReplayHandler.ListByProject)
+
+			// Security Findings (Real DB & Statistics)
+			if h.FindingHandler != nil {
+				protected.With(tenantGuard).Get("/projects/{projectId}/findings", h.FindingHandler.ListByProject)
+				protected.With(tenantGuard).Get("/projects/{projectId}/findings/stats", h.FindingHandler.GetStats)
+			}
 
 			// AI Finding Explanations
 			protected.Post("/ai/explain", h.AIHandler.ExplainFinding)

@@ -302,7 +302,24 @@ export default function EndpointsPage() {
       )}
 
       {/* Endpoints List */}
-      {isLoading ? (
+      {projects.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border py-16 text-center bg-card/40">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-500/10 text-amber-400 mb-4">
+            <FolderGit2 className="h-6 w-6" />
+          </div>
+          <h3 className="text-base font-semibold text-foreground">Henüz Oluşturulmuş Bir Projeniz Yok</h3>
+          <p className="mt-1 text-sm text-muted-foreground max-w-sm">
+            Webhook endpoint'i tanımlayabilmek için öncelikle en az bir Proje (örn: E-Ticaret, Ödeme Geçidi) oluşturmalısınız.
+          </p>
+          <Link
+            href="/projects"
+            className="mt-6 flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Önce Bir Proje Oluştur</span>
+          </Link>
+        </div>
+      ) : isLoading ? (
         <div className="flex h-48 items-center justify-center">
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>

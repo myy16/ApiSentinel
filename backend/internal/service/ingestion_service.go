@@ -147,19 +147,41 @@ func (s *IngestionService) ProcessWebhook(
 		}()
 	}
 
-	// 7. Multi-Channel Alert Dispatcher (If CRITICAL/HIGH findings exist)
-	if s.alertService != nil && len(findings) > 0 {
+	// 7. Persist Security Findings & Dispatch Alerts (If findings exist)
+	if len(findings) > 0 {
 		var dbFindings []database.SecurityFinding
 		for _, f := range findings {
-			dbFindings = append(dbFindings, database.SecurityFinding{
-				Category:       f.Type,
+			// Persist to security_findings table
+			createdFinding, fErr := s.queries.CreateSecurityFinding(ctx, database.CreateSecurityFindingParams{
+				RequestID:      captured.ID,
+				Category:       f.Category,
 				Type:           f.Type,
 				Severity:       f.Severity,
+				Action:         action,
 				Message:        f.Message,
 				EvidenceMasked: pgtype.Text{String: f.EvidenceMasked, Valid: true},
+				Confidence:     pgtype.Float8{Float64: f.Confidence, Valid: true},
+			})
+			if fErr != nil {
+				log.Error().Err(fErr).Msg("Failed to persist security finding")
+			}
+
+			dbFindings = append(dbFindings, database.SecurityFinding{
+				ID:             createdFinding.ID,
+				RequestID:      captured.ID,
+				Category:       f.Category,
+				Type:           f.Type,
+				Severity:       f.Severity,
+				Action:         action,
+				Message:        f.Message,
+				EvidenceMasked: pgtype.Text{String: f.EvidenceMasked, Valid: true},
+				Confidence:     pgtype.Float8{Float64: f.Confidence, Valid: true},
 			})
 		}
-		s.alertService.DispatchForFindings(projectIdStr, "ApiSentinel Project", endpoint.Name, requestId, dbFindings, action)
+
+		if s.alertService != nil {
+			s.alertService.DispatchForFindings(projectIdStr, "ApiSentinel Project", endpoint.Name, requestId, dbFindings, action)
+		}
 	}
 
 	// 8. Upstream Forwarding (If clean webhook)

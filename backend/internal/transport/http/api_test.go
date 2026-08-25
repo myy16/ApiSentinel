@@ -45,6 +45,8 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 	replayService := service.NewReplayService(queries)
 	mockService := service.NewMockService(queries)
 
+	findingService := service.NewFindingService(queries)
+
 	handlers := &Handlers{
 		AuthHandler:       NewAuthHandler(authService),
 		ProjectHandler:    NewProjectHandler(projectService),
@@ -57,6 +59,7 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 		AIHandler:         NewAIHandler(ai.NewExplainer("")),
 		AlertHandler:      NewAlertHandler(alertService),
 		ForwardingHandler: NewForwardingHandler(forwardingService),
+		FindingHandler:    NewFindingHandler(findingService),
 	}
 
 	router := SetupRouter(handlers, cfg.JWTSecret, queries)
@@ -138,6 +141,45 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("Expected 403 Forbidden on secret leak, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// 6. Query Security Findings API -> Must contain the blocked finding!
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", fmt.Sprintf("/api/projects/%s/findings", projectId), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("x-organization-id", orgId)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 on GET /findings, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var findingsRes struct {
+		Findings []service.FindingResponse `json:"findings"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &findingsRes)
+	if len(findingsRes.Findings) == 0 {
+		t.Fatalf("Expected at least 1 persisted security finding, got 0")
+	}
+	if findingsRes.Findings[0].Severity != "CRITICAL" {
+		t.Fatalf("Expected severity CRITICAL, got %s", findingsRes.Findings[0].Severity)
+	}
+
+	// 7. Query Findings Statistics API
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", fmt.Sprintf("/api/projects/%s/findings/stats", projectId), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("x-organization-id", orgId)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 on GET /findings/stats, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var statsRes service.FindingStatsResponse
+	json.Unmarshal(w.Body.Bytes(), &statsRes)
+	if statsRes.CriticalCount < 1 {
+		t.Fatalf("Expected at least 1 critical count in stats, got %d", statsRes.CriticalCount)
 	}
 }
 

@@ -68,6 +68,7 @@ func main() {
 	requestService := service.NewRequestService(queries)
 	replayService := service.NewReplayService(queries)
 	mockService := service.NewMockService(queries)
+	findingService := service.NewFindingService(queries)
 	explainer := ai.NewExplainer("")
 
 	// 4. gRPC Server (Port 50051)
@@ -91,6 +92,7 @@ func main() {
 		AIHandler:         transporthttp.NewAIHandler(explainer),
 		AlertHandler:      transporthttp.NewAlertHandler(alertService),
 		ForwardingHandler: transporthttp.NewForwardingHandler(forwardingService),
+		FindingHandler:    transporthttp.NewFindingHandler(findingService),
 	}
 
 	router := transporthttp.SetupRouter(handlers, cfg.JWTSecret, queries)
