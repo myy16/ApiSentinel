@@ -5,15 +5,18 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/apisentinel/apisentinel/internal/database"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type contextKey string
 
 const (
-	UserIDKey contextKey = "userId"
+	UserIDKey   contextKey = "userId"
 	UserRoleKey contextKey = "userRole"
-	OrgIDKey contextKey = "orgId"
+	OrgIDKey    contextKey = "orgId"
 )
 
 func Auth(jwtSecret string) func(http.Handler) http.Handler {
@@ -58,13 +61,60 @@ func Auth(jwtSecret string) func(http.Handler) http.Handler {
 	}
 }
 
-func RequireTenant(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		orgId := r.Context().Value(OrgIDKey)
-		if orgId == nil || orgId == "" {
-			http.Error(w, `{"error":{"code":"TENANT_REQUIRED","message":"Header 'x-organization-id' is required"}}`, http.StatusBadRequest)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+// RequireTenant enforces that x-organization-id header is present AND
+// the authenticated user actually has a membership in that organization.
+func RequireTenant(queries *database.Queries) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			orgIdRaw := r.Context().Value(OrgIDKey)
+			userIdRaw := r.Context().Value(UserIDKey)
+
+			if orgIdRaw == nil || orgIdRaw == "" {
+				http.Error(w, `{"error":{"code":"TENANT_REQUIRED","message":"Header 'x-organization-id' is required"}}`, http.StatusBadRequest)
+				return
+			}
+
+			orgIdStr, _ := orgIdRaw.(string)
+			userIdStr, _ := userIdRaw.(string)
+
+			if orgIdStr == "" || userIdStr == "" {
+				http.Error(w, `{"error":{"code":"TENANT_REQUIRED","message":"Organization and User context required"}}`, http.StatusBadRequest)
+				return
+			}
+
+			// Parse UUIDs
+			parsedOrgId, err := uuid.Parse(orgIdStr)
+			if err != nil {
+				http.Error(w, `{"error":{"code":"INVALID_ORG_ID","message":"Invalid organization ID format"}}`, http.StatusBadRequest)
+				return
+			}
+			parsedUserId, err := uuid.Parse(userIdStr)
+			if err != nil {
+				http.Error(w, `{"error":{"code":"INVALID_USER_ID","message":"Invalid user ID format"}}`, http.StatusBadRequest)
+				return
+			}
+
+			var pgOrgId pgtype.UUID
+			copy(pgOrgId.Bytes[:], parsedOrgId[:])
+			pgOrgId.Valid = true
+
+			var pgUserId pgtype.UUID
+			copy(pgUserId.Bytes[:], parsedUserId[:])
+			pgUserId.Valid = true
+
+			// Verify membership exists in database
+			membership, err := queries.GetMembership(r.Context(), database.GetMembershipParams{
+				OrganizationID: pgOrgId,
+				UserID:         pgUserId,
+			})
+			if err != nil {
+				http.Error(w, `{"error":{"code":"FORBIDDEN","message":"You do not have access to this organization"}}`, http.StatusForbidden)
+				return
+			}
+
+			// Inject verified role into context
+			ctx := context.WithValue(r.Context(), UserRoleKey, membership.Role)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
 }

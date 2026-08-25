@@ -69,6 +69,31 @@ func (q *Queries) DeleteMockRule(ctx context.Context, arg DeleteMockRuleParams) 
 	return err
 }
 
+const getMatchingMockRule = `-- name: GetMatchingMockRule :one
+SELECT id, endpoint_id, name, condition, status_code, delay_ms, response_headers, response_body, enabled
+FROM mock_rules
+WHERE endpoint_id = $1 AND enabled = true
+ORDER BY id
+LIMIT 1
+`
+
+func (q *Queries) GetMatchingMockRule(ctx context.Context, endpointID pgtype.UUID) (MockRule, error) {
+	row := q.db.QueryRow(ctx, getMatchingMockRule, endpointID)
+	var i MockRule
+	err := row.Scan(
+		&i.ID,
+		&i.EndpointID,
+		&i.Name,
+		&i.Condition,
+		&i.StatusCode,
+		&i.DelayMs,
+		&i.ResponseHeaders,
+		&i.ResponseBody,
+		&i.Enabled,
+	)
+	return i, err
+}
+
 const listMockRulesByEndpoint = `-- name: ListMockRulesByEndpoint :many
 SELECT id, endpoint_id, name, condition, status_code, delay_ms, response_headers, response_body, enabled
 FROM mock_rules

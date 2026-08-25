@@ -239,3 +239,19 @@ func (q *Queries) ListRequestsByProject(ctx context.Context, arg ListRequestsByP
 	}
 	return items, nil
 }
+
+const updateRequestProcessingStatus = `-- name: UpdateRequestProcessingStatus :exec
+UPDATE captured_requests
+SET processing_status = $2
+WHERE id = $1
+`
+
+type UpdateRequestProcessingStatusParams struct {
+	ID               pgtype.UUID `json:"id"`
+	ProcessingStatus string      `json:"processing_status"`
+}
+
+func (q *Queries) UpdateRequestProcessingStatus(ctx context.Context, arg UpdateRequestProcessingStatusParams) error {
+	_, err := q.db.Exec(ctx, updateRequestProcessingStatus, arg.ID, arg.ProcessingStatus)
+	return err
+}

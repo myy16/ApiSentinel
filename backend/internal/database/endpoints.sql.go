@@ -113,6 +113,32 @@ func (q *Queries) GetEndpointBySlug(ctx context.Context, slug string) (Endpoint,
 	return i, err
 }
 
+const getEndpointWithOwnership = `-- name: GetEndpointWithOwnership :one
+SELECT e.id, e.project_id, p.organization_id
+FROM endpoints e
+JOIN projects p ON e.project_id = p.id
+WHERE e.id = $1 AND p.organization_id = $2
+LIMIT 1
+`
+
+type GetEndpointWithOwnershipParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+type GetEndpointWithOwnershipRow struct {
+	ID             pgtype.UUID `json:"id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+func (q *Queries) GetEndpointWithOwnership(ctx context.Context, arg GetEndpointWithOwnershipParams) (GetEndpointWithOwnershipRow, error) {
+	row := q.db.QueryRow(ctx, getEndpointWithOwnership, arg.ID, arg.OrganizationID)
+	var i GetEndpointWithOwnershipRow
+	err := row.Scan(&i.ID, &i.ProjectID, &i.OrganizationID)
+	return i, err
+}
+
 const listEndpointsByProject = `-- name: ListEndpointsByProject :many
 SELECT e.id, e.project_id, e.slug, e.name, e.mode, e.is_active, e.upstream_url, e.created_at,
        COUNT(r.id)::bigint as request_count

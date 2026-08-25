@@ -59,7 +59,7 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 		ForwardingHandler: NewForwardingHandler(forwardingService),
 	}
 
-	router := SetupRouter(handlers, cfg.JWTSecret)
+	router := SetupRouter(handlers, cfg.JWTSecret, queries)
 
 	// 1. Register User
 	testEmail := fmt.Sprintf("go-test-%d@apisentinel.dev", time.Now().UnixNano())

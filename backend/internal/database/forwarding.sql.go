@@ -62,6 +62,16 @@ func (q *Queries) CreateDLQRecord(ctx context.Context, arg CreateDLQRecordParams
 	return i, err
 }
 
+const deleteDLQRecordsByEndpoint = `-- name: DeleteDLQRecordsByEndpoint :exec
+DELETE FROM forwarding_dlq
+WHERE endpoint_id = $1
+`
+
+func (q *Queries) DeleteDLQRecordsByEndpoint(ctx context.Context, endpointID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteDLQRecordsByEndpoint, endpointID)
+	return err
+}
+
 const getDLQRecordByID = `-- name: GetDLQRecordByID :one
 SELECT id, endpoint_id, request_id, target_url, attempts, last_error, payload, status, created_at, last_attempt_at FROM forwarding_dlq
 WHERE id = $1

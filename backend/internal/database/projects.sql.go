@@ -128,3 +128,21 @@ func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) (P
 	)
 	return i, err
 }
+
+const verifyProjectOwnership = `-- name: VerifyProjectOwnership :one
+SELECT id FROM projects
+WHERE id = $1 AND organization_id = $2
+LIMIT 1
+`
+
+type VerifyProjectOwnershipParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+func (q *Queries) VerifyProjectOwnership(ctx context.Context, arg VerifyProjectOwnershipParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, verifyProjectOwnership, arg.ID, arg.OrganizationID)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}
