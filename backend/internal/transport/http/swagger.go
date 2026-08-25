@@ -9,8 +9,8 @@ const openAPIJSON = `{
   "openapi": "3.0.3",
   "info": {
     "title": "ApiSentinel API & Webhook Security Gateway",
-    "description": "High-performance Go-Centric API & Webhook Security Gateway with realtime inspection, PII/Secret detection, Replay Lab, and AI explanations.",
-    "version": "0.1.0"
+    "description": "High-performance Go-Centric API & Webhook Security Gateway with real-time inspection, PII/Secret detection, JSON Schema Contract enforcement, Mock Engine, Upstream Forwarding & DLQ recovery, and AI explanations.",
+    "version": "1.0.0"
   },
   "servers": [
     {
@@ -35,8 +35,9 @@ const openAPIJSON = `{
   "paths": {
     "/health": {
       "get": {
+        "tags": ["System"],
         "summary": "Health Check",
-        "description": "Returns backend service health and version.",
+        "description": "Returns backend service health status.",
         "responses": {
           "200": { "description": "Service is healthy" }
         }
@@ -44,8 +45,9 @@ const openAPIJSON = `{
     },
     "/api/auth/register": {
       "post": {
+        "tags": ["Auth"],
         "summary": "1. Kullanıcı Kaydı (Register)",
-        "description": "Yeni kullanıcı hesabı ve otomatik varsayılan organizasyon oluşturur.",
+        "description": "Yeni kullanıcı hesabı ve varsayılan organizasyon oluşturur.",
         "requestBody": {
           "required": true,
           "content": {
@@ -70,6 +72,7 @@ const openAPIJSON = `{
     },
     "/api/auth/login": {
       "post": {
+        "tags": ["Auth"],
         "summary": "2. Kullanıcı Girişi (Login)",
         "description": "Mevcut kullanıcı girişi yapar ve accessToken ile organizasyon ID döner.",
         "requestBody": {
@@ -88,20 +91,32 @@ const openAPIJSON = `{
           }
         },
         "responses": {
-          "200": { "description": "Giriş başarılı, accessToken döner" }
+          "200": { "description": "Giriş başarılı, 24 saat geçerli accessToken döner" }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "3. Aktif Kullanıcı & Organizasyon Bilgisi",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Kullanıcı detayları ve üye olunan organizasyonlar" }
         }
       }
     },
     "/api/projects": {
       "get": {
-        "summary": "3. Projeleri Listele",
+        "tags": ["Projects"],
+        "summary": "4. Projeleri Listele",
         "security": [{ "BearerAuth": [], "OrgHeader": [] }],
         "responses": {
           "200": { "description": "Organizasyona ait projeler listesi" }
         }
       },
       "post": {
-        "summary": "4. Yeni Proje Oluştur",
+        "tags": ["Projects"],
+        "summary": "5. Yeni Proje Oluştur",
         "security": [{ "BearerAuth": [], "OrgHeader": [] }],
         "requestBody": {
           "required": true,
@@ -111,8 +126,8 @@ const openAPIJSON = `{
                 "type": "object",
                 "required": ["name"],
                 "properties": {
-                  "name": { "type": "string", "example": "E-Commerce Gateway" },
-                  "description": { "type": "string", "example": "Ödeme ve sipariş webhookları için ana proje" }
+                  "name": { "type": "string", "example": "Ödeme Geçidi Projesi" },
+                  "description": { "type": "string", "example": "Stripe ve iyzico webhookları için ana proje" }
                 }
               }
             }
@@ -123,23 +138,35 @@ const openAPIJSON = `{
         }
       }
     },
+    "/api/projects/{id}": {
+      "get": {
+        "tags": ["Projects"],
+        "summary": "6. Proje Detayı",
+        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Proje detayları" } }
+      },
+      "delete": {
+        "tags": ["Projects"],
+        "summary": "7. Proje Sil",
+        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Proje başarıyla silindi" } }
+      }
+    },
     "/api/projects/{projectId}/endpoints": {
       "get": {
-        "summary": "5. Proje Endpoint'lerini Listele",
+        "tags": ["Endpoints"],
+        "summary": "8. Proje Endpoint'lerini Listele",
         "security": [{ "BearerAuth": [], "OrgHeader": [] }],
-        "parameters": [
-          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } }
-        ],
-        "responses": {
-          "200": { "description": "Endpoint listesi" }
-        }
+        "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Endpoint listesi" } }
       },
       "post": {
-        "summary": "6. Yeni Webhook Endpoint'i Oluştur",
+        "tags": ["Endpoints"],
+        "summary": "9. Yeni Webhook Endpoint'i Oluştur",
         "security": [{ "BearerAuth": [], "OrgHeader": [] }],
-        "parameters": [
-          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } }
-        ],
+        "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } }],
         "requestBody": {
           "required": true,
           "content": {
@@ -148,23 +175,61 @@ const openAPIJSON = `{
                 "type": "object",
                 "required": ["name"],
                 "properties": {
-                  "name": { "type": "string", "example": "Stripe Payments Hook" },
-                  "description": { "type": "string", "example": "Stripe ödeme bildirimlerini dinler" },
-                  "customSlug": { "type": "string", "example": "stripe-payments" }
+                  "name": { "type": "string", "example": "Stripe Ödemeler" },
+                  "slug": { "type": "string", "example": "stripe-payments" },
+                  "mode": { "type": "string", "enum": ["PASS", "BLOCK", "MOCK", "CAPTURE_ONLY"], "example": "PASS" },
+                  "upstreamUrl": { "type": "string", "example": "https://api.mycompany.com/webhooks/stripe" }
                 }
               }
             }
           }
         },
-        "responses": {
-          "201": { "description": "Endpoint ve /hook/:slug URL'i oluşturuldu" }
-        }
+        "responses": { "201": { "description": "Endpoint oluşturuldu" } }
+      }
+    },
+    "/api/projects/{projectId}/endpoints/{endpointId}": {
+      "put": {
+        "tags": ["Endpoints"],
+        "summary": "10. Endpoint Düzenle",
+        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "endpointId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string", "example": "Güncellenmiş Stripe Hook" },
+                  "mode": { "type": "string", "enum": ["PASS", "BLOCK", "MOCK", "CAPTURE_ONLY"] },
+                  "isActive": { "type": "boolean", "example": true },
+                  "upstreamUrl": { "type": "string", "example": "https://postman-echo.com/post" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Endpoint güncellendi" } }
+      },
+      "delete": {
+        "tags": ["Endpoints"],
+        "summary": "11. Endpoint Sil",
+        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "endpointId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Endpoint silindi" } }
       }
     },
     "/hook/{slug}": {
       "post": {
-        "summary": "7. Webhook Ateşleme Testi (Ingestion Gateway)",
-        "description": "Oluşturulan slug adresine webhook gönderin. Güvenlik motoru anında PII, Secret ve Politika denetimi yapar.",
+        "tags": ["Ingestion Gateway"],
+        "summary": "12. Canlı Webhook Ateşleme Testi",
+        "description": "Oluşturulan slug adresine webhook gönderin. PII, Secret, JSON Schema ve Mock kontrolleri çalışır.",
         "parameters": [
           { "name": "slug", "in": "path", "required": true, "schema": { "type": "string", "example": "stripe-payments" } }
         ],
@@ -185,30 +250,73 @@ const openAPIJSON = `{
           }
         },
         "responses": {
-          "200": { "description": "İstek yakalandı, incelendi ve Valkey Stream'e aktarıldı" },
-          "403": { "description": "Güvenlik politikası ihlali nedeniyle engellendi (BLOCK)" }
+          "200": { "description": "İstek yakalandı, temizlendi ve iletim kuyruğuna alındı" },
+          "403": { "description": "Güvenlik politikası ihlali (BLOCK) veya JSON Schema uyuşmazlığı" }
         }
       }
     },
-    "/api/projects/{projectId}/requests": {
+    "/api/endpoints/{endpointId}/schema": {
       "get": {
-        "summary": "8. Yakalanan İstekleri Listele",
+        "tags": ["JSON Schema Contracts"],
+        "summary": "13. Endpoint JSON Schema Getir",
         "security": [{ "BearerAuth": [], "OrgHeader": [] }],
-        "parameters": [
-          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } }
-        ],
-        "responses": {
-          "200": { "description": "Yakalanan istek kayıtları ve güvenlik bulguları" }
-        }
+        "parameters": [{ "name": "endpointId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Aktif JSON Schema sözleşmesi" } }
+      },
+      "post": {
+        "tags": ["JSON Schema Contracts"],
+        "summary": "14. Endpoint JSON Schema Kaydet / Güncelle",
+        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
+        "parameters": [{ "name": "endpointId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "type": "object" }
+            }
+          }
+        },
+        "responses": { "200": { "description": "JSON Schema başarıyla kaydedildi" } }
+      },
+      "delete": {
+        "tags": ["JSON Schema Contracts"],
+        "summary": "15. Endpoint JSON Schema Sil",
+        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
+        "parameters": [{ "name": "endpointId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "JSON Schema sözleşmesi silindi" } }
       }
     },
-    "/api/requests/{id}/replay": {
-      "post": {
-        "summary": "9. SSRF Korumalı Replay Ateşleme",
+    "/api/projects/{projectId}/findings": {
+      "get": {
+        "tags": ["Security Findings"],
+        "summary": "16. Güvenlik İhlallerini Listele",
         "security": [{ "BearerAuth": [], "OrgHeader": [] }],
-        "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
-        ],
+        "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Veritabanında kaydedilen güvenlik bulguları listesi" } }
+      }
+    },
+    "/api/projects/{projectId}/findings/stats": {
+      "get": {
+        "tags": ["Security Findings"],
+        "summary": "17. Güvenlik İhlali İstatistikleri",
+        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
+        "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Kritik, yüksek ve toplam ihlal sayıları" } }
+      }
+    },
+    "/api/endpoints/{endpointId}/forwarding": {
+      "get": {
+        "tags": ["Forwarding & DLQ"],
+        "summary": "18. Forwarding Ayarlarını Getir",
+        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
+        "parameters": [{ "name": "endpointId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Upstream iletim ayarları" } }
+      },
+      "post": {
+        "tags": ["Forwarding & DLQ"],
+        "summary": "19. Forwarding Ayarlarını Kaydet",
+        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
+        "parameters": [{ "name": "endpointId", "in": "path", "required": true, "schema": { "type": "string" } }],
         "requestBody": {
           "required": true,
           "content": {
@@ -217,21 +325,79 @@ const openAPIJSON = `{
                 "type": "object",
                 "required": ["targetUrl"],
                 "properties": {
-                  "targetUrl": { "type": "string", "example": "https://httpbin.org/post" }
+                  "targetUrl": { "type": "string", "example": "https://postman-echo.com/post" },
+                  "maxRetries": { "type": "integer", "example": 3 },
+                  "timeoutMs": { "type": "integer", "example": 5000 },
+                  "isEnabled": { "type": "boolean", "example": true }
                 }
               }
             }
           }
         },
-        "responses": {
-          "200": { "description": "Replay başarıyla yürütüldü ve gecikme ölçüldü" },
-          "400": { "description": "SSRF Guard özel IP'yi engelledi" }
-        }
+        "responses": { "200": { "description": "Forwarding ayarları kaydedildi" } }
+      }
+    },
+    "/api/endpoints/{endpointId}/dlq": {
+      "get": {
+        "tags": ["Forwarding & DLQ"],
+        "summary": "20. Dead Letter Queue Kayıtlarını Listele",
+        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
+        "parameters": [{ "name": "endpointId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Başarısız iletim kuyruğu kayıtları" } }
+      },
+      "delete": {
+        "tags": ["Forwarding & DLQ"],
+        "summary": "21. Dead Letter Queue Temizle (Purge)",
+        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
+        "parameters": [{ "name": "endpointId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "DLQ kayıtları silindi" } }
+      }
+    },
+    "/api/dlq/{id}/retry": {
+      "post": {
+        "tags": ["Forwarding & DLQ"],
+        "summary": "22. DLQ Kaydını Yeniden İlet (Retry)",
+        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "İstek güncel upstream adresine başarıyla iletildi ve çözüldü" } }
+      }
+    },
+    "/api/projects/{projectId}/requests": {
+      "get": {
+        "tags": ["Traffic & Requests"],
+        "summary": "23. Yakalanan İstekleri Listele",
+        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
+        "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Trafik kayıtları" } }
+      }
+    },
+    "/api/requests/{id}/replay": {
+      "post": {
+        "tags": ["Traffic & Requests"],
+        "summary": "24. SSRF Korumalı Replay Ateşleme",
+        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["targetUrl"],
+                "properties": {
+                  "targetUrl": { "type": "string", "example": "https://postman-echo.com/post" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Replay başarıyla yürütüldü" } }
       }
     },
     "/api/ai/explain": {
       "post": {
-        "summary": "10. Güvenli AI Kök Neden & Çözüm Danışmanı",
+        "tags": ["AI Explainer"],
+        "summary": "25. Güvenli AI Kök Neden & Çözüm Danışmanı",
         "security": [{ "BearerAuth": [] }],
         "requestBody": {
           "required": true,
@@ -250,99 +416,7 @@ const openAPIJSON = `{
             }
           }
         },
-        "responses": {
-          "200": { "description": "AI Kök neden, etki analizi ve düzeltme kodu örneği döner" }
-        }
-      }
-    },
-    "/api/projects/{projectId}/alerts": {
-      "post": {
-        "summary": "11. Bildirim Kanalı Ekle (Slack / Discord / Telegram / Webhook)",
-        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
-        "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["name", "channelType", "webhookUrl"],
-                "properties": {
-                  "name": { "type": "string", "example": "SecOps Slack" },
-                  "channelType": { "type": "string", "enum": ["SLACK", "DISCORD", "TELEGRAM", "WEBHOOK"], "example": "SLACK" },
-                  "webhookUrl": { "type": "string", "example": "https://hooks.slack.com/services/..." },
-                  "minSeverity": { "type": "string", "example": "HIGH" }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": { "description": "Bildirim kanalı başarıyla eklendi" }
-        }
-      },
-      "get": {
-        "summary": "12. Proje Bildirim Kanallarını Listele",
-        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
-        "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": {
-          "200": { "description": "Kayıtlı bildirim kanalları listesi" }
-        }
-      }
-    },
-    "/api/alerts/{id}/test": {
-      "post": {
-        "summary": "13. Test Bildirimi Gönder",
-        "security": [{ "BearerAuth": [] }],
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": {
-          "200": { "description": "Test bildirimi hedefe başarıyla iletildi" }
-        }
-      }
-    },
-    "/api/endpoints/{endpointId}/forwarding": {
-      "post": {
-        "summary": "14. Upstream Forwarding Yapılandır",
-        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
-        "parameters": [{ "name": "endpointId", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["targetUrl"],
-                "properties": {
-                  "targetUrl": { "type": "string", "example": "https://api.mycompany.com/webhooks/stripe" },
-                  "maxRetries": { "type": "integer", "example": 3 },
-                  "timeoutMs": { "type": "integer", "example": 5000 },
-                  "isEnabled": { "type": "boolean", "example": true }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": { "description": "Upstream iletim ayarları güncellendi" }
-        }
-      },
-      "get": {
-        "summary": "15. Upstream Forwarding Ayarlarını Getir",
-        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
-        "parameters": [{ "name": "endpointId", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": {
-          "200": { "description": "Aktif upstream forwarding konfigürasyonu" }
-        }
-      }
-    },
-    "/api/endpoints/{endpointId}/dlq": {
-      "get": {
-        "summary": "16. Dead Letter Queue (DLQ) Listele",
-        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
-        "parameters": [{ "name": "endpointId", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": {
-          "200": { "description": "İletilemeyen başarısız webhook kayıtları" }
-        }
+        "responses": { "200": { "description": "AI güvenlik analizi ve çözüm önerisi" } }
       }
     }
   }
@@ -356,41 +430,22 @@ const swaggerUIHTML = `<!DOCTYPE html>
   <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui.css" />
   <link rel="icon" type="image/png" href="https://unpkg.com/swagger-ui-dist@5.11.0/favicon-32x32.png" />
   <style>
-    body { margin: 0; background: #0f172a; }
+    body { margin: 0; background: #0b0f19; font-family: Inter, system-ui, sans-serif; }
     .swagger-ui .topbar { display: none; }
-    .swagger-ui { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    .custom-header {
-      background: #1e293b;
-      color: #f8fafc;
-      padding: 16px 24px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-bottom: 1px solid #334155;
-    }
-    .custom-header h1 { margin: 0; font-size: 18px; display: flex; align-items: center; gap: 8px; }
-    .badge {
-      background: #3b82f6;
-      color: white;
-      font-size: 11px;
-      padding: 3px 8px;
-      border-radius: 9999px;
-      font-weight: 600;
-    }
+    .swagger-ui { color: #e2e8f0; }
+    .swagger-ui .info .title { color: #6366f1; }
+    .swagger-ui .scheme-container { background: #111827; border-bottom: 1px solid #1f2937; }
+    .swagger-ui .opblock { border-radius: 8px; }
   </style>
 </head>
 <body>
-  <div class="custom-header">
-    <h1>🛡️ ApiSentinel <span>Interactive API Explorer</span></h1>
-    <span class="badge">Go-Centric v0.1.0</span>
-  </div>
   <div id="swagger-ui"></div>
   <script src="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui-bundle.js"></script>
   <script src="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui-standalone-preset.js"></script>
   <script>
     window.onload = function() {
       window.ui = SwaggerUIBundle({
-        url: "/openapi.json",
+        url: "/swagger.json",
         dom_id: '#swagger-ui',
         deepLinking: true,
         presets: [
@@ -405,13 +460,15 @@ const swaggerUIHTML = `<!DOCTYPE html>
 </html>`
 
 func RegisterSwagger(r interface {
-	Get(pattern string, handlerFn http.HandlerFunc)
+	Get(pattern string, h http.HandlerFunc)
 }) {
-	r.Get("/openapi.json", func(w http.ResponseWriter, r *http.Request) {
+	// 1. OpenAPI JSON Spec
+	r.Get("/swagger.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(openAPIJSON))
 	})
 
+	// 2. Swagger UI
 	r.Get("/docs", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(swaggerUIHTML))

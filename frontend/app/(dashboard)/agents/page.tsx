@@ -32,7 +32,7 @@ export default function AgentsPage() {
     },
   ];
 
-  const connectCommand = "apisentinel connect --server localhost:50051";
+  const connectCommand = "apisentinel connect --server localhost:50051 --token super_secret_jwt_key_at_least_32_characters_long_12345";
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(connectCommand);

@@ -1,6 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "../../../hooks/useAuth";
+import { apiFetch } from "../../../lib/api";
+import { Project } from "@apisentinel/shared";
 import {
   BellRing,
   Plus,
@@ -11,8 +15,8 @@ import {
   Loader2,
   Radio,
   ExternalLink,
+  ShieldAlert,
 } from "lucide-react";
-import { useAuth } from "../../../hooks/useAuth";
 
 interface AlertChannel {
   id: string;
@@ -26,11 +30,10 @@ interface AlertChannel {
 }
 
 export default function AlertsPage() {
-  const { organization } = useAuth();
-  const [channels, setChannels] = useState<AlertChannel[]>([]);
-  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
+  const queryClient = useQueryClient();
+  const { accessToken, organization } = useAuth();
+
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
-  const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -41,163 +44,126 @@ export default function AlertsPage() {
   const [webhookUrl, setWebhookUrl] = useState("");
   const [minSeverity, setMinSeverity] = useState("HIGH");
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+  // 1. Fetch projects
+  const { data: projectsData } = useQuery({
+    queryKey: ["projects", organization?.id],
+    queryFn: () =>
+      apiFetch<{ projects: Project[] }>("/api/projects", {
+        token: accessToken,
+        organizationId: organization?.id,
+      }),
+    enabled: !!accessToken && !!organization?.id,
+  });
 
-  useEffect(() => {
-    fetchProjects();
-  }, []);
+  const projects = projectsData?.projects || [];
+  const activeProjectId = selectedProjectId || (projects[0]?.id ?? "");
 
-  useEffect(() => {
-    if (selectedProjectId) {
-      fetchChannels(selectedProjectId);
-    }
-  }, [selectedProjectId]);
+  // 2. Fetch alert channels
+  const { data: channelsData, isLoading } = useQuery({
+    queryKey: ["alertChannels", activeProjectId],
+    queryFn: () =>
+      apiFetch<AlertChannel[]>(`/api/projects/${activeProjectId}/alerts`, {
+        token: accessToken,
+        organizationId: organization?.id,
+      }),
+    enabled: !!accessToken && !!activeProjectId && !!organization?.id,
+  });
 
-  const fetchProjects = async () => {
-    try {
-      const token = localStorage.getItem("accessToken");
-      const orgId = localStorage.getItem("organizationId");
-      const res = await fetch(`${apiUrl}/api/projects`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "x-organization-id": orgId || "",
-        },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setProjects(data || []);
-        if (data && data.length > 0) {
-          setSelectedProjectId(data[0].id);
-        }
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const channels = channelsData || [];
 
-  const fetchChannels = async (projId: string) => {
-    try {
-      const token = localStorage.getItem("accessToken");
-      const orgId = localStorage.getItem("organizationId");
-      const res = await fetch(`${apiUrl}/api/projects/${projId}/alerts`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "x-organization-id": orgId || "",
-        },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setChannels(data || []);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name || !webhookUrl || !selectedProjectId) return;
-
-    setIsCreating(true);
-    setMessage(null);
-    try {
-      const token = localStorage.getItem("accessToken");
-      const orgId = localStorage.getItem("organizationId");
-      const res = await fetch(`${apiUrl}/api/projects/${selectedProjectId}/alerts`, {
+  // 3. Create channel mutation
+  const createMutation = useMutation({
+    mutationFn: (data: { name: string; channelType: string; webhookUrl: string; minSeverity: string }) =>
+      apiFetch(`/api/projects/${activeProjectId}/alerts`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-          "x-organization-id": orgId || "",
-        },
-        body: JSON.stringify({
-          name,
-          channelType,
-          webhookUrl,
-          minSeverity,
-        }),
-      });
-
-      if (res.ok) {
-        setMessage({ type: "success", text: "Bildirim kanalı başarıyla eklendi!" });
-        setName("");
-        setWebhookUrl("");
-        fetchChannels(selectedProjectId);
-      } else {
-        const errData = await res.json();
-        setMessage({ type: "error", text: errData.error?.message || "Kanal eklenemedi." });
-      }
-    } catch (err: any) {
-      setMessage({ type: "error", text: err.message });
-    } finally {
+        token: accessToken,
+        organizationId: organization?.id,
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["alertChannels", activeProjectId] });
+      setName("");
+      setWebhookUrl("");
       setIsCreating(false);
-    }
-  };
+      setMessage({ type: "success", text: "Bildirim kanalı başarıyla eklendi!" });
+      setTimeout(() => setMessage(null), 4000);
+    },
+    onError: (err: any) => {
+      setMessage({ type: "error", text: err.message || "Kanal eklenemedi." });
+    },
+  });
 
-  const handleDelete = async (channelId: string) => {
-    try {
-      const token = localStorage.getItem("accessToken");
-      const res = await fetch(`${apiUrl}/api/alerts/${channelId}`, {
+  // 4. Delete channel mutation
+  const deleteMutation = useMutation({
+    mutationFn: (channelId: string) =>
+      apiFetch(`/api/alerts/${channelId}`, {
         method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      if (res.ok) {
-        fetchChannels(selectedProjectId);
-      }
-    } catch (err) {
-      console.error(err);
-    }
+        token: accessToken,
+        organizationId: organization?.id,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["alertChannels", activeProjectId] });
+      setMessage({ type: "success", text: "Bildirim kanalı silindi." });
+      setTimeout(() => setMessage(null), 4000);
+    },
+  });
+
+  // 5. Test alert mutation
+  const testMutation = useMutation({
+    mutationFn: (channelId: string) =>
+      apiFetch(`/api/alerts/${channelId}/test`, {
+        method: "POST",
+        token: accessToken,
+        organizationId: organization?.id,
+      }),
+    onSuccess: () => {
+      setMessage({ type: "success", text: "Test bildirimi kanala başarıyla iletildi!" });
+      setTimeout(() => setMessage(null), 4000);
+    },
+    onError: (err: any) => {
+      setMessage({ type: "error", text: "Test uyarısı gönderilemedi: " + err.message });
+    },
+    onSettled: () => {
+      setTestingId(null);
+    },
+  });
+
+  const handleCreate = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !webhookUrl.trim() || !activeProjectId) return;
+    createMutation.mutate({
+      name: name.trim(),
+      channelType,
+      webhookUrl: webhookUrl.trim(),
+      minSeverity,
+    });
   };
 
-  const handleTest = async (channelId: string) => {
+  const handleTest = (channelId: string) => {
     setTestingId(channelId);
-    setMessage(null);
-    try {
-      const token = localStorage.getItem("accessToken");
-      const res = await fetch(`${apiUrl}/api/alerts/${channelId}/test`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      if (res.ok) {
-        setMessage({ type: "success", text: "Test bildirimi hedefe başarıyla ulaştırıldı! 🎉" });
-      } else {
-        setMessage({ type: "error", text: "Test bildirimi gönderilemedi. Webhook URL'sini kontrol edin." });
-      }
-    } catch (err: any) {
-      setMessage({ type: "error", text: err.message });
-    } finally {
-      setTestingId(null);
-    }
+    testMutation.mutate(channelId);
   };
 
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
             <BellRing className="h-6 w-6 text-primary" />
-            Çok Kanallı Güvenlik Bildirimleri
+            Çok Kanallı Güvenlik Alarmları
           </h1>
-          <p className="text-sm text-muted-foreground">
-            Kritik sızıntılarda (OpenAI, AWS, DB Şifresi) Slack, Discord, Telegram veya Webhook'a anında uyarı fırlatın.
+          <p className="text-sm text-muted-foreground mt-1">
+            Kritik PII sızıntıları veya yetkisiz erişimlerde Slack, Discord, Telegram veya Webhook ile anında haberdar olun.
           </p>
         </div>
 
-        {/* Project Selector */}
-        {projects.length > 0 && (
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-semibold text-muted-foreground">Proje:</span>
+        <div className="flex items-center gap-3">
+          {projects.length > 1 && (
             <select
-              value={selectedProjectId}
+              value={activeProjectId}
               onChange={(e) => setSelectedProjectId(e.target.value)}
-              className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              className="rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
             >
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -205,8 +171,17 @@ export default function AlertsPage() {
                 </option>
               ))}
             </select>
-          </div>
-        )}
+          )}
+
+          <button
+            onClick={() => setIsCreating(true)}
+            disabled={!activeProjectId}
+            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:opacity-50"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Kanal Ekle</span>
+          </button>
+        </div>
       </div>
 
       {message && (
@@ -217,168 +192,175 @@ export default function AlertsPage() {
               : "bg-destructive/10 text-destructive border border-destructive/20"
           }`}
         >
-          {message.type === "success" ? (
-            <CheckCircle2 className="h-5 w-5" />
-          ) : (
-            <AlertTriangle className="h-5 w-5" />
-          )}
+          {message.type === "success" ? <CheckCircle2 className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
           <span>{message.text}</span>
         </div>
       )}
 
-      {/* Grid Layout: Create Form + Channels List */}
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-        {/* Create Form */}
-        <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-          <h2 className="text-base font-semibold text-foreground mb-4 flex items-center gap-2">
-            <Plus className="h-4 w-4 text-primary" />
-            Yeni Bildirim Kanalı Ekle
-          </h2>
-          <form onSubmit={handleCreate} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-muted-foreground mb-1">
-                Kanal Adı
-              </label>
-              <input
-                type="text"
-                placeholder="Örn: Security Ops Slack"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
+      {/* Create Modal / Form */}
+      {isCreating && (
+        <div className="rounded-xl border border-border bg-card p-6 shadow-sm animate-in fade-in duration-200">
+          <div className="flex items-center justify-between border-b border-border pb-4 mb-4">
+            <h3 className="text-base font-semibold text-foreground">Yeni Alarm Kanalı Ekle</h3>
+            <button
+              onClick={() => setIsCreating(false)}
+              className="text-xs text-muted-foreground hover:text-foreground"
+            >
+              Vazgeç
+            </button>
+          </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-muted-foreground mb-1">
-                Kanal Türü
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {(["SLACK", "DISCORD", "TELEGRAM", "WEBHOOK"] as const).map((type) => (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() => setChannelType(type)}
-                    className={`rounded-lg border px-3 py-2 text-xs font-semibold transition ${
-                      channelType === type
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border bg-background text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {type}
-                  </button>
-                ))}
+          <form onSubmit={handleCreate} className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                  Kanal Adı
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Örn: Security Ops Slack"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                  Kanal Türü
+                </label>
+                <select
+                  value={channelType}
+                  onChange={(e) => setChannelType(e.target.value as any)}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="SLACK">Slack Webhook</option>
+                  <option value="DISCORD">Discord Webhook</option>
+                  <option value="TELEGRAM">Telegram Bot</option>
+                  <option value="WEBHOOK">Özel HTTP Webhook</option>
+                </select>
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-muted-foreground mb-1">
-                Webhook URL / Endpoint
-              </label>
-              <input
-                type="url"
-                placeholder="https://hooks.slack.com/services/..."
-                value={webhookUrl}
-                onChange={(e) => setWebhookUrl(e.target.value)}
-                required
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-              />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                  Webhook / Hedef URL
+                </label>
+                <input
+                  type="url"
+                  required
+                  value={webhookUrl}
+                  onChange={(e) => setWebhookUrl(e.target.value)}
+                  placeholder="https://hooks.slack.com/services/..."
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                  Minimum Tetikleme Seviyesi
+                </label>
+                <select
+                  value={minSeverity}
+                  onChange={(e) => setMinSeverity(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="LOW">Düşük (LOW ve üzeri)</option>
+                  <option value="MEDIUM">Orta (MEDIUM ve üzeri)</option>
+                  <option value="HIGH">Yüksek (HIGH ve üzeri - Önerilen)</option>
+                  <option value="CRITICAL">Sadece Kritik (CRITICAL)</option>
+                </select>
+              </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-muted-foreground mb-1">
-                Minimum Bildirim Seviyesi
-              </label>
-              <select
-                value={minSeverity}
-                onChange={(e) => setMinSeverity(e.target.value)}
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            <div className="flex justify-end pt-2">
+              <button
+                type="submit"
+                disabled={createMutation.isPending}
+                className="flex items-center gap-2 rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:opacity-50"
               >
-                <option value="CRITICAL">Sadece CRITICAL (Kritik Sızıntılar)</option>
-                <option value="HIGH">HIGH ve Üzeri (Önerilen)</option>
-                <option value="ALL">Tüm Olaylar (INFO Dahil)</option>
-              </select>
+                {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                <span>Kanalı Kaydet</span>
+              </button>
             </div>
-
-            <button
-              type="submit"
-              disabled={isCreating || !name || !webhookUrl}
-              className="w-full flex items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition disabled:opacity-50"
-            >
-              {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-              Kanalı Kaydet
-            </button>
           </form>
         </div>
+      )}
 
-        {/* Channel Cards */}
-        <div className="lg:col-span-2 space-y-4">
-          <h2 className="text-base font-semibold text-foreground flex items-center justify-between">
-            <span>Aktif Bildirim Kanalları ({channels.length})</span>
-          </h2>
-
-          {channels.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border p-12 text-center bg-card/50">
-              <Radio className="h-10 w-10 text-muted-foreground mb-3" />
-              <p className="text-sm font-semibold text-foreground">Henüz bildirim kanalı eklenmedi</p>
-              <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-                Sol taraftaki panelden Slack, Discord veya Telegram webhook adresinizi tanımlayarak sızıntılardan anında haberdar olun.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {channels.map((ch) => (
-                <div
-                  key={ch.id}
-                  className="flex items-center justify-between rounded-xl border border-border bg-card p-4 transition hover:border-primary/40"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary font-bold text-xs">
-                      {ch.channel_type}
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-bold text-foreground">{ch.name}</h3>
-                      <p className="text-xs text-muted-foreground truncate max-w-md font-mono">
-                        {ch.webhook_url}
-                      </p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="rounded bg-secondary px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                          Eşik: {ch.min_severity}
-                        </span>
-                        <span className="text-xs text-emerald-400 flex items-center gap-1">
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                          Aktif
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleTest(ch.id)}
-                      disabled={testingId === ch.id}
-                      className="flex items-center gap-1.5 rounded-lg border border-border bg-secondary/60 px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-secondary transition disabled:opacity-50"
-                    >
-                      {testingId === ch.id ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Send className="h-3.5 w-3.5" />
-                      )}
-                      Test Gönder
-                    </button>
-                    <button
-                      onClick={() => handleDelete(ch.id)}
-                      className="rounded-lg p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+      {/* Channels List */}
+      {isLoading ? (
+        <div className="flex h-48 items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
-      </div>
+      ) : channels.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border py-16 text-center bg-card/40">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-secondary text-muted-foreground mb-4">
+            <Radio className="h-6 w-6" />
+          </div>
+          <h3 className="text-base font-semibold text-foreground">Henüz Alarm Kanalı Tanımlanmadı</h3>
+          <p className="mt-1 text-sm text-muted-foreground max-w-sm">
+            Kritik güvenlik açıklarında ekibinize anlık bildirim gitmesi için Slack veya Discord webhook'u bağlayın.
+          </p>
+          <button
+            onClick={() => setIsCreating(true)}
+            className="mt-6 flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90"
+          >
+            <Plus className="h-4 w-4" />
+            <span>İlk Bildirim Kanalını Ekle</span>
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {channels.map((channel) => (
+            <div
+              key={channel.id}
+              className="flex flex-col justify-between rounded-xl border border-border bg-card p-5 shadow-sm space-y-4 hover:border-border/80 transition"
+            >
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-bold text-primary">
+                    {channel.channel_type}
+                  </span>
+                  <span className="text-[11px] font-mono text-muted-foreground">
+                    Min: {channel.min_severity}
+                  </span>
+                </div>
+                <h3 className="font-bold text-foreground text-base">{channel.name}</h3>
+                <p className="text-xs text-muted-foreground truncate font-mono">{channel.webhook_url}</p>
+              </div>
+
+              <div className="flex items-center justify-between pt-3 border-t border-border">
+                <button
+                  onClick={() => handleTest(channel.id)}
+                  disabled={testingId === channel.id}
+                  className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-secondary transition disabled:opacity-50"
+                >
+                  {testingId === channel.id ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Send className="h-3.5 w-3.5 text-primary" />
+                  )}
+                  <span>Test Bildirimi Gönder</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (confirm(`"${channel.name}" kanalını silmek istediğinize emin misiniz?`)) {
+                      deleteMutation.mutate(channel.id);
+                    }
+                  }}
+                  className="flex items-center gap-1 rounded-lg border border-destructive/30 px-2.5 py-1.5 text-xs font-semibold text-destructive hover:bg-destructive/10 transition"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>Sil</span>
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
