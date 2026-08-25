@@ -173,6 +173,19 @@ func (s *IngestionService) ProcessWebhook(
 	})
 	if err != nil {
 		log.Error().Err(err).Str("requestId", requestId).Msg("Failed to persist captured request")
+		// Return early — downstream operations depend on captured.ID being valid
+		return &IngestionResult{
+			StatusCode: http.StatusInternalServerError,
+			RequestID:  requestId,
+			Action:     action,
+			ResponseBody: map[string]interface{}{
+				"error": map[string]interface{}{
+					"code":      "PERSISTENCE_FAILED",
+					"message":   "Failed to persist captured request",
+					"requestId": requestId,
+				},
+			},
+		}, fmt.Errorf("failed to persist captured request: %w", err)
 	}
 
 	capturedIdStr := uuid.UUID(captured.ID.Bytes).String()

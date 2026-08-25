@@ -87,12 +87,23 @@ func (s *ReplayService) ExecuteReplay(ctx context.Context, sourceRequestId, targ
 		return nil, err
 	}
 
-	// Restore original headers
+	// Restore original headers (DB stores as map[string][]string or map[string]string)
 	var headers map[string]interface{}
 	if err := json.Unmarshal(reqRecord.Headers, &headers); err == nil {
 		for k, v := range headers {
-			if strVal, ok := v.(string); ok {
-				outboundReq.Header.Set(k, strVal)
+			switch val := v.(type) {
+			case string:
+				outboundReq.Header.Set(k, val)
+			case []interface{}:
+				for i, item := range val {
+					if strItem, ok := item.(string); ok {
+						if i == 0 {
+							outboundReq.Header.Set(k, strItem)
+						} else {
+							outboundReq.Header.Add(k, strItem)
+						}
+					}
+				}
 			}
 		}
 	}

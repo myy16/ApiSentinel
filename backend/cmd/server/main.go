@@ -95,7 +95,7 @@ func main() {
 		FindingHandler:    transporthttp.NewFindingHandler(findingService),
 	}
 
-	router := transporthttp.SetupRouter(handlers, cfg.JWTSecret, queries)
+	router := transporthttp.SetupRouter(handlers, cfg.JWTSecret, queries, cfg.CORSOrigin)
 
 	httpServer := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Port),

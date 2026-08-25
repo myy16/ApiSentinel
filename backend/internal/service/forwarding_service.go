@@ -167,6 +167,13 @@ func (s *ForwardingService) RetryDLQRecord(ctx context.Context, dlqID string) er
 		return fmt.Errorf("forwarding config not found: %w", err)
 	}
 
+	// Retrieve the original HTTP method from the captured request
+	httpMethod := "POST" // fallback
+	origReq, origErr := s.queries.GetCapturedRequestByID(ctx, record.RequestID)
+	if origErr == nil {
+		httpMethod = origReq.HttpMethod
+	}
+
 	var customHeaders map[string]string
 	_ = json.Unmarshal(cfg.CustomHeaders, &customHeaders)
 
@@ -185,7 +192,7 @@ func (s *ForwardingService) RetryDLQRecord(ctx context.Context, dlqID string) er
 	}
 
 	bodyBytes := []byte(record.Payload.String)
-	result, fwdErr := s.forwarder.ForwardRequest(ctx, fwdConfig, "POST", customHeaders, bodyBytes)
+	result, fwdErr := s.forwarder.ForwardRequest(ctx, fwdConfig, httpMethod, customHeaders, bodyBytes)
 
 	if fwdErr == nil && result != nil && result.Success {
 		// Mark as RESOLVED

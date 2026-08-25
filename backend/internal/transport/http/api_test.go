@@ -62,7 +62,7 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 		FindingHandler:    NewFindingHandler(findingService),
 	}
 
-	router := SetupRouter(handlers, cfg.JWTSecret, queries)
+	router := SetupRouter(handlers, cfg.JWTSecret, queries, "*")
 
 	// 1. Register User
 	testEmail := fmt.Sprintf("go-test-%d@apisentinel.dev", time.Now().UnixNano())

@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/apisentinel/apisentinel/internal/database"
 	"github.com/apisentinel/apisentinel/internal/middleware"
@@ -26,7 +27,7 @@ type Handlers struct {
 	FindingHandler    *FindingHandler
 }
 
-func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries) *chi.Mux {
+func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsOrigin string) *chi.Mux {
 	r := chi.NewRouter()
 
 	// Global Middlewares
@@ -35,9 +36,17 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries) *chi.
 	r.Use(chimiddleware.Logger)
 	r.Use(chimiddleware.Recoverer)
 
-	// CORS Setup
+	// CORS Setup — origin from config (default "*" in dev, restricted in production)
+	allowedOrigins := []string{"*"}
+	if corsOrigin != "" && corsOrigin != "*" {
+		allowedOrigins = strings.Split(corsOrigin, ",")
+		for i, o := range allowedOrigins {
+			allowedOrigins[i] = strings.TrimSpace(o)
+		}
+	}
+
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"*"},
+		AllowedOrigins:   allowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "x-organization-id"},
 		ExposedHeaders:   []string{"Link"},

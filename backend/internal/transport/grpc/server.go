@@ -131,8 +131,8 @@ func (s *Server) validateToken(md metadata.MD) error {
 
 	rawToken := strings.TrimPrefix(tokens[0], "Bearer ")
 
-	// 1. Check if token matches JWT secret or predefined agent secret
-	if rawToken == s.jwtSecret || (os.Getenv("AGENT_SECRET_KEY") != "" && rawToken == os.Getenv("AGENT_SECRET_KEY")) {
+	// 1. Check if token matches predefined agent secret (NOT the JWT signing key)
+	if agentKey := os.Getenv("AGENT_SECRET_KEY"); agentKey != "" && rawToken == agentKey {
 		return nil
 	}
 

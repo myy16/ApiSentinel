@@ -3,6 +3,7 @@ package valkey
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
@@ -15,9 +16,25 @@ type Client struct {
 func New(addr string) (*Client, error) {
 	rdb := redis.NewClient(&redis.Options{
 		Addr: addr,
+
+		// Connection Pool
+		PoolSize:     20,
+		MinIdleConns: 5,
+
+		// Timeouts
+		DialTimeout:  5 * time.Second,
+		ReadTimeout:  3 * time.Second,
+		WriteTimeout: 3 * time.Second,
+
+		// Retry
+		MaxRetries:      3,
+		MinRetryBackoff: 100 * time.Millisecond,
+		MaxRetryBackoff: 500 * time.Millisecond,
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		return nil, fmt.Errorf("failed to connect to Valkey: %w", err)
 	}
