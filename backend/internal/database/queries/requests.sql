@@ -31,3 +31,8 @@ SELECT r.id, r.endpoint_id, r.request_id, r.http_method, r.headers, r.query_para
 FROM captured_requests r
 JOIN endpoints e ON r.endpoint_id = e.id
 WHERE r.id = $1 LIMIT 1;
+
+-- name: UpdateRequestProcessingStatus :exec
+UPDATE captured_requests
+SET processing_status = $2
+WHERE id = $1;

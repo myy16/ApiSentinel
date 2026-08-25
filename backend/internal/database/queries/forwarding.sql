@@ -52,3 +52,7 @@ SET status = $2,
     last_attempt_at = NOW()
 WHERE id = $1
 RETURNING *;
+
+-- name: DeleteDLQRecordsByEndpoint :exec
+DELETE FROM forwarding_dlq
+WHERE endpoint_id = $1;

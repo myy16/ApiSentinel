@@ -23,3 +23,8 @@ RETURNING id, organization_id, name, created_at;
 -- name: DeleteProject :exec
 DELETE FROM projects
 WHERE id = $1 AND organization_id = $2;
+
+-- name: VerifyProjectOwnership :one
+SELECT id FROM projects
+WHERE id = $1 AND organization_id = $2
+LIMIT 1;

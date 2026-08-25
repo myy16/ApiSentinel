@@ -12,3 +12,10 @@ ORDER BY id ASC;
 -- name: DeleteMockRule :exec
 DELETE FROM mock_rules
 WHERE id = $1 AND endpoint_id = $2;
+
+-- name: GetMatchingMockRule :one
+SELECT id, endpoint_id, name, condition, status_code, delay_ms, response_headers, response_body, enabled
+FROM mock_rules
+WHERE endpoint_id = $1 AND enabled = true
+ORDER BY id
+LIMIT 1;

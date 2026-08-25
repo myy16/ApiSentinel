@@ -34,3 +34,10 @@ RETURNING id, project_id, slug, name, mode, is_active, upstream_url, created_at;
 -- name: DeleteEndpoint :exec
 DELETE FROM endpoints
 WHERE id = $1 AND project_id = $2;
+
+-- name: GetEndpointWithOwnership :one
+SELECT e.id, e.project_id, p.organization_id
+FROM endpoints e
+JOIN projects p ON e.project_id = p.id
+WHERE e.id = $1 AND p.organization_id = $2
+LIMIT 1;
