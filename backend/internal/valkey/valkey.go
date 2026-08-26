@@ -61,3 +61,25 @@ func (c *Client) PublishEvent(ctx context.Context, channel string, message inter
 func (c *Client) Subscribe(ctx context.Context, channels ...string) *redis.PubSub {
 	return c.rdb.Subscribe(ctx, channels...)
 }
+
+// CheckAndSetIdempotency checks if a payload hash key exists using atomic SETNX with TTL.
+// Returns (isDuplicate bool, originalRequestID string, err error)
+func (c *Client) CheckAndSetIdempotency(ctx context.Context, key, requestID string, ttl time.Duration) (bool, string, error) {
+	if c == nil || c.rdb == nil {
+		return false, "", nil
+	}
+
+	ok, err := c.rdb.SetNX(ctx, key, requestID, ttl).Result()
+	if err != nil {
+		return false, "", err
+	}
+
+	if !ok {
+		// Key already exists! Fetch the original request ID that created it
+		origID, _ := c.rdb.Get(ctx, key).Result()
+		return true, origID, nil
+	}
+
+	return false, "", nil
+}
+

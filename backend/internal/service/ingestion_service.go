@@ -14,6 +14,7 @@ import (
 	"github.com/apisentinel/apisentinel/internal/database"
 	"github.com/apisentinel/apisentinel/internal/policy"
 	"github.com/apisentinel/apisentinel/internal/security"
+	"github.com/apisentinel/apisentinel/internal/security/duplicate"
 	"github.com/apisentinel/apisentinel/internal/security/pii"
 	"github.com/apisentinel/apisentinel/internal/security/schema"
 	"github.com/apisentinel/apisentinel/internal/valkey"
@@ -127,8 +128,27 @@ func (s *IngestionService) ProcessWebhook(
 		}
 	}
 
-	// 3. Fast Security Inspection (PII + Secrets)
+	// 3. Fast Security Inspection (PII + Secrets + Injection)
 	findings := s.securityEngine.Inspect(string(rawBody))
+
+	// 3.1. Idempotency & Duplicate Request Detection (Valkey sliding window)
+	if s.valkeyClient != nil && len(rawBody) > 0 {
+		endpointIdStr := uuid.UUID(endpoint.ID.Bytes).String()
+		payloadHash := duplicate.CalculatePayloadHash(rawBody)
+		idempKey := duplicate.BuildIdempotencyKey(endpointIdStr, payloadHash)
+
+		if isDup, origReqID, err := s.valkeyClient.CheckAndSetIdempotency(ctx, idempKey, requestId, duplicate.DefaultIdempotencyTTL); err == nil && isDup {
+			dupFinding := duplicate.CreateDuplicateFinding(origReqID, payloadHash)
+			findings = append(findings, security.Finding{
+				Category:       "DUPLICATE",
+				Type:           dupFinding.Type,
+				Severity:       dupFinding.Severity,
+				Message:        dupFinding.Message,
+				EvidenceMasked: dupFinding.EvidenceMasked,
+				Confidence:     dupFinding.Confidence,
+			})
+		}
+	}
 
 	// 3.5. JSON Schema Contract Validation (if schema is attached to endpoint)
 	schemaRecord, sErr := s.queries.GetEndpointSchema(ctx, endpoint.ID)

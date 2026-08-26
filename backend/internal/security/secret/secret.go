@@ -89,9 +89,8 @@ func initRegexes() {
 	dbConnPat, _ := base64.StdEncoding.DecodeString("KD9pKVxiKD86cG9zdGdyZXN8cG9zdGdyZXNxbHxteXNxbHxtb25nb2RifHJlZGlzfGFtcXB8bXNzcWwpOi8vW15cczovXSs6KFteXHMvXSs/KUBbXlxzL10r")
 	dbConnStringRegex = regexp.MustCompile(string(dbConnPat))
 
-	// 15. Generic Key-Value Assignment
-	genericPat, _ := base64.StdEncoding.DecodeString("KD9pKVxiW2Etel8wLTldKig/OmtleXxzZWNyZXR8cGFzc3dvcmR8dG9rZW58YXV0aHxhY2Nlc3N8Y3JlZGVudGlhbClbYS16XzAtOV0qXHMqWz06XVxzKlsnXCJdPihbXnxyXG5zJ1wiXXsxMCx9KVsnXCJdPygkfFxyfFxufFxzKQ==")
-	genericSecretAssign = regexp.MustCompile(string(genericPat))
+	// 15. Generic Key-Value Assignment (e.g. api_key = "...", secret: '...', password=...)
+	genericSecretAssign = regexp.MustCompile(`(?i)\b[a-z0-9_]*(?:key|secret|password|token|auth|access|credential)[a-z0-9_]*\s*[:=]\s*["']?([^"'\r\n\s]{8,})["']?`)
 }
 
 type Finding struct {

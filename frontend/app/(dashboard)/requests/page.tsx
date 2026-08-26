@@ -274,12 +274,13 @@ export default function RequestsPage() {
               <div className="flex-1 overflow-y-auto p-4 font-mono text-xs">
                 {activeTab === "payload" && (
                   <pre className="rounded-lg bg-background p-4 text-foreground/90 overflow-x-auto leading-relaxed border border-border">
-                    {selectedRequest.rawBody
+                    {(selectedRequest.maskedBody || selectedRequest.rawBody)
                       ? (() => {
+                          const body = selectedRequest.maskedBody || selectedRequest.rawBody;
                           try {
-                            return JSON.stringify(JSON.parse(selectedRequest.rawBody), null, 2);
+                            return JSON.stringify(JSON.parse(body), null, 2);
                           } catch {
-                            return selectedRequest.rawBody;
+                            return body;
                           }
                         })()
                       : "// Boş istek gövdesi"}
