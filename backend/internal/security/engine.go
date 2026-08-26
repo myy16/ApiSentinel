@@ -1,54 +1,133 @@
 package security
 
 import (
+	"context"
+	"sync"
+
+	"github.com/apisentinel/apisentinel/internal/security/injection"
 	"github.com/apisentinel/apisentinel/internal/security/pii"
 	"github.com/apisentinel/apisentinel/internal/security/secret"
 )
 
-type Finding struct {
-	Category       string  `json:"category"`
-	Type           string  `json:"type"`
-	Severity       string  `json:"severity"`
-	Message        string  `json:"message"`
-	EvidenceMasked string  `json:"evidence_masked"`
-	Confidence     float64 `json:"confidence"`
+// Engine coordinates execution across registered security scanners.
+type Engine struct {
+	mu       sync.RWMutex
+	scanners []Scanner
 }
 
-type Engine struct{}
-
+// NewEngine creates a new Security Engine preloaded with default scanners.
 func NewEngine() *Engine {
-	return &Engine{}
+	e := &Engine{
+		scanners: make([]Scanner, 0),
+	}
+	// Register default core scanners
+	e.RegisterScanner(&piiScannerAdapter{})
+	e.RegisterScanner(&secretScannerAdapter{})
+	e.RegisterScanner(&injectionScannerAdapter{})
+	return e
 }
 
-// InspectText runs PII and Secret scanners in parallel/sequence
-func (e *Engine) Inspect(rawPayload string) []Finding {
-	var results []Finding
+// RegisterScanner adds a new scanner to the engine in a thread-safe manner.
+func (e *Engine) RegisterScanner(s Scanner) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.scanners = append(e.scanners, s)
+}
 
-	// 1. PII Scan
-	piiFindings := pii.ScanText(rawPayload)
-	for _, f := range piiFindings {
-		results = append(results, Finding{
+// GetScanners returns a copy of currently registered scanners.
+func (e *Engine) GetScanners() []Scanner {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	dst := make([]Scanner, len(e.scanners))
+	copy(dst, e.scanners)
+	return dst
+}
+
+// Inspect runs all registered scanners against the raw payload.
+func (e *Engine) Inspect(rawPayload string) []Finding {
+	return e.InspectWithContext(context.Background(), rawPayload)
+}
+
+// InspectWithContext runs all registered scanners with context cancellation support.
+func (e *Engine) InspectWithContext(ctx context.Context, rawPayload string) []Finding {
+	e.mu.RLock()
+	scanners := e.scanners
+	e.mu.RUnlock()
+
+	var results []Finding
+	for _, scanner := range scanners {
+		if ctx.Err() != nil {
+			break
+		}
+		findings := scanner.Scan(ctx, rawPayload)
+		if len(findings) > 0 {
+			results = append(results, findings...)
+		}
+	}
+
+	return results
+}
+
+// --- Built-in Scanner Adapters ---
+
+type piiScannerAdapter struct{}
+
+func (p *piiScannerAdapter) Name() string     { return "pii_scanner" }
+func (p *piiScannerAdapter) Category() string { return "PII" }
+func (p *piiScannerAdapter) Scan(ctx context.Context, payload string) []Finding {
+	raw := pii.ScanText(payload)
+	findings := make([]Finding, len(raw))
+	for i, f := range raw {
+		findings[i] = Finding{
 			Category:       "PII",
 			Type:           f.Type,
 			Severity:       f.Severity,
 			Message:        f.Message,
 			EvidenceMasked: f.EvidenceMasked,
 			Confidence:     f.Confidence,
-		})
+		}
 	}
+	return findings
+}
 
-	// 2. Secret Scan
-	secretFindings := secret.ScanText(rawPayload)
-	for _, f := range secretFindings {
-		results = append(results, Finding{
+type secretScannerAdapter struct{}
+
+func (s *secretScannerAdapter) Name() string     { return "secret_scanner" }
+func (s *secretScannerAdapter) Category() string { return "SECRET" }
+func (s *secretScannerAdapter) Scan(ctx context.Context, payload string) []Finding {
+	raw := secret.ScanText(payload)
+	findings := make([]Finding, len(raw))
+	for i, f := range raw {
+		findings[i] = Finding{
 			Category:       "SECRET",
 			Type:           f.Type,
 			Severity:       f.Severity,
 			Message:        f.Message,
 			EvidenceMasked: f.EvidenceMasked,
 			Confidence:     f.Confidence,
-		})
+		}
 	}
-
-	return results
+	return findings
 }
+
+type injectionScannerAdapter struct{}
+
+func (i *injectionScannerAdapter) Name() string     { return "injection_scanner" }
+func (i *injectionScannerAdapter) Category() string { return "INJECTION" }
+func (i *injectionScannerAdapter) Scan(ctx context.Context, payload string) []Finding {
+	raw := injection.ScanText(payload)
+	findings := make([]Finding, len(raw))
+	for idx, f := range raw {
+		findings[idx] = Finding{
+			Category:       "INJECTION",
+			Type:           f.Type,
+			Severity:       f.Severity,
+			Message:        f.Message,
+			EvidenceMasked: f.EvidenceMasked,
+			Confidence:     f.Confidence,
+		}
+	}
+	return findings
+}
+
+

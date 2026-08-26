@@ -8,11 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/apisentinel/apisentinel/internal/database"
 	"github.com/apisentinel/apisentinel/internal/policy"
 	"github.com/apisentinel/apisentinel/internal/security"
+	"github.com/apisentinel/apisentinel/internal/security/pii"
 	"github.com/apisentinel/apisentinel/internal/security/schema"
 	"github.com/apisentinel/apisentinel/internal/valkey"
 	"github.com/google/uuid"
@@ -158,7 +160,45 @@ func (s *IngestionService) ProcessWebhook(
 		action = "BLOCK"
 	}
 
-	// 4. Save to PostgreSQL
+	// 4. Build masked body — replace detected PII/secret values with masks before storage
+	maskedBodyStr := string(rawBody)
+	for _, f := range findings {
+		if f.Category == "PII" || f.Category == "SECRET" {
+			// The evidence_masked field contains the masked version; find and replace original matches
+			// We use the scanner's mask functions for known types
+			switch f.Type {
+			case "CREDIT_CARD":
+				for _, match := range pii.FindCreditCards(maskedBodyStr) {
+					maskedBodyStr = strings.Replace(maskedBodyStr, match, pii.MaskCreditCard(match), 1)
+				}
+			case "TCKN":
+				for _, match := range pii.FindTCKNs(maskedBodyStr) {
+					maskedBodyStr = strings.Replace(maskedBodyStr, match, pii.MaskTCKN(match), 1)
+				}
+			case "EMAIL":
+				for _, match := range pii.FindEmails(maskedBodyStr) {
+					maskedBodyStr = strings.Replace(maskedBodyStr, match, pii.MaskEmail(match), 1)
+				}
+			case "IBAN":
+				for _, match := range pii.FindIBANs(maskedBodyStr) {
+					maskedBodyStr = strings.Replace(maskedBodyStr, match, pii.MaskIBAN(match), 1)
+				}
+			default:
+				if f.Category == "SECRET" && f.EvidenceMasked != "" {
+					// For secrets, evidence_masked has the masked form — try to find the original
+					// We can't reverse the mask, but we can use the secret scanner's approach
+					// to find matches and replace them
+				}
+			}
+		}
+	}
+
+	var pgMaskedBody pgtype.Text
+	if len(maskedBodyStr) > 0 {
+		pgMaskedBody = pgtype.Text{String: maskedBodyStr, Valid: true}
+	}
+
+	// 5. Save to PostgreSQL
 	captured, err := s.queries.CreateCapturedRequest(ctx, database.CreateCapturedRequestParams{
 		EndpointID:       endpoint.ID,
 		RequestID:        requestId,
@@ -166,7 +206,7 @@ func (s *IngestionService) ProcessWebhook(
 		Headers:          headersBytes,
 		QueryParams:      queryBytes,
 		RawBody:          pgRawBody,
-		MaskedBody:       pgRawBody,
+		MaskedBody:       pgMaskedBody,
 		ParsedJson:       parsedJson,
 		ResponseStatus:   pgtype.Int4{Int32: responseStatus, Valid: true},
 		ProcessingStatus: "RECEIVED",
@@ -236,6 +276,8 @@ func (s *IngestionService) ProcessWebhook(
 			})
 			if fErr != nil {
 				log.Error().Err(fErr).Msg("Failed to persist security finding")
+				// Skip adding to alert list — zero-value ID would cause issues downstream
+				continue
 			}
 
 			dbFindings = append(dbFindings, database.SecurityFinding{

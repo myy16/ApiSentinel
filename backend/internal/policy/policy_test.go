@@ -34,9 +34,28 @@ func TestPolicyEvaluation(t *testing.T) {
 		t.Errorf("Expected ActionMask for Email, got %s", emailDecision.Action)
 	}
 
-	// 4. Empty findings must ALLOW
+	// 4. SQL Injection must BLOCK
+	sqliFindings := []security.Finding{
+		{Category: "INJECTION", Type: "SQLI_UNION_BASED", Severity: "CRITICAL"},
+	}
+	sqliDecision := Evaluate(sqliFindings)
+	if sqliDecision.Action != ActionBlock {
+		t.Errorf("Expected ActionBlock for SQL injection, got %s", sqliDecision.Action)
+	}
+
+	// 5. XSS must BLOCK
+	xssFindings := []security.Finding{
+		{Category: "INJECTION", Type: "XSS_SCRIPT_TAG", Severity: "HIGH"},
+	}
+	xssDecision := Evaluate(xssFindings)
+	if xssDecision.Action != ActionBlock {
+		t.Errorf("Expected ActionBlock for XSS attack, got %s", xssDecision.Action)
+	}
+
+	// 6. Empty findings must ALLOW
 	cleanDecision := Evaluate(nil)
 	if cleanDecision.Action != ActionAllow {
 		t.Errorf("Expected ActionAllow for clean payload, got %s", cleanDecision.Action)
 	}
 }
+

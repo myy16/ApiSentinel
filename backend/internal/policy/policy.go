@@ -51,7 +51,18 @@ func Evaluate(findings []security.Finding) Decision {
 		}
 	}
 
-	// 3. MASK on Email / Phone
+	// 3. High priority: BLOCK on SQL Injection or XSS attacks
+	for _, f := range findings {
+		if f.Category == "INJECTION" && (f.Severity == "CRITICAL" || f.Severity == "HIGH") {
+			return Decision{
+				Action:         ActionBlock,
+				Reason:         "Active code/SQL injection attack detected: " + f.Type,
+				MatchedFinding: &f,
+			}
+		}
+	}
+
+	// 4. MASK on Email / Phone
 	for _, f := range findings {
 		if f.Type == "EMAIL" || f.Type == "PHONE" {
 			return Decision{

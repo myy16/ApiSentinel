@@ -52,15 +52,20 @@ func NewServer(queries *database.Queries, port int, jwtSecret string, tlsCertFil
 
 	var serverOpts []grpc.ServerOption
 
-	// 1. Optional TLS Setup
+	// 1. TLS Setup — required in production, optional in development
 	if tlsCertFile != "" && tlsKeyFile != "" {
 		creds, err := credentials.NewServerTLSFromFile(tlsCertFile, tlsKeyFile)
 		if err != nil {
-			log.Warn().Err(err).Msg("Failed to load TLS certificates for gRPC, falling back to insecure")
+			if !isDevelopment() {
+				log.Fatal().Err(err).Msg("FATAL: Failed to load TLS certificates for gRPC in production mode")
+			}
+			log.Warn().Err(err).Msg("Failed to load TLS certificates for gRPC, falling back to insecure (development only)")
 		} else {
 			serverOpts = append(serverOpts, grpc.Creds(creds))
 			log.Info().Msg("gRPC TLS encryption enabled")
 		}
+	} else if !isDevelopment() {
+		log.Warn().Msg("gRPC running without TLS in production — set TLS_CERT_FILE and TLS_KEY_FILE")
 	}
 
 	// 2. Authentication Interceptors
@@ -77,18 +82,33 @@ func NewServer(queries *database.Queries, port int, jwtSecret string, tlsCertFil
 	return s
 }
 
+// isDevelopment checks if the current environment is development.
+// ALLOW_INSECURE_GRPC is ONLY honored in development mode.
+func isDevelopment() bool {
+	env := strings.ToLower(os.Getenv("APP_ENV"))
+	if env == "" {
+		env = strings.ToLower(os.Getenv("NODE_ENV"))
+	}
+	return env != "production"
+}
+
+// allowInsecureGRPC returns true only if both the env var is set AND we are in development
+func allowInsecureGRPC() bool {
+	return os.Getenv("ALLOW_INSECURE_GRPC") == "true" && isDevelopment()
+}
+
 func (s *Server) streamAuthInterceptor() grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		md, ok := metadata.FromIncomingContext(ss.Context())
 		if !ok {
-			if os.Getenv("ALLOW_INSECURE_GRPC") == "true" {
+			if allowInsecureGRPC() {
 				return handler(srv, ss)
 			}
 			return status.Errorf(codes.Unauthenticated, "missing gRPC metadata")
 		}
 
 		if err := s.validateToken(md); err != nil {
-			if os.Getenv("ALLOW_INSECURE_GRPC") == "true" {
+			if allowInsecureGRPC() {
 				return handler(srv, ss)
 			}
 			return err
@@ -102,14 +122,14 @@ func (s *Server) unaryAuthInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		md, ok := metadata.FromIncomingContext(ctx)
 		if !ok {
-			if os.Getenv("ALLOW_INSECURE_GRPC") == "true" {
+			if allowInsecureGRPC() {
 				return handler(ctx, req)
 			}
 			return nil, status.Errorf(codes.Unauthenticated, "missing gRPC metadata")
 		}
 
 		if err := s.validateToken(md); err != nil {
-			if os.Getenv("ALLOW_INSECURE_GRPC") == "true" {
+			if allowInsecureGRPC() {
 				return handler(ctx, req)
 			}
 			return nil, err

@@ -123,6 +123,26 @@ func MaskTCKN(tckn string) string {
 	return "*********" + tckn[9:]
 }
 
+// FindCreditCards returns all regex matches for credit card patterns in text
+func FindCreditCards(text string) []string {
+	return ccRegex.FindAllString(text, -1)
+}
+
+// FindTCKNs returns all regex matches for Turkish National ID patterns in text
+func FindTCKNs(text string) []string {
+	return tcknRegex.FindAllString(text, -1)
+}
+
+// FindEmails returns all regex matches for email patterns in text
+func FindEmails(text string) []string {
+	return emailRegex.FindAllString(text, -1)
+}
+
+// FindIBANs returns all regex matches for Turkish IBAN patterns in text
+func FindIBANs(text string) []string {
+	return ibanRegex.FindAllString(text, -1)
+}
+
 func ScanText(text string) []Finding {
 	var findings []Finding
 
