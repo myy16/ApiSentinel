@@ -25,6 +25,7 @@ type Handlers struct {
 	AlertHandler      *AlertHandler
 	ForwardingHandler *ForwardingHandler
 	FindingHandler    *FindingHandler
+	APIKeyHandler     *APIKeyHandler
 }
 
 func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsOrigin string) *chi.Mux {
@@ -126,6 +127,13 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 
 			// AI Finding Explanations
 			protected.Post("/ai/explain", h.AIHandler.ExplainFinding)
+
+			// API Keys (Multi-Key Management & Rotation)
+			if h.APIKeyHandler != nil {
+				protected.With(tenantGuard).Post("/projects/{projectId}/keys", h.APIKeyHandler.Create)
+				protected.With(tenantGuard).Get("/projects/{projectId}/keys", h.APIKeyHandler.List)
+				protected.With(tenantGuard).Delete("/projects/{projectId}/keys/{keyId}", h.APIKeyHandler.Revoke)
+			}
 
 			// Realtime SSE Stream
 			protected.Get("/projects/{projectId}/events/stream", h.SSEHandler.Stream)

@@ -73,6 +73,7 @@ func main() {
 	replayService := service.NewReplayService(queries)
 	mockService := service.NewMockService(queries)
 	findingService := service.NewFindingService(queries)
+	apiKeyService := service.NewAPIKeyService(queries)
 	explainer := ai.NewExplainer("")
 
 	// 4. gRPC Server (Port 50051) with Token Auth Interceptor & TLS
@@ -97,6 +98,7 @@ func main() {
 		AlertHandler:      transporthttp.NewAlertHandler(alertService),
 		ForwardingHandler: transporthttp.NewForwardingHandler(forwardingService),
 		FindingHandler:    transporthttp.NewFindingHandler(findingService),
+		APIKeyHandler:     transporthttp.NewAPIKeyHandler(apiKeyService),
 	}
 
 	router := transporthttp.SetupRouter(handlers, cfg.JWTSecret, queries, cfg.CORSOrigin)

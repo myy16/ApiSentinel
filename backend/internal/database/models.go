@@ -31,6 +31,19 @@ type AlertChannel struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
+type ApiKey struct {
+	ID         pgtype.UUID        `json:"id"`
+	ProjectID  pgtype.UUID        `json:"project_id"`
+	Name       string             `json:"name"`
+	KeyPrefix  string             `json:"key_prefix"`
+	KeyHash    string             `json:"key_hash"`
+	CreatedBy  pgtype.UUID        `json:"created_by"`
+	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
+	LastUsedAt pgtype.Timestamptz `json:"last_used_at"`
+	RevokedAt  pgtype.Timestamptz `json:"revoked_at"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+}
+
 type CapturedRequest struct {
 	ID               pgtype.UUID        `json:"id"`
 	EndpointID       pgtype.UUID        `json:"endpoint_id"`

@@ -40,12 +40,12 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 	endpointService := service.NewEndpointService(queries)
 	alertService := service.NewAlertService(queries)
 	forwardingService := service.NewForwardingService(queries)
-	ingestionService := service.NewIngestionService(queries, nil, alertService, forwardingService)
+	ingestionService := service.NewIngestionService(queries, nil, alertService, forwardingService, nil)
 	requestService := service.NewRequestService(queries)
 	replayService := service.NewReplayService(queries)
 	mockService := service.NewMockService(queries)
-
 	findingService := service.NewFindingService(queries)
+	apiKeyService := service.NewAPIKeyService(queries)
 
 	handlers := &Handlers{
 		AuthHandler:       NewAuthHandler(authService),
@@ -60,6 +60,7 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 		AlertHandler:      NewAlertHandler(alertService),
 		ForwardingHandler: NewForwardingHandler(forwardingService),
 		FindingHandler:    NewFindingHandler(findingService),
+		APIKeyHandler:     NewAPIKeyHandler(apiKeyService),
 	}
 
 	router := SetupRouter(handlers, cfg.JWTSecret, queries, "*")

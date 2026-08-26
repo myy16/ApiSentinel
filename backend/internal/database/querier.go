@@ -11,6 +11,7 @@ import (
 )
 
 type Querier interface {
+	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (CreateAPIKeyRow, error)
 	CreateAlertChannel(ctx context.Context, arg CreateAlertChannelParams) (AlertChannel, error)
 	CreateCapturedRequest(ctx context.Context, arg CreateCapturedRequestParams) (CapturedRequest, error)
 	CreateDLQRecord(ctx context.Context, arg CreateDLQRecordParams) (ForwardingDlq, error)
@@ -22,12 +23,14 @@ type Querier interface {
 	CreateReplayJob(ctx context.Context, arg CreateReplayJobParams) (ReplayJob, error)
 	CreateSecurityFinding(ctx context.Context, arg CreateSecurityFindingParams) (SecurityFinding, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error)
+	DeleteAPIKey(ctx context.Context, arg DeleteAPIKeyParams) error
 	DeleteAlertChannel(ctx context.Context, id pgtype.UUID) error
 	DeleteDLQRecordsByEndpoint(ctx context.Context, endpointID pgtype.UUID) error
 	DeleteEndpoint(ctx context.Context, arg DeleteEndpointParams) error
 	DeleteEndpointSchema(ctx context.Context, endpointID pgtype.UUID) error
 	DeleteMockRule(ctx context.Context, arg DeleteMockRuleParams) error
 	DeleteProject(ctx context.Context, arg DeleteProjectParams) error
+	GetAPIKeyByPrefixAndHash(ctx context.Context, arg GetAPIKeyByPrefixAndHashParams) (ApiKey, error)
 	GetAlertChannelByID(ctx context.Context, id pgtype.UUID) (AlertChannel, error)
 	GetCapturedRequestByID(ctx context.Context, id pgtype.UUID) (GetCapturedRequestByIDRow, error)
 	GetDLQRecordByID(ctx context.Context, id pgtype.UUID) (ForwardingDlq, error)
@@ -43,6 +46,7 @@ type Querier interface {
 	GetProjectByID(ctx context.Context, arg GetProjectByIDParams) (Project, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error)
+	ListAPIKeysByProject(ctx context.Context, projectID pgtype.UUID) ([]ListAPIKeysByProjectRow, error)
 	ListAlertChannelsByProject(ctx context.Context, projectID pgtype.UUID) ([]AlertChannel, error)
 	ListDLQRecordsByEndpoint(ctx context.Context, endpointID pgtype.UUID) ([]ForwardingDlq, error)
 	ListEndpointsByProject(ctx context.Context, projectID pgtype.UUID) ([]ListEndpointsByProjectRow, error)
@@ -53,7 +57,9 @@ type Querier interface {
 	ListRequestsByEndpoint(ctx context.Context, arg ListRequestsByEndpointParams) ([]CapturedRequest, error)
 	ListRequestsByProject(ctx context.Context, arg ListRequestsByProjectParams) ([]ListRequestsByProjectRow, error)
 	ListUserMemberships(ctx context.Context, userID pgtype.UUID) ([]ListUserMembershipsRow, error)
+	RevokeAPIKey(ctx context.Context, arg RevokeAPIKeyParams) (RevokeAPIKeyRow, error)
 	ToggleAlertChannel(ctx context.Context, arg ToggleAlertChannelParams) (AlertChannel, error)
+	UpdateAPIKeyLastUsed(ctx context.Context, id pgtype.UUID) error
 	UpdateDLQStatus(ctx context.Context, arg UpdateDLQStatusParams) (ForwardingDlq, error)
 	UpdateEndpoint(ctx context.Context, arg UpdateEndpointParams) (Endpoint, error)
 	UpdateProject(ctx context.Context, arg UpdateProjectParams) (Project, error)
