@@ -21,6 +21,8 @@ import {
   XCircle,
 } from "lucide-react";
 
+import { useActiveProject } from "../../../contexts/ProjectContext";
+
 interface MockRuleItem {
   id: string;
   endpointId: string;
@@ -35,8 +37,8 @@ interface MockRuleItem {
 export default function MockPage() {
   const queryClient = useQueryClient();
   const { accessToken, organization } = useAuth();
+  const { projects, activeProjectId, setActiveProjectId } = useActiveProject();
 
-  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [selectedEndpointId, setSelectedEndpointId] = useState<string>("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
@@ -49,20 +51,6 @@ export default function MockPage() {
   );
   const [createError, setCreateError] = useState<string | null>(null);
 
-  // Fetch projects
-  const { data: projectsData } = useQuery({
-    queryKey: ["projects", organization?.id],
-    queryFn: () =>
-      apiFetch<{ projects: Project[] }>("/api/projects", {
-        token: accessToken,
-        organizationId: organization?.id,
-      }),
-    enabled: !!accessToken && !!organization?.id,
-  });
-
-  const projects = projectsData?.projects || [];
-  const activeProjectId = selectedProjectId || (projects[0]?.id ?? "");
-
   // Fetch endpoints for active project
   const { data: endpointsData } = useQuery({
     queryKey: ["endpoints", activeProjectId],
@@ -71,7 +59,7 @@ export default function MockPage() {
         token: accessToken,
         organizationId: organization?.id,
       }),
-    enabled: !!accessToken && !!activeProjectId,
+    enabled: !!accessToken && !!activeProjectId && !!organization?.id,
   });
 
   const endpoints = endpointsData?.endpoints || [];

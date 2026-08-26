@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "../../hooks/useAuth";
+import { ProjectProvider, useActiveProject } from "../../contexts/ProjectContext";
 import {
   Shield,
   LayoutDashboard,
@@ -25,6 +26,8 @@ import {
   ChevronRight,
   Activity,
   User,
+  ChevronDown,
+  Plus,
 } from "lucide-react";
 
 const navItems = [
@@ -42,7 +45,53 @@ const navItems = [
   { name: "Ayarlar", href: "/settings", icon: Settings },
 ];
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+function GlobalProjectSwitcher() {
+  const { projects, activeProjectId, setActiveProjectId, isLoading } = useActiveProject();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin text-primary" />
+        <span>Projeler...</span>
+      </div>
+    );
+  }
+
+  if (projects.length === 0) {
+    return (
+      <Link
+        href="/projects"
+        className="flex items-center gap-1.5 rounded-xl border border-dashed border-primary/40 bg-primary/5 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary/10 transition"
+      >
+        <Plus className="h-3 w-3" />
+        <span>Proje Oluştur</span>
+      </Link>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1.5 rounded-xl border border-border bg-card/80 px-2.5 py-1 text-xs shadow-sm hover:border-primary/40 transition">
+      <FolderGit2 className="h-3.5 w-3.5 text-primary shrink-0" />
+      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground hidden lg:inline">
+        Proje:
+      </span>
+      <select
+        value={activeProjectId}
+        onChange={(e) => setActiveProjectId(e.target.value)}
+        className="bg-transparent font-bold text-foreground text-xs focus:outline-none cursor-pointer pr-1 max-w-[150px] sm:max-w-[200px] truncate"
+        title="Aktif Çalışma Projesi (Tüm sayfalarda geçerlidir)"
+      >
+        {projects.map((p) => (
+          <option key={p.id} value={p.id} className="bg-card text-foreground">
+            {p.name}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function DashboardContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, organization, isLoading, logout } = useAuth();
@@ -201,14 +250,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Global Project Switcher */}
+            <GlobalProjectSwitcher />
+
             {/* Live Gateway Indicator */}
-            <div className="flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-400">
+            <div className="hidden sm:flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-400">
               <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
               </span>
-              <span className="hidden sm:inline font-mono">Gateway Active (Go Engine)</span>
-              <span className="sm:hidden font-mono">Online</span>
+              <span className="font-mono">Gateway Active</span>
             </div>
 
             {/* User Quick Badge */}
@@ -231,4 +282,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     </div>
   );
 }
+
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <ProjectProvider>
+      <DashboardContent>{children}</DashboardContent>
+    </ProjectProvider>
+  );
+}
+
 

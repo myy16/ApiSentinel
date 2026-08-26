@@ -48,11 +48,13 @@ interface DLQRecord {
   last_attempt_at: string;
 }
 
+import { useActiveProject } from "../../../contexts/ProjectContext";
+
 export default function ForwardingPage() {
   const queryClient = useQueryClient();
   const { accessToken, organization } = useAuth();
+  const { projects, activeProjectId, setActiveProjectId } = useActiveProject();
 
-  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [selectedEndpointId, setSelectedEndpointId] = useState<string>("");
 
   const [targetUrl, setTargetUrl] = useState("");
@@ -63,21 +65,7 @@ export default function ForwardingPage() {
 
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-  // 1. Fetch projects
-  const { data: projectsData } = useQuery({
-    queryKey: ["projects", organization?.id],
-    queryFn: () =>
-      apiFetch<{ projects: Project[] }>("/api/projects", {
-        token: accessToken,
-        organizationId: organization?.id,
-      }),
-    enabled: !!accessToken && !!organization?.id,
-  });
-
-  const projects = projectsData?.projects || [];
-  const activeProjectId = selectedProjectId || (projects[0]?.id ?? "");
-
-  // 2. Fetch endpoints for active project
+  // Fetch endpoints for active project
   const { data: endpointsData } = useQuery({
     queryKey: ["endpoints", activeProjectId],
     queryFn: () =>
@@ -252,7 +240,7 @@ export default function ForwardingPage() {
             <select
               value={activeProjectId}
               onChange={(e) => {
-                setSelectedProjectId(e.target.value);
+                setActiveProjectId(e.target.value);
                 setSelectedEndpointId("");
               }}
               className="rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary"

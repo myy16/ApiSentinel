@@ -88,6 +88,7 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 			protected.With(tenantGuard).Get("/projects", h.ProjectHandler.List)
 			protected.With(tenantGuard).Post("/projects", h.ProjectHandler.Create)
 			protected.With(tenantGuard).Get("/projects/{id}", h.ProjectHandler.Get)
+			protected.With(tenantGuard).Put("/projects/{id}", h.ProjectHandler.Update)
 			protected.With(tenantGuard).Delete("/projects/{id}", h.ProjectHandler.Delete)
 
 			// Endpoints & Mocks & Forwarding & Schemas

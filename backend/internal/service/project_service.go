@@ -112,6 +112,41 @@ func (s *ProjectService) GetProject(ctx context.Context, orgId, projectId string
 	}, nil
 }
 
+func (s *ProjectService) UpdateProject(ctx context.Context, orgId, projectId, name string) (*ProjectResponse, error) {
+	parsedOrgId, err := uuid.Parse(orgId)
+	if err != nil {
+		return nil, err
+	}
+	parsedProjId, err := uuid.Parse(projectId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pgOrgId pgtype.UUID
+	copy(pgOrgId.Bytes[:], parsedOrgId[:])
+	pgOrgId.Valid = true
+
+	var pgProjId pgtype.UUID
+	copy(pgProjId.Bytes[:], parsedProjId[:])
+	pgProjId.Valid = true
+
+	p, err := s.queries.UpdateProject(ctx, database.UpdateProjectParams{
+		ID:             pgProjId,
+		OrganizationID: pgOrgId,
+		Name:           name,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &ProjectResponse{
+		ID:             uuid.UUID(p.ID.Bytes).String(),
+		OrganizationID: uuid.UUID(p.OrganizationID.Bytes).String(),
+		Name:           p.Name,
+		CreatedAt:      p.CreatedAt.Time.Format(time.RFC3339),
+	}, nil
+}
+
 func (s *ProjectService) DeleteProject(ctx context.Context, orgId, projectId string) error {
 	parsedOrgId, err := uuid.Parse(orgId)
 	if err != nil {

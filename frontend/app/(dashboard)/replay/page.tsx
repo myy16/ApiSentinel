@@ -23,6 +23,8 @@ import {
   Zap,
 } from "lucide-react";
 
+import { useActiveProject } from "../../../contexts/ProjectContext";
+
 interface ReplayJobItem {
   id: string;
   sourceRequestId: string;
@@ -39,27 +41,13 @@ interface ReplayJobItem {
 export default function ReplayPage() {
   const queryClient = useQueryClient();
   const { accessToken, organization } = useAuth();
+  const { projects, activeProjectId, setActiveProjectId } = useActiveProject();
 
-  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [isNewReplayOpen, setIsNewReplayOpen] = useState(false);
   const [selectedRequestId, setSelectedRequestId] = useState<string>("");
   const [targetUrl, setTargetUrl] = useState<string>("https://httpbin.org/post");
   const [replayError, setReplayError] = useState<string | null>(null);
   const [lastReplayResult, setLastReplayResult] = useState<any | null>(null);
-
-  // Fetch projects
-  const { data: projectsData } = useQuery({
-    queryKey: ["projects", organization?.id],
-    queryFn: () =>
-      apiFetch<{ projects: Project[] }>("/api/projects", {
-        token: accessToken,
-        organizationId: organization?.id,
-      }),
-    enabled: !!accessToken && !!organization?.id,
-  });
-
-  const projects = projectsData?.projects || [];
-  const activeProjectId = selectedProjectId || (projects[0]?.id ?? "");
 
   // Fetch captured requests for replay selection
   const { data: requestsData } = useQuery({
@@ -69,7 +57,7 @@ export default function ReplayPage() {
         token: accessToken,
         organizationId: organization?.id,
       }),
-    enabled: !!accessToken && !!activeProjectId,
+    enabled: !!accessToken && !!activeProjectId && !!organization?.id,
   });
 
   // Fetch past replay jobs
@@ -137,8 +125,8 @@ export default function ReplayPage() {
           {projects.length > 1 && (
             <select
               value={activeProjectId}
-              onChange={(e) => setSelectedProjectId(e.target.value)}
-              className="rounded-lg border border-input bg-card px-3 py-2 text-sm font-medium focus:border-primary focus:outline-none"
+              onChange={(e) => setActiveProjectId(e.target.value)}
+              className="rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
             >
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>

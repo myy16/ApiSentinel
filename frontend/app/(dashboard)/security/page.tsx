@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "../../../hooks/useAuth";
+import { useActiveProject } from "../../../contexts/ProjectContext";
 import { apiFetch } from "../../../lib/api";
 import { Project } from "@apisentinel/shared";
 import {
@@ -59,27 +60,13 @@ interface AIExplanation {
 
 export default function SecurityFindingsPage() {
   const { accessToken, organization } = useAuth();
+  const { projects, activeProjectId, setActiveProjectId } = useActiveProject();
 
-  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [activeFinding, setActiveFinding] = useState<Finding | null>(null);
   const [severityFilter, setSeverityFilter] = useState<"ALL" | "CRITICAL" | "HIGH" | "MEDIUM">("ALL");
   const [copiedCode, setCopiedCode] = useState(false);
 
-  // 1. Fetch projects
-  const { data: projectsData } = useQuery({
-    queryKey: ["projects", organization?.id],
-    queryFn: () =>
-      apiFetch<{ projects: Project[] }>("/api/projects", {
-        token: accessToken,
-        organizationId: organization?.id,
-      }),
-    enabled: !!accessToken && !!organization?.id,
-  });
-
-  const projects = projectsData?.projects || [];
-  const activeProjectId = selectedProjectId || (projects[0]?.id ?? "");
-
-  // 2. Fetch Real Security Findings from DB
+  // 1. Fetch Real Security Findings from DB
   const {
     data: findingsData,
     isLoading: isFindingsLoading,
@@ -187,7 +174,7 @@ export default function SecurityFindingsPage() {
           {projects.length > 0 && (
             <select
               value={activeProjectId}
-              onChange={(e) => setSelectedProjectId(e.target.value)}
+              onChange={(e) => setActiveProjectId(e.target.value)}
               className="rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
             >
               {projects.map((p) => (

@@ -4,6 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../../hooks/useAuth";
+import { useActiveProject } from "../../../contexts/ProjectContext";
 import { apiFetch } from "../../../lib/api";
 import { Project, Endpoint } from "@apisentinel/shared";
 import {
@@ -28,22 +29,9 @@ import {
 
 export default function OverviewPage() {
   const { user, organization, accessToken } = useAuth();
+  const { projects, activeProjectId, activeProject } = useActiveProject();
 
-  // 1. Fetch projects
-  const { data: projectsData } = useQuery({
-    queryKey: ["projects", organization?.id],
-    queryFn: () =>
-      apiFetch<{ projects: Project[] }>("/api/projects", {
-        token: accessToken,
-        organizationId: organization?.id,
-      }),
-    enabled: !!accessToken && !!organization?.id,
-  });
-
-  const projects = projectsData?.projects || [];
-  const activeProjectId = projects[0]?.id;
-
-  // 2. Fetch endpoints count
+  // Fetch endpoints count for active project
   const { data: endpointsData } = useQuery({
     queryKey: ["endpoints", activeProjectId],
     queryFn: () =>

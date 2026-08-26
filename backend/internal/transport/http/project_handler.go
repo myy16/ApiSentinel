@@ -65,6 +65,25 @@ func (h *ProjectHandler) Get(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, p)
 }
 
+func (h *ProjectHandler) Update(w http.ResponseWriter, r *http.Request) {
+	orgId := r.Context().Value(middleware.OrgIDKey).(string)
+	projectId := chi.URLParam(r, "id")
+
+	var req CreateProjectRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Proje adı zorunludur")
+		return
+	}
+
+	p, err := h.projectService.UpdateProject(r.Context(), orgId, projectId, req.Name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, p)
+}
+
 func (h *ProjectHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	orgId := r.Context().Value(middleware.OrgIDKey).(string)
 	projectId := chi.URLParam(r, "id")

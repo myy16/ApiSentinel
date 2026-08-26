@@ -79,31 +79,19 @@ const PRESET_GENERIC = {
   required: ["event", "data"],
 };
 
+import { useActiveProject } from "../../../contexts/ProjectContext";
+
 export default function ContractsPage() {
   const queryClient = useQueryClient();
   const { accessToken, organization } = useAuth();
+  const { projects, activeProjectId, setActiveProjectId } = useActiveProject();
 
-  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [selectedEndpointId, setSelectedEndpointId] = useState<string>("");
   const [schemaText, setSchemaText] = useState<string>(JSON.stringify(PRESET_STRIPE, null, 2));
   const [syntaxValid, setSyntaxValid] = useState(true);
   const [statusMessage, setStatusMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-  // 1. Fetch projects
-  const { data: projectsData } = useQuery({
-    queryKey: ["projects", organization?.id],
-    queryFn: () =>
-      apiFetch<{ projects: Project[] }>("/api/projects", {
-        token: accessToken,
-        organizationId: organization?.id,
-      }),
-    enabled: !!accessToken && !!organization?.id,
-  });
-
-  const projects = projectsData?.projects || [];
-  const activeProjectId = selectedProjectId || (projects[0]?.id ?? "");
-
-  // 2. Fetch endpoints for active project
+  // Fetch endpoints for active project
   const { data: endpointsData } = useQuery({
     queryKey: ["endpoints", activeProjectId],
     queryFn: () =>
@@ -111,7 +99,7 @@ export default function ContractsPage() {
         token: accessToken,
         organizationId: organization?.id,
       }),
-    enabled: !!accessToken && !!activeProjectId,
+    enabled: !!accessToken && !!activeProjectId && !!organization?.id,
   });
 
   const endpoints = endpointsData?.endpoints || [];
@@ -241,7 +229,7 @@ export default function ContractsPage() {
             <select
               value={activeProjectId}
               onChange={(e) => {
-                setSelectedProjectId(e.target.value);
+                setActiveProjectId(e.target.value);
                 setSelectedEndpointId("");
               }}
               className="rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary"

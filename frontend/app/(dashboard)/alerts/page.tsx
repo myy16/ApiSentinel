@@ -18,6 +18,8 @@ import {
   ShieldAlert,
 } from "lucide-react";
 
+import { useActiveProject } from "../../../contexts/ProjectContext";
+
 interface AlertChannel {
   id: string;
   project_id: string;
@@ -32,8 +34,8 @@ interface AlertChannel {
 export default function AlertsPage() {
   const queryClient = useQueryClient();
   const { accessToken, organization } = useAuth();
+  const { projects, activeProjectId, setActiveProjectId } = useActiveProject();
 
-  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [isCreating, setIsCreating] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -44,21 +46,7 @@ export default function AlertsPage() {
   const [webhookUrl, setWebhookUrl] = useState("");
   const [minSeverity, setMinSeverity] = useState("HIGH");
 
-  // 1. Fetch projects
-  const { data: projectsData } = useQuery({
-    queryKey: ["projects", organization?.id],
-    queryFn: () =>
-      apiFetch<{ projects: Project[] }>("/api/projects", {
-        token: accessToken,
-        organizationId: organization?.id,
-      }),
-    enabled: !!accessToken && !!organization?.id,
-  });
-
-  const projects = projectsData?.projects || [];
-  const activeProjectId = selectedProjectId || (projects[0]?.id ?? "");
-
-  // 2. Fetch alert channels
+  // Fetch alert channels
   const { data: channelsData, isLoading } = useQuery({
     queryKey: ["alertChannels", activeProjectId],
     queryFn: () =>
@@ -162,8 +150,8 @@ export default function AlertsPage() {
           {projects.length > 1 && (
             <select
               value={activeProjectId}
-              onChange={(e) => setSelectedProjectId(e.target.value)}
-              className="rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              onChange={(e) => setActiveProjectId(e.target.value)}
+              className="rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
             >
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>

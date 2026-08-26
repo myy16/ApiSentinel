@@ -30,12 +30,13 @@ import {
   Terminal,
 } from "lucide-react";
 import Link from "next/link";
+import { useActiveProject } from "../../../contexts/ProjectContext";
 
 export default function EndpointsPage() {
   const queryClient = useQueryClient();
   const { accessToken, organization } = useAuth();
+  const { projects, activeProjectId, setActiveProjectId } = useActiveProject();
 
-  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingEndpoint, setEditingEndpoint] = useState<Endpoint | null>(null);
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
@@ -56,20 +57,6 @@ export default function EndpointsPage() {
   const [editUpstreamUrl, setEditUpstreamUrl] = useState("");
   const [editIsActive, setEditIsActive] = useState(true);
   const [editError, setEditError] = useState<string | null>(null);
-
-  // Fetch projects
-  const { data: projectsData } = useQuery({
-    queryKey: ["projects", organization?.id],
-    queryFn: () =>
-      apiFetch<{ projects: Project[] }>("/api/projects", {
-        token: accessToken,
-        organizationId: organization?.id,
-      }),
-    enabled: !!accessToken && !!organization?.id,
-  });
-
-  const projects = projectsData?.projects || [];
-  const activeProjectId = selectedProjectId || (projects[0]?.id ?? "");
 
   // Fetch endpoints for active project
   const { data: endpointsData, isLoading } = useQuery({
@@ -256,7 +243,7 @@ export default function EndpointsPage() {
           {projects.length > 1 && (
             <select
               value={activeProjectId}
-              onChange={(e) => setSelectedProjectId(e.target.value)}
+              onChange={(e) => setActiveProjectId(e.target.value)}
               className="rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
             >
               {projects.map((p) => (

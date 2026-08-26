@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../../hooks/useAuth";
+import { useActiveProject } from "../../../contexts/ProjectContext";
 import { apiFetch } from "../../../lib/api";
 import { Project, CapturedRequest } from "@apisentinel/shared";
 import {
@@ -28,28 +29,14 @@ import {
 
 export default function RequestsPage() {
   const { accessToken, organization } = useAuth();
+  const { projects, activeProjectId, setActiveProjectId } = useActiveProject();
 
-  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"payload" | "headers" | "query">("payload");
   const [searchFilter, setSearchFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "SUCCESS" | "BLOCKED" | "ERROR">("ALL");
   const [copiedPayload, setCopiedPayload] = useState(false);
   const [copiedCurl, setCopiedCurl] = useState(false);
-
-  // Fetch projects
-  const { data: projectsData } = useQuery({
-    queryKey: ["projects", organization?.id],
-    queryFn: () =>
-      apiFetch<{ projects: Project[] }>("/api/projects", {
-        token: accessToken,
-        organizationId: organization?.id,
-      }),
-    enabled: !!accessToken && !!organization?.id,
-  });
-
-  const projects = projectsData?.projects || [];
-  const activeProjectId = selectedProjectId || (projects[0]?.id ?? "");
 
   // Fetch requests for active project
   const { data: requestsData, isLoading, refetch, isRefetching } = useQuery({
@@ -62,7 +49,7 @@ export default function RequestsPage() {
           organizationId: organization?.id,
         }
       ),
-    enabled: !!accessToken && !!activeProjectId,
+    enabled: !!accessToken && !!activeProjectId && !!organization?.id,
     refetchInterval: 3000,
   });
 
@@ -170,7 +157,7 @@ export default function RequestsPage() {
             <select
               value={activeProjectId}
               onChange={(e) => {
-                setSelectedProjectId(e.target.value);
+                setActiveProjectId(e.target.value);
                 setSelectedRequestId(null);
               }}
               className="rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
