@@ -16,6 +16,7 @@ import (
 	transportgrpc "github.com/apisentinel/apisentinel/internal/transport/grpc"
 	transporthttp "github.com/apisentinel/apisentinel/internal/transport/http"
 	"github.com/apisentinel/apisentinel/internal/valkey"
+	"github.com/apisentinel/apisentinel/internal/worker"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -58,13 +59,16 @@ func main() {
 		defer valkeyClient.Close()
 	}
 
-	// 3. Services Initialization
+	// 3. Worker Pool & Services Initialization
+	workerPool := worker.NewPool(20, 10000)
+	defer workerPool.Stop(5 * time.Second)
+
 	authService := service.NewAuthService(queries, cfg.JWTSecret)
 	projectService := service.NewProjectService(queries)
 	endpointService := service.NewEndpointService(queries)
 	alertService := service.NewAlertService(queries)
 	forwardingService := service.NewForwardingService(queries)
-	ingestionService := service.NewIngestionService(queries, valkeyClient, alertService, forwardingService)
+	ingestionService := service.NewIngestionService(queries, valkeyClient, alertService, forwardingService, workerPool)
 	requestService := service.NewRequestService(queries)
 	replayService := service.NewReplayService(queries)
 	mockService := service.NewMockService(queries)
@@ -116,15 +120,35 @@ func main() {
 	}()
 
 	<-stop
-	log.Info().Msg("Shutting down servers gracefully...")
+	log.Info().Msg("Received termination signal. Initiating cascade graceful shutdown...")
 
+	// 1. Stop HTTP Gateway (stop accepting new requests, drain in-flight)
+	log.Info().Msg("[1/4] Shutting down HTTP Gateway...")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
-		log.Error().Err(err).Msg("HTTP server forced to shutdown")
+		log.Error().Err(err).Msg("HTTP Gateway forced shutdown")
+	} else {
+		log.Info().Msg("HTTP Gateway stopped cleanly")
 	}
 
+	// 2. Stop gRPC Server (graceful stop for connected agents)
+	log.Info().Msg("[2/4] Stopping gRPC Agent Server...")
 	grpcServer.Stop()
-	log.Info().Msg("ApiSentinel Backend stopped cleanly.")
+
+	// 3. Drain Background Worker Pool
+	log.Info().Msg("[3/4] Draining background Worker Pool tasks...")
+	if err := workerPool.Stop(5 * time.Second); err != nil {
+		log.Error().Err(err).Msg("Worker pool shutdown timeout")
+	}
+
+	// 4. Close database and Valkey connections
+	log.Info().Msg("[4/4] Closing database & cache connection pools...")
+	if valkeyClient != nil {
+		_ = valkeyClient.Close()
+	}
+	dbPool.Close()
+
+	log.Info().Msg("ApiSentinel Backend shutdown completed cleanly.")
 }

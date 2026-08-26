@@ -18,6 +18,7 @@ import (
 	"github.com/apisentinel/apisentinel/internal/security/pii"
 	"github.com/apisentinel/apisentinel/internal/security/schema"
 	"github.com/apisentinel/apisentinel/internal/valkey"
+	"github.com/apisentinel/apisentinel/internal/worker"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/rs/zerolog/log"
@@ -29,6 +30,7 @@ type IngestionService struct {
 	securityEngine *security.Engine
 	alertService   *AlertService
 	forwardingSvc  *ForwardingService
+	workerPool     *worker.Pool
 }
 
 func NewIngestionService(
@@ -36,13 +38,18 @@ func NewIngestionService(
 	valkeyClient *valkey.Client,
 	alertService *AlertService,
 	forwardingSvc *ForwardingService,
+	workerPool *worker.Pool,
 ) *IngestionService {
+	if workerPool == nil {
+		workerPool = worker.NewPool(10, 2000)
+	}
 	return &IngestionService{
 		queries:        queries,
 		valkeyClient:   valkeyClient,
 		securityEngine: security.NewEngine(),
 		alertService:   alertService,
 		forwardingSvc:  forwardingSvc,
+		workerPool:     workerPool,
 	}
 }
 
@@ -252,10 +259,10 @@ func (s *IngestionService) ProcessWebhook(
 	projectIdStr := uuid.UUID(endpoint.ProjectID.Bytes).String()
 	endpointIdStr := uuid.UUID(endpoint.ID.Bytes).String()
 
-	// 5. Asynchronously push to Valkey Stream for worker pipeline
-	if s.valkeyClient != nil {
-		go func() {
-			bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	// 5. Asynchronously push to Valkey Stream for worker pipeline (handled by bounded WorkerPool)
+	if s.valkeyClient != nil && s.workerPool != nil {
+		_ = s.workerPool.Submit(func(taskCtx context.Context) {
+			bgCtx, cancel := context.WithTimeout(taskCtx, 3*time.Second)
 			defer cancel()
 
 			s.valkeyClient.PublishStream(bgCtx, "stream:requests", map[string]interface{}{
@@ -276,7 +283,7 @@ func (s *IngestionService) ProcessWebhook(
 				"createdAt":      time.Now().Format(time.RFC3339),
 			})
 			s.valkeyClient.PublishEvent(bgCtx, "channel:events:"+projectIdStr, string(eventPayload))
-		}()
+		})
 	}
 
 	// 7. Persist Security Findings & Dispatch Alerts (If findings exist)
