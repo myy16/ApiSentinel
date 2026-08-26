@@ -20,6 +20,9 @@ import {
   RefreshCw,
   Layers,
   AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  FileJson,
 } from "lucide-react";
 
 interface ForwardingConfig {
@@ -56,6 +59,7 @@ export default function ForwardingPage() {
   const [maxRetries, setMaxRetries] = useState(3);
   const [timeoutMs, setTimeoutMs] = useState(5000);
   const [isEnabled, setIsEnabled] = useState(true);
+  const [expandedDlqId, setExpandedDlqId] = useState<string | null>(null);
 
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -210,6 +214,20 @@ export default function ForwardingPage() {
     return record.last_error || "Bilinmeyen İletim Hatası";
   };
 
+  const getPayloadText = (record: DLQRecord) => {
+    let raw = "";
+    if (typeof record.payload === "object" && record.payload !== null) {
+      raw = record.payload.String || "";
+    } else {
+      raw = record.payload || "";
+    }
+    try {
+      return JSON.stringify(JSON.parse(raw), null, 2);
+    } catch {
+      return raw || "// Boş yük";
+    }
+  };
+
   const activeEndpoint = endpoints.find((e) => e.id === activeEndpointId);
 
   return (
@@ -217,10 +235,12 @@ export default function ForwardingPage() {
       {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
-            <Share2 className="h-6 w-6 text-primary" />
-            Upstream Forwarding & DLQ (Reverse Ingestion)
-          </h1>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
+              <Share2 className="h-6 w-6 text-primary" />
+              Upstream Forwarding & DLQ (Reverse Ingestion)
+            </h1>
+          </div>
           <p className="text-sm text-muted-foreground mt-1">
             Temiz webhook isteklerini asıl sunucunuza iletin; başarısız iletimleri otomatik üstel geri çekilme (retry) ve Dead Letter Queue ile güvenceye alın.
           </p>
@@ -235,7 +255,7 @@ export default function ForwardingPage() {
                 setSelectedProjectId(e.target.value);
                 setSelectedEndpointId("");
               }}
-              className="rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              className="rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
             >
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -249,7 +269,7 @@ export default function ForwardingPage() {
             <select
               value={activeEndpointId}
               onChange={(e) => setSelectedEndpointId(e.target.value)}
-              className="rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              className="rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
             >
               {endpoints.map((ep) => (
                 <option key={ep.id} value={ep.id}>
@@ -263,7 +283,7 @@ export default function ForwardingPage() {
 
       {message && (
         <div
-          className={`flex items-center gap-2 rounded-lg p-4 text-sm font-medium ${
+          className={`flex items-center gap-2 rounded-xl p-4 text-sm font-medium ${
             message.type === "success"
               ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
               : "bg-destructive/10 text-destructive border border-destructive/20"
@@ -278,17 +298,22 @@ export default function ForwardingPage() {
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
         {/* Left Column: Forwarding Settings (5 cols) */}
         <div className="lg:col-span-5 space-y-6">
-          <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-            <div className="flex items-center gap-2 border-b border-border pb-4 mb-4">
-              <Server className="h-5 w-5 text-primary" />
-              <h2 className="text-base font-semibold text-foreground">
-                {activeEndpoint ? activeEndpoint.name : "Endpoint"} İletim Ayarları
-              </h2>
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm space-y-4 glow-card">
+            <div className="flex items-center gap-3 border-b border-border pb-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary border border-primary/20">
+                <Server className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-foreground">
+                  {activeEndpoint ? activeEndpoint.name : "Endpoint"} İletim Ayarları
+                </h2>
+                <p className="text-xs text-muted-foreground">Upstream hedef yapılandırması</p>
+              </div>
             </div>
 
             <form onSubmit={handleSave} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
                   Hedef Upstream URL
                 </label>
                 <input
@@ -297,7 +322,7 @@ export default function ForwardingPage() {
                   placeholder="https://api.mycompany.com/webhooks/stripe"
                   value={targetUrl}
                   onChange={(e) => setTargetUrl(e.target.value)}
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary"
                 />
                 <p className="text-[11px] text-muted-foreground mt-1">
                   Temizlenen webhook yükünün POST edileceği asıl sunucu adresi.
@@ -306,7 +331,7 @@ export default function ForwardingPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
                     Maksimum Retry
                   </label>
                   <input
@@ -315,12 +340,12 @@ export default function ForwardingPage() {
                     max="10"
                     value={maxRetries}
                     onChange={(e) => setMaxRetries(Number(e.target.value))}
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
                     Zaman Aşımı (ms)
                   </label>
                   <input
@@ -330,7 +355,7 @@ export default function ForwardingPage() {
                     step="500"
                     value={timeoutMs}
                     onChange={(e) => setTimeoutMs(Number(e.target.value))}
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
               </div>
@@ -343,7 +368,7 @@ export default function ForwardingPage() {
                   onChange={(e) => setIsEnabled(e.target.checked)}
                   className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
                 />
-                <label htmlFor="isEnabled" className="text-xs font-semibold text-foreground">
+                <label htmlFor="isEnabled" className="text-xs font-semibold text-foreground cursor-pointer">
                   Upstream İletimini Aktif Et
                 </label>
               </div>
@@ -352,7 +377,7 @@ export default function ForwardingPage() {
                 <button
                   type="submit"
                   disabled={saveMutation.isPending || !activeEndpointId}
-                  className="w-full flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:opacity-50"
+                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-xs font-bold text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:opacity-50"
                 >
                   {saveMutation.isPending ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -371,7 +396,7 @@ export default function ForwardingPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <AlertOctagon className="h-5 w-5 text-rose-400" />
-              <h2 className="text-base font-semibold text-foreground">
+              <h2 className="text-base font-bold text-foreground">
                 Dead Letter Queue ({dlqRecords.length})
               </h2>
             </div>
@@ -379,9 +404,9 @@ export default function ForwardingPage() {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => refetchDLQ()}
-                className="flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-secondary transition"
+                className="flex items-center gap-1 rounded-xl border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-secondary transition"
               >
-                <RotateCw className="h-3 w-3" />
+                <RotateCw className="h-3.5 w-3.5" />
                 <span>Yenile</span>
               </button>
 
@@ -393,9 +418,9 @@ export default function ForwardingPage() {
                     }
                   }}
                   disabled={purgeMutation.isPending}
-                  className="flex items-center gap-1 rounded-lg border border-destructive/30 px-2.5 py-1.5 text-xs font-semibold text-destructive hover:bg-destructive/10 transition"
+                  className="flex items-center gap-1 rounded-xl border border-destructive/30 px-3 py-1.5 text-xs font-semibold text-destructive hover:bg-destructive/10 transition"
                 >
-                  <Trash2 className="h-3 w-3" />
+                  <Trash2 className="h-3.5 w-3.5" />
                   <span>Tümünü Temizle</span>
                 </button>
               )}
@@ -403,11 +428,11 @@ export default function ForwardingPage() {
           </div>
 
           {isDLQLoading ? (
-            <div className="flex h-48 items-center justify-center rounded-xl border border-border bg-card">
+            <div className="flex h-48 items-center justify-center rounded-2xl border border-border bg-card">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
             </div>
           ) : dlqRecords.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card/40 p-12 text-center">
+            <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/40 p-12 text-center">
               <ShieldCheck className="h-10 w-10 text-emerald-400 mb-3" />
               <p className="text-sm font-semibold text-foreground">Kuyruk Tertemiz!</p>
               <p className="text-xs text-muted-foreground mt-1 max-w-sm">
@@ -419,11 +444,12 @@ export default function ForwardingPage() {
               {dlqRecords.map((record) => {
                 const isResolved = record.status === "RESOLVED";
                 const errorText = getErrorMessage(record);
+                const isExpanded = expandedDlqId === record.id;
 
                 return (
                   <div
                     key={record.id}
-                    className={`rounded-xl border p-4 shadow-sm transition space-y-3 ${
+                    className={`rounded-2xl border p-4 shadow-sm transition space-y-3 ${
                       isResolved
                         ? "border-emerald-500/20 bg-emerald-500/5"
                         : "border-border bg-card hover:border-border/80"
@@ -432,16 +458,16 @@ export default function ForwardingPage() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                          className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
                             isResolved
-                              ? "bg-emerald-500/20 text-emerald-400"
-                              : "bg-rose-500/20 text-rose-400"
+                              ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                              : "bg-rose-500/20 text-rose-400 border border-rose-500/30"
                           }`}
                         >
                           {record.status}
                         </span>
                         <span className="text-xs font-mono text-muted-foreground">
-                          Deneme Sayısı: {record.attempts}
+                          Deneme: {record.attempts}
                         </span>
                       </div>
 
@@ -461,21 +487,38 @@ export default function ForwardingPage() {
                       </p>
                     </div>
 
-                    {!isResolved && (
-                      <div className="flex justify-end pt-2 border-t border-border">
+                    {/* Expandable Payload Toggle */}
+                    <div className="pt-2 border-t border-border flex items-center justify-between">
+                      <button
+                        onClick={() => setExpandedDlqId(isExpanded ? null : record.id)}
+                        className="flex items-center gap-1 text-[11px] text-primary hover:underline font-semibold"
+                      >
+                        <FileJson className="h-3.5 w-3.5" />
+                        <span>{isExpanded ? "Yükü Gizle" : "Yükü İncele (Payload)"}</span>
+                        {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                      </button>
+
+                      {!isResolved && (
                         <button
                           onClick={() => retryMutation.mutate(record.id)}
                           disabled={retryMutation.isPending}
-                          className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition disabled:opacity-50"
+                          className="flex items-center gap-1.5 rounded-xl bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground hover:bg-primary/90 transition disabled:opacity-50"
                         >
                           {retryMutation.isPending ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           ) : (
-                            <RefreshCw className="h-3 w-3" />
+                            <RefreshCw className="h-3.5 w-3.5" />
                           )}
                           <span>Yeniden İlet (Retry)</span>
                         </button>
-                      </div>
+                      )}
+                    </div>
+
+                    {/* Expanded Payload Content */}
+                    {isExpanded && (
+                      <pre className="rounded-xl bg-background p-3 text-[11px] font-mono text-foreground border border-border overflow-x-auto leading-relaxed max-h-48">
+                        {getPayloadText(record)}
+                      </pre>
                     )}
                   </div>
                 );

@@ -17,6 +17,8 @@ import {
   CheckCircle2,
   AlertCircle,
   Zap,
+  AlignLeft,
+  XCircle,
 } from "lucide-react";
 
 interface MockRuleItem {
@@ -108,6 +110,22 @@ export default function MockPage() {
     },
   });
 
+  const handleApplyPreset = (code: number, name: string, body: any) => {
+    setStatusCode(code);
+    setRuleName(name);
+    setResponseBodyText(JSON.stringify(body, null, 2));
+  };
+
+  const handlePrettify = () => {
+    try {
+      const parsed = JSON.parse(responseBodyText);
+      setResponseBodyText(JSON.stringify(parsed, null, 2));
+      setCreateError(null);
+    } catch {
+      setCreateError("Prettify yapılamadı. JSON formatı hatalı.");
+    }
+  };
+
   const handleCreateMock = (e: React.FormEvent) => {
     e.preventDefault();
     if (!ruleName.trim()) return;
@@ -137,15 +155,15 @@ export default function MockPage() {
       {/* Header */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight">Mock Lab</h1>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl font-bold tracking-tight">Mock Lab (Simulator Engine)</h1>
             <span className="flex items-center gap-1 rounded-full bg-purple-500/10 px-2.5 py-0.5 text-xs font-semibold text-purple-400">
               <Sparkles className="h-3 w-3" />
               Dynamic Simulator
             </span>
           </div>
-          <p className="text-sm text-muted-foreground">
-            Webhook sağlayıcılarını test etmek için özel HTTP yanıtları, hata durumları (503) ve gecikmeler simüle edin
+          <p className="text-sm text-muted-foreground mt-1">
+            Webhook sağlayıcılarını test etmek için özel HTTP yanıtları, hata durumları (503, 429) ve gecikmeler simüle edin
           </p>
         </div>
 
@@ -154,7 +172,7 @@ export default function MockPage() {
             <select
               value={activeEndpointId}
               onChange={(e) => setSelectedEndpointId(e.target.value)}
-              className="rounded-lg border border-input bg-card px-3 py-2 text-sm font-medium focus:border-primary focus:outline-none"
+              className="rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
             >
               {endpoints.map((ep) => (
                 <option key={ep.id} value={ep.id}>
@@ -167,7 +185,7 @@ export default function MockPage() {
           <button
             onClick={() => setIsCreateOpen(!isCreateOpen)}
             disabled={!activeEndpointId}
-            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:opacity-50"
+            className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:opacity-50"
           >
             <Plus className="h-4 w-4" />
             <span>Yeni Mock Kuralı</span>
@@ -177,9 +195,9 @@ export default function MockPage() {
 
       {/* Create Mock Modal / Drawer */}
       {isCreateOpen && (
-        <div className="rounded-xl border border-border bg-card p-6 shadow-sm animate-in fade-in duration-200">
-          <div className="flex items-center justify-between border-b border-border pb-4 mb-4">
-            <h3 className="text-base font-semibold">Yeni Mock Kuralı Tanımla</h3>
+        <div className="rounded-2xl border border-border bg-card p-6 shadow-md animate-in fade-in duration-200 space-y-4">
+          <div className="flex items-center justify-between border-b border-border pb-4 mb-2">
+            <h3 className="text-base font-bold">Yeni Mock Yanıt Kuralı Tanımla</h3>
             <button
               onClick={() => {
                 setIsCreateOpen(false);
@@ -191,8 +209,41 @@ export default function MockPage() {
             </button>
           </div>
 
+          {/* Quick Presets Bar */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] uppercase font-bold text-muted-foreground mr-1">Hazır Şablonlar:</span>
+            <button
+              type="button"
+              onClick={() => handleApplyPreset(200, "200 OK Ödeme Başarılı", { status: "success", transaction_id: "tx_9981", code: 200 })}
+              className="rounded-lg border border-border bg-secondary/50 px-2.5 py-1 text-xs font-semibold text-foreground hover:bg-secondary transition"
+            >
+              200 OK Başarılı
+            </button>
+            <button
+              type="button"
+              onClick={() => handleApplyPreset(400, "400 Bad Request Geçersiz Parametre", { error: "INVALID_PARAM", message: "Missing required signature header" })}
+              className="rounded-lg border border-border bg-secondary/50 px-2.5 py-1 text-xs font-semibold text-foreground hover:bg-secondary transition"
+            >
+              400 Bad Request
+            </button>
+            <button
+              type="button"
+              onClick={() => handleApplyPreset(429, "429 Rate Limit Aşıldı", { error: "TOO_MANY_REQUESTS", retry_after_seconds: 60 })}
+              className="rounded-lg border border-border bg-secondary/50 px-2.5 py-1 text-xs font-semibold text-foreground hover:bg-secondary transition"
+            >
+              429 Rate Limit
+            </button>
+            <button
+              type="button"
+              onClick={() => handleApplyPreset(503, "503 Servis Bakımda", { error: "SERVICE_UNAVAILABLE", message: "Gateway under maintenance" })}
+              className="rounded-lg border border-border bg-secondary/50 px-2.5 py-1 text-xs font-semibold text-foreground hover:bg-secondary transition"
+            >
+              503 Bakım Modu
+            </button>
+          </div>
+
           {createError && (
-            <div className="flex items-center gap-2 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive mb-4">
+            <div className="flex items-center gap-2 rounded-xl border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive mb-4">
               <AlertCircle className="h-4 w-4 shrink-0" />
               <span>{createError}</span>
             </div>
@@ -201,7 +252,7 @@ export default function MockPage() {
           <form onSubmit={handleCreateMock} className="space-y-4">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
                   Kural Adı
                 </label>
                 <input
@@ -210,24 +261,25 @@ export default function MockPage() {
                   value={ruleName}
                   onChange={(e) => setRuleName(e.target.value)}
                   placeholder="Örn: 503 Payment Gateway Outage"
-                  className="w-full rounded-lg border border-input bg-background/50 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                  className="w-full rounded-xl border border-input bg-background/50 px-3 py-2 text-sm focus:border-primary focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
                   HTTP Status Code
                 </label>
                 <select
                   value={statusCode}
                   onChange={(e) => setStatusCode(Number(e.target.value))}
-                  className="w-full rounded-lg border border-input bg-background/50 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                  className="w-full rounded-xl border border-input bg-background/50 px-3 py-2 text-sm focus:border-primary focus:outline-none"
                 >
                   <option value={200}>200 OK</option>
                   <option value={201}>201 Created</option>
                   <option value={400}>400 Bad Request</option>
                   <option value={401}>401 Unauthorized</option>
                   <option value={404}>404 Not Found</option>
+                  <option value={429}>429 Too Many Requests</option>
                   <option value={500}>500 Internal Server Error</option>
                   <option value={503}>503 Service Unavailable</option>
                   <option value={504}>504 Gateway Timeout</option>
@@ -235,7 +287,7 @@ export default function MockPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
                   Yapay Gecikme (Delay ms)
                 </label>
                 <input
@@ -246,20 +298,30 @@ export default function MockPage() {
                   value={delayMs}
                   onChange={(e) => setDelayMs(Number(e.target.value))}
                   placeholder="0 ms"
-                  className="w-full rounded-lg border border-input bg-background/50 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                  className="w-full rounded-xl border border-input bg-background/50 px-3 py-2 text-sm focus:border-primary focus:outline-none"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
-                Dönülecek Mock JSON Gövdesi
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  Dönülecek Mock JSON Gövdesi
+                </label>
+                <button
+                  type="button"
+                  onClick={handlePrettify}
+                  className="flex items-center gap-1 text-xs text-primary hover:underline font-semibold"
+                >
+                  <AlignLeft className="h-3 w-3" />
+                  <span>Formatla (Prettify)</span>
+                </button>
+              </div>
               <textarea
                 rows={5}
                 value={responseBodyText}
                 onChange={(e) => setResponseBodyText(e.target.value)}
-                className="w-full rounded-lg border border-input bg-background/50 p-3 font-mono text-xs focus:border-primary focus:outline-none"
+                className="w-full rounded-xl border border-input bg-background/50 p-3 font-mono text-xs focus:border-primary focus:outline-none leading-relaxed"
               />
             </div>
 
@@ -267,7 +329,7 @@ export default function MockPage() {
               <button
                 type="submit"
                 disabled={createMutation.isPending}
-                className="flex items-center gap-2 rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:opacity-50"
+                className="flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-xs font-bold text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:opacity-50"
               >
                 {createMutation.isPending ? (
                   <>
@@ -293,10 +355,10 @@ export default function MockPage() {
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
           </div>
         ) : mockRules.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-border py-16 text-center bg-card">
+          <div className="rounded-2xl border border-dashed border-border py-16 text-center bg-card/40">
             <Sparkles className="h-8 w-8 mx-auto mb-2 text-muted-foreground/60" />
-            <p className="text-sm font-medium">Bu endpoint için henüz mock kuralı tanımlanmadı</p>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="text-sm font-semibold">Bu endpoint için henüz mock kuralı tanımlanmadı</p>
+            <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">
               "Yeni Mock Kuralı" butonuyla sağlayıcınıza dönülecek sahte HTTP durum kodları ve yanıtlar tanımlayın.
             </p>
           </div>
@@ -304,15 +366,15 @@ export default function MockPage() {
           mockRules.map((rule) => (
             <div
               key={rule.id}
-              className="rounded-xl border border-border bg-card p-6 shadow-sm flex flex-col justify-between gap-4"
+              className="rounded-2xl border border-border bg-card p-6 shadow-sm flex flex-col justify-between gap-4 glow-card"
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <span
-                    className={`rounded px-2 py-0.5 text-xs font-mono font-bold ${
+                    className={`rounded-lg px-2.5 py-1 text-xs font-mono font-bold ${
                       rule.statusCode < 400
-                        ? "bg-emerald-500/15 text-emerald-400"
-                        : "bg-rose-500/15 text-rose-400"
+                        ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                        : "bg-rose-500/15 text-rose-400 border border-rose-500/30"
                     }`}
                   >
                     HTTP {rule.statusCode}
@@ -322,18 +384,18 @@ export default function MockPage() {
 
                 <div className="flex items-center gap-3 text-xs text-muted-foreground">
                   {rule.delayMs > 0 && (
-                    <span className="flex items-center gap-1 rounded bg-secondary px-2 py-0.5">
-                      <Clock className="h-3 w-3" />
+                    <span className="flex items-center gap-1 rounded-lg bg-secondary px-2.5 py-1 font-mono text-[11px]">
+                      <Clock className="h-3 w-3 text-amber-400" />
                       {rule.delayMs} ms gecikme
                     </span>
                   )}
-                  <span className="rounded-full bg-emerald-500/10 text-emerald-400 px-2 py-0.5 text-[11px] font-semibold">
+                  <span className="rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-0.5 text-[11px] font-bold">
                     AKTİF
                   </span>
                 </div>
               </div>
 
-              <div className="rounded-lg bg-background p-3 font-mono text-xs border border-border overflow-x-auto text-muted-foreground">
+              <div className="rounded-xl bg-background p-3.5 font-mono text-xs border border-border overflow-x-auto text-muted-foreground leading-relaxed">
                 <pre>{JSON.stringify(rule.responseBody, null, 2)}</pre>
               </div>
             </div>
@@ -343,3 +405,4 @@ export default function MockPage() {
     </div>
   );
 }
+
