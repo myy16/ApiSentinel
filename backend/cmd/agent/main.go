@@ -40,6 +40,9 @@ func main() {
 	case "pre-commit":
 		runPreCommit()
 
+	case "connect":
+		runConnect(os.Args[2:])
+
 	case "scan":
 		runScan(os.Args[2:])
 
@@ -58,8 +61,24 @@ func printUsage() {
 	fmt.Println("  apisentinel scan --staged        Scan git staged changes before commit")
 	fmt.Println("  apisentinel pre-commit           Git pre-commit hook runner (exits 1 if secrets found)")
 	fmt.Println("  apisentinel install-hook         Install pre-commit hook into current git repository")
+	fmt.Println("  apisentinel connect [options]    Connect live gRPC session to ApiSentinel Cloud")
 	fmt.Println("  apisentinel version              Show CLI version")
 	fmt.Println("")
+}
+
+func runConnect(args []string) {
+	fs := flag.NewFlagSet("connect", flag.ExitOnError)
+	server := fs.String("server", "localhost:50051", "ApiSentinel Cloud gRPC server address")
+	token := fs.String("token", "apisent_dev_token", "Agent authorization token or project API key")
+	_ = fs.Parse(args)
+
+	client := agent.NewCloudClient(*server, *token)
+	ctx := context.Background()
+
+	if err := client.Connect(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "❌ Connection error: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func runInstallHook() {

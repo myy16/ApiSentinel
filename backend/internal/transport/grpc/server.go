@@ -2,6 +2,8 @@ package grpc
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net"
@@ -151,12 +153,35 @@ func (s *Server) validateToken(md metadata.MD) error {
 
 	rawToken := strings.TrimPrefix(tokens[0], "Bearer ")
 
-	// 1. Check if token matches predefined agent secret (NOT the JWT signing key)
+	// 1. Development default token
+	if isDevelopment() && (rawToken == "apisent_dev_token" || allowInsecureGRPC()) {
+		return nil
+	}
+
+	// 2. Check if token matches predefined agent secret
 	if agentKey := os.Getenv("AGENT_SECRET_KEY"); agentKey != "" && rawToken == agentKey {
 		return nil
 	}
 
-	// 2. Validate JWT token
+	// 3. Check database API key (apisent_live_... or apisent_test_...)
+	if strings.HasPrefix(rawToken, "apisent_live_") || strings.HasPrefix(rawToken, "apisent_test_") {
+		var prefix string
+		if strings.HasPrefix(rawToken, "apisent_live_") {
+			prefix = "apisent_live_"
+		} else {
+			prefix = "apisent_test_"
+		}
+		hash := sha256.Sum256([]byte(rawToken))
+		keyHash := hex.EncodeToString(hash[:])
+		if _, err := s.queries.GetAPIKeyByPrefixAndHash(context.Background(), database.GetAPIKeyByPrefixAndHashParams{
+			KeyPrefix: prefix,
+			KeyHash:   keyHash,
+		}); err == nil {
+			return nil
+		}
+	}
+
+	// 4. Validate JWT token
 	token, err := jwt.Parse(rawToken, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, jwt.ErrSignatureInvalid
