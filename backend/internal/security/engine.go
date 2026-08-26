@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/apisentinel/apisentinel/internal/security/injection"
+	"github.com/apisentinel/apisentinel/internal/security/normalize"
 	"github.com/apisentinel/apisentinel/internal/security/pii"
 	"github.com/apisentinel/apisentinel/internal/security/secret"
 )
@@ -48,20 +49,41 @@ func (e *Engine) Inspect(rawPayload string) []Finding {
 	return e.InspectWithContext(context.Background(), rawPayload)
 }
 
-// InspectWithContext runs all registered scanners with context cancellation support.
+// InspectWithContext runs all registered scanners with context cancellation and payload canonicalization support.
 func (e *Engine) InspectWithContext(ctx context.Context, rawPayload string) []Finding {
 	e.mu.RLock()
 	scanners := e.scanners
 	e.mu.RUnlock()
 
 	var results []Finding
+	seen := make(map[string]bool)
+
+	addFindings := func(findings []Finding) {
+		for _, f := range findings {
+			key := f.Category + ":" + f.Type + ":" + f.Message
+			if !seen[key] {
+				seen[key] = true
+				results = append(results, f)
+			}
+		}
+	}
+
+	// 1. Scan raw payload directly
 	for _, scanner := range scanners {
 		if ctx.Err() != nil {
 			break
 		}
-		findings := scanner.Scan(ctx, rawPayload)
-		if len(findings) > 0 {
-			results = append(results, findings...)
+		addFindings(scanner.Scan(ctx, rawPayload))
+	}
+
+	// 2. Scan canonicalized (decoded/de-obfuscated) payload if different
+	canonical := normalize.Canonicalize(rawPayload)
+	if canonical != rawPayload && ctx.Err() == nil {
+		for _, scanner := range scanners {
+			if ctx.Err() != nil {
+				break
+			}
+			addFindings(scanner.Scan(ctx, canonical))
 		}
 	}
 

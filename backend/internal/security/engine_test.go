@@ -96,3 +96,35 @@ func TestEngine_ContextCancellation(t *testing.T) {
 		t.Errorf("expected 0 findings when context is cancelled, got %d", len(findings))
 	}
 }
+
+func TestEngine_ObfuscatedPayloadDetection(t *testing.T) {
+	engine := NewEngine()
+
+	// 1. URL encoded SQLi
+	urlEncodedSQLi := `{"query": "%27%20OR%201%3D1%20--"}`
+	findings := engine.Inspect(urlEncodedSQLi)
+	if len(findings) == 0 {
+		t.Fatalf("expected finding for URL-encoded SQLi, got none")
+	}
+	if findings[0].Category != "INJECTION" {
+		t.Errorf("expected INJECTION category, got %s", findings[0].Category)
+	}
+
+	// 2. HTML entity encoded XSS
+	htmlEncodedXSS := `&lt;script&gt;alert(1)&lt;/script&gt;`
+	findings = engine.Inspect(htmlEncodedXSS)
+	if len(findings) == 0 {
+		t.Fatalf("expected finding for HTML-encoded XSS, got none")
+	}
+	if findings[0].Category != "INJECTION" {
+		t.Errorf("expected INJECTION category, got %s", findings[0].Category)
+	}
+
+	// 3. Double URL encoded attack
+	doubleEncodedSQLi := `{"search": "%2527%2520UNION%2520SELECT%2520null"}`
+	findings = engine.Inspect(doubleEncodedSQLi)
+	if len(findings) == 0 {
+		t.Fatalf("expected finding for double-encoded SQLi, got none")
+	}
+}
+

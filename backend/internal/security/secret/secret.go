@@ -130,11 +130,17 @@ func MaskSecret(secret string) string {
 	return prefix + strings.Repeat("*", len(secret)-8) + suffix
 }
 
+var (
+	uuidRegex    = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	hexHashRegex = regexp.MustCompile(`(?i)^[0-9a-f]{32,64}$`)
+)
+
 func isPlaceholder(val string) bool {
 	lower := strings.ToLower(val)
 	placeholders := []string{
 		"your_", "replace_", "example", "placeholder", "changeme", "secret_here",
 		"enter_", "my_secret", "xxx", "123456", "password", "none", "true", "false",
+		"undefined", "null", "test_key", "sample",
 	}
 	for _, ph := range placeholders {
 		if strings.Contains(lower, ph) {
@@ -142,6 +148,87 @@ func isPlaceholder(val string) bool {
 		}
 	}
 	return false
+}
+
+// IsUUID checks if the string matches standard UUID v1-v5 format
+func IsUUID(val string) bool {
+	return uuidRegex.MatchString(strings.TrimSpace(val))
+}
+
+// IsSafeHexHash checks if the string is a standalone MD5/SHA hash
+func IsSafeHexHash(val string) bool {
+	return hexHashRegex.MatchString(strings.TrimSpace(val))
+}
+
+// ScoreContextAndEntropy computes a weighted confidence score based on key context + entropy
+func ScoreContextAndEntropy(keyContext, val string) (confidence float64, isSecret bool, severity string) {
+	val = strings.TrimSpace(val)
+	if len(val) < 8 || isPlaceholder(val) {
+		return 0, false, "LOW"
+	}
+
+	// Exclude UUIDs from generic entropy scan unless explicitly assigned to a critical secret key
+	if IsUUID(val) {
+		return 0, false, "LOW"
+	}
+
+	entropy := ShannonEntropy(val)
+	if entropy < 2.7 {
+		// Low randomness text (plain words, sequential numbers)
+		return 0, false, "LOW"
+	}
+
+	keyLower := strings.ToLower(keyContext)
+
+	// High-risk key context keywords
+	highRiskKeys := []string{
+		"api_key", "apikey", "secret_key", "secret", "private_key", "privkey",
+		"access_token", "auth_token", "client_secret", "password", "passwd",
+		"webhook_secret", "signing_secret", "encryption_key",
+	}
+
+	// Safe/noisy keys that produce false positives
+	safeKeys := []string{
+		"uuid", "id", "user_id", "request_id", "req_id", "session_id", "sess_id",
+		"checksum", "hash", "etag", "nonce", "tracking_id", "order_id", "tx_id",
+		"file_name", "filename", "slug", "content_type",
+	}
+
+	for _, sk := range safeKeys {
+		if strings.Contains(keyLower, sk) && !strings.Contains(keyLower, "secret") {
+			return 0, false, "LOW"
+		}
+	}
+
+	isHighRiskKey := false
+	for _, hrk := range highRiskKeys {
+		if strings.Contains(keyLower, hrk) {
+			isHighRiskKey = true
+			break
+		}
+	}
+
+	if isHighRiskKey {
+		if entropy >= 3.5 {
+			return 0.98, true, "CRITICAL"
+		}
+		if entropy >= 3.0 {
+			return 0.92, true, "HIGH"
+		}
+		return 0.85, true, "HIGH"
+	}
+
+	// Generic key context (e.g. key=..., token=..., credential=...)
+	if IsSafeHexHash(val) {
+		// Standalone hex hash without explicit secret key is likely a commit hash or checksum
+		return 0, false, "LOW"
+	}
+
+	if entropy >= 3.8 && len(val) >= 16 {
+		return 0.80, true, "MEDIUM"
+	}
+
+	return 0, false, "LOW"
 }
 
 func ScanText(text string) []Finding {
@@ -337,14 +424,15 @@ func ScanText(text string) []Finding {
 		matches := genericSecretAssign.FindAllStringSubmatch(text, -1)
 		for _, m := range matches {
 			if len(m) > 1 {
+				keyCtx := m[0]
 				val := strings.TrimSpace(m[1])
-				if !isPlaceholder(val) && ShannonEntropy(val) >= 2.8 && len(val) >= 8 {
+				if conf, isSec, sev := ScoreContextAndEntropy(keyCtx, val); isSec {
 					findings = append(findings, Finding{
 						Type:           "GENERIC_SECRET_ASSIGNMENT",
-						Severity:       "HIGH",
-						Message:        "High-entropy secret or password assignment detected",
+						Severity:       sev,
+						Message:        "High-entropy secret or password assignment detected with context validation",
 						EvidenceMasked: MaskSecret(val),
-						Confidence:     0.90,
+						Confidence:     conf,
 					})
 				}
 			}

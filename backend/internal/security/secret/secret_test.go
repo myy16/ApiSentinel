@@ -60,3 +60,39 @@ func TestSecretDetectors(t *testing.T) {
 		t.Errorf("Expected DB_PASSWORD_EXPOSURE finding, got: %+v", findings)
 	}
 }
+
+func TestContextAwareEntropyScoring(t *testing.T) {
+	// 1. True Positive: High-entropy secret with key context
+	validSecret := `custom_api_key="K9#mQ2$zL8!vX4@pW7*jR1"`
+	findings := ScanText(validSecret)
+	if len(findings) == 0 {
+		t.Fatalf("Expected finding for valid high-entropy secret, got none")
+	}
+	if findings[0].Type != "GENERIC_SECRET_ASSIGNMENT" {
+		t.Errorf("Expected GENERIC_SECRET_ASSIGNMENT, got %s", findings[0].Type)
+	}
+	if findings[0].Confidence < 0.90 {
+		t.Errorf("Expected high confidence >= 0.90, got %f", findings[0].Confidence)
+	}
+
+	// 2. False Positive Immunity: UUID assigned to ID fields
+	uuidPayload := `{"user_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479", "request_id": "c9a646d3-9c61-4cc9-bc77-9a5f0149f54a"}`
+	findings = ScanText(uuidPayload)
+	if len(findings) > 0 {
+		t.Errorf("UUID payload incorrectly flagged as secret: %+v", findings)
+	}
+
+	// 3. False Positive Immunity: Low-entropy plain text with key context
+	lowEntropyPayload := `{"my_key": "1234567890", "password": "password"}`
+	findings = ScanText(lowEntropyPayload)
+	if len(findings) > 0 {
+		t.Errorf("Low entropy / placeholder payload incorrectly flagged: %+v", findings)
+	}
+
+	// 4. False Positive Immunity: Safe commit hash / etag / checksum
+	checksumPayload := `{"checksum": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "etag": "6805f2ac0a3cad1"}`
+	findings = ScanText(checksumPayload)
+	if len(findings) > 0 {
+		t.Errorf("Checksum / ETag payload incorrectly flagged: %+v", findings)
+	}
+}
