@@ -83,3 +83,25 @@ func (c *Client) CheckAndSetIdempotency(ctx context.Context, key, requestID stri
 	return false, "", nil
 }
 
+// RateLimitIncrement atomically increments counter for a rate-limit key and sets window TTL on first access.
+func (c *Client) RateLimitIncrement(ctx context.Context, key string, window time.Duration) (int64, time.Duration, error) {
+	pipe := c.rdb.Pipeline()
+	incrCmd := pipe.Incr(ctx, key)
+	ttlCmd := pipe.TTL(ctx, key)
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	count := incrCmd.Val()
+	ttl := ttlCmd.Val()
+
+	if count == 1 || ttl < 0 {
+		c.rdb.Expire(ctx, key, window)
+		ttl = window
+	}
+
+	return count, ttl, nil
+}
+
+

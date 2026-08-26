@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -14,7 +15,9 @@ import (
 	"github.com/apisentinel/apisentinel/internal/policy"
 	"github.com/apisentinel/apisentinel/internal/security"
 	"github.com/apisentinel/apisentinel/internal/security/duplicate"
+	"github.com/apisentinel/apisentinel/internal/security/hmac"
 	"github.com/apisentinel/apisentinel/internal/security/pii"
+	"github.com/apisentinel/apisentinel/internal/security/ratelimit"
 	"github.com/apisentinel/apisentinel/internal/security/schema"
 	"github.com/apisentinel/apisentinel/internal/valkey"
 	"github.com/apisentinel/apisentinel/internal/worker"
@@ -26,6 +29,7 @@ import (
 type IngestionService struct {
 	queries        *database.Queries
 	valkeyClient   *valkey.Client
+	rateLimiter    *ratelimit.Limiter
 	securityEngine *security.Engine
 	alertService   *AlertService
 	forwardingSvc  *ForwardingService
@@ -42,9 +46,14 @@ func NewIngestionService(
 	if workerPool == nil {
 		workerPool = worker.NewPool(10, 2000)
 	}
+	var limiter *ratelimit.Limiter
+	if valkeyClient != nil {
+		limiter = ratelimit.NewLimiter(valkeyClient)
+	}
 	return &IngestionService{
 		queries:        queries,
 		valkeyClient:   valkeyClient,
+		rateLimiter:    limiter,
 		securityEngine: security.NewEngine(),
 		alertService:   alertService,
 		forwardingSvc:  forwardingSvc,
@@ -62,16 +71,18 @@ type IngestionResult struct {
 // ProcessWebhook executes the complete ingestion pipeline:
 // 1. Resolve & Validate Endpoint
 // 2. Generate Time-Sortable UUIDv7 Request ID
-// 3. Evaluate Mock Rules (if MOCK mode)
-// 4. Security & Injection Inspection
-// 5. Idempotency & Duplicate Check
-// 6. Schema Contract Validation
-// 7. Policy Decision (ALLOW/BLOCK/MASK)
-// 8. Mask PII & Secrets before DB storage
-// 9. Persist Captured Request
-// 10. Worker Pool Async Stream & SSE Publish
-// 11. Async Alert Dispatch
-// 12. Forwarding / Upstream proxy (if configured)
+// 3. Rate Limit Protection (Valkey Token Bucket)
+// 4. Webhook HMAC Signature Verification
+// 5. Evaluate Mock Rules (if MOCK mode)
+// 6. Security & Injection Inspection
+// 7. Idempotency & Duplicate Check
+// 8. Schema Contract Validation
+// 9. Policy Decision (ALLOW/BLOCK/MASK)
+// 10. Mask PII & Secrets before DB storage
+// 11. Persist Captured Request
+// 12. Worker Pool Async Stream & SSE Publish
+// 13. Async Alert Dispatch
+// 14. Forwarding / Upstream proxy (if configured)
 func (s *IngestionService) ProcessWebhook(
 	ctx context.Context,
 	slug string,
@@ -93,6 +104,43 @@ func (s *IngestionService) ProcessWebhook(
 	// 2. Time-sortable K-Sortable Request ID (UUIDv7)
 	requestId := id.NewRequestID()
 
+	// 3. Rate Limit Protection (Valkey Token Bucket)
+	if s.rateLimiter != nil {
+		endpointIdStr := uuid.UUID(endpoint.ID.Bytes).String()
+		rateKey := fmt.Sprintf("%s:%s", endpointIdStr, clientIP)
+		res, _ := s.rateLimiter.Allow(ctx, rateKey, 120, time.Minute)
+		if !res.Allowed {
+			return &IngestionResult{
+				StatusCode: http.StatusTooManyRequests,
+				RequestID:  requestId,
+				Action:     "BLOCK",
+				ResponseBody: map[string]interface{}{
+					"error": map[string]interface{}{
+						"code":      "RATE_LIMIT_EXCEEDED",
+						"message":   "Too many requests. Rate limit exceeded (120 req/min).",
+						"requestId": requestId,
+					},
+				},
+			}, nil
+		}
+	}
+
+	// 4. Webhook HMAC Signature Verification (if provider signatures are provided)
+	if hmacErr := s.verifyWebhookHMAC(endpoint, rawBody, headers); hmacErr != nil {
+		return &IngestionResult{
+			StatusCode: http.StatusUnauthorized,
+			RequestID:  requestId,
+			Action:     "BLOCK",
+			ResponseBody: map[string]interface{}{
+				"error": map[string]interface{}{
+					"code":      "INVALID_WEBHOOK_SIGNATURE",
+					"message":   hmacErr.Error(),
+					"requestId": requestId,
+				},
+			},
+		}, nil
+	}
+
 	headersBytes, _ := json.Marshal(headers)
 	queryBytes, _ := json.Marshal(queryParams)
 
@@ -107,15 +155,15 @@ func (s *IngestionService) ProcessWebhook(
 		pgRawBody = pgtype.Text{String: string(rawBody), Valid: true}
 	}
 
-	// 3. Check for Mock Mode & Active Mock Rules
+	// 5. Check for Mock Mode & Active Mock Rules
 	if endpoint.Mode == "MOCK" {
 		return s.handleMockMode(ctx, endpoint, requestId, httpMethod, headersBytes, queryBytes, pgRawBody, parsedJson)
 	}
 
-	// 4. Multi-Layer Security Inspection (PII + Secrets + Injection + Obfuscation)
+	// 6. Multi-Layer Security Inspection (PII + Secrets + Injection + Obfuscation)
 	findings := s.securityEngine.Inspect(string(rawBody))
 
-	// 5. Idempotency & Duplicate Request Detection (Valkey sliding window)
+	// 7. Idempotency & Duplicate Request Detection (Valkey sliding window)
 	if s.valkeyClient != nil && len(rawBody) > 0 {
 		endpointIdStr := uuid.UUID(endpoint.ID.Bytes).String()
 		payloadHash := duplicate.CalculatePayloadHash(rawBody)
@@ -134,10 +182,10 @@ func (s *IngestionService) ProcessWebhook(
 		}
 	}
 
-	// 6. JSON Schema Contract Validation
+	// 8. JSON Schema Contract Validation
 	s.validateSchemaContract(ctx, endpoint.ID, rawBody, &findings)
 
-	// 7. Deterministic Policy Evaluation
+	// 9. Deterministic Policy Evaluation
 	decision := policy.Evaluate(findings)
 
 	var responseStatus int32 = http.StatusOK
@@ -148,14 +196,14 @@ func (s *IngestionService) ProcessWebhook(
 		action = "BLOCK"
 	}
 
-	// 8. Build Masked Body
+	// 10. Build Masked Body
 	maskedBodyStr := s.maskPIIAndSecrets(rawBody, findings)
 	var pgMaskedBody pgtype.Text
 	if len(maskedBodyStr) > 0 {
 		pgMaskedBody = pgtype.Text{String: maskedBodyStr, Valid: true}
 	}
 
-	// 9. Persist to PostgreSQL
+	// 11. Persist to PostgreSQL
 	captured, err := s.queries.CreateCapturedRequest(ctx, database.CreateCapturedRequestParams{
 		EndpointID:       endpoint.ID,
 		RequestID:        requestId,
@@ -188,13 +236,13 @@ func (s *IngestionService) ProcessWebhook(
 	projectIdStr := uuid.UUID(endpoint.ProjectID.Bytes).String()
 	endpointIdStr := uuid.UUID(endpoint.ID.Bytes).String()
 
-	// 10. Async Worker Pool Stream & SSE Publishing
+	// 12. Async Worker Pool Stream & SSE Publishing
 	s.dispatchAsyncEvents(capturedIdStr, projectIdStr, endpointIdStr, requestId, httpMethod, responseStatus, action, rawBody)
 
-	// 11. Persist Findings & Dispatch Alerts
+	// 13. Persist Findings & Dispatch Alerts
 	s.persistFindingsAndAlerts(ctx, captured, endpoint, findings)
 
-	// 12. Policy Block Response
+	// 14. Policy Block Response
 	if action == "BLOCK" {
 		var blockReason string
 		for _, f := range findings {
@@ -221,10 +269,8 @@ func (s *IngestionService) ProcessWebhook(
 		}, nil
 	}
 
-	// 13. Forwarding to Upstream Target (if configured)
+	// 15. Forwarding to Upstream Target (if configured)
 	if s.forwardingSvc != nil {
-		endpointIdStr := uuid.UUID(endpoint.ID.Bytes).String()
-		capturedIdStr := uuid.UUID(captured.ID.Bytes).String()
 		flatHeaders := make(map[string]string)
 		for k, v := range headers {
 			if len(v) > 0 {
@@ -248,6 +294,57 @@ func (s *IngestionService) ProcessWebhook(
 }
 
 // --- Pipeline Helper Functions ---
+
+func (s *IngestionService) verifyWebhookHMAC(
+	endpoint database.Endpoint,
+	rawBody []byte,
+	headers map[string][]string,
+) error {
+	// 1. Check for Stripe signature
+	if hasHeader(headers, "stripe-signature") {
+		secret := os.Getenv("STRIPE_WEBHOOK_SECRET")
+		if secret != "" {
+			return hmac.Verify(hmac.ProviderStripe, secret, rawBody, headers, 5*time.Minute)
+		}
+	}
+
+	// 2. Check for GitHub signature
+	if hasHeader(headers, "x-hub-signature-256") {
+		secret := os.Getenv("GITHUB_WEBHOOK_SECRET")
+		if secret != "" {
+			return hmac.Verify(hmac.ProviderGitHub, secret, rawBody, headers, 0)
+		}
+	}
+
+	// 3. Check for Shopify signature
+	if hasHeader(headers, "x-shopify-hmac-sha256") {
+		secret := os.Getenv("SHOPIFY_WEBHOOK_SECRET")
+		if secret != "" {
+			return hmac.Verify(hmac.ProviderShopify, secret, rawBody, headers, 0)
+		}
+	}
+
+	// 4. Check for Generic X-Signature
+	if hasHeader(headers, "x-signature", "x-webhook-signature") {
+		secret := os.Getenv("GENERIC_WEBHOOK_SECRET")
+		if secret != "" {
+			return hmac.Verify(hmac.ProviderGeneric, secret, rawBody, headers, 0)
+		}
+	}
+
+	return nil
+}
+
+func hasHeader(headers map[string][]string, keys ...string) bool {
+	for _, k := range keys {
+		for hk, vals := range headers {
+			if strings.EqualFold(hk, k) && len(vals) > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 func (s *IngestionService) handleMockMode(
 	ctx context.Context,
