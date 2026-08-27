@@ -28,3 +28,9 @@ WHERE id = $1 AND organization_id = $2;
 SELECT id FROM projects
 WHERE id = $1 AND organization_id = $2
 LIMIT 1;
+
+-- name: GetProjectOrganizationID :one
+SELECT organization_id
+FROM projects
+WHERE id = $1
+LIMIT 1;

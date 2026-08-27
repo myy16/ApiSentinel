@@ -286,6 +286,30 @@ const openAPIJSON = `{
         "responses": { "200": { "description": "JSON Schema sözleşmesi silindi" } }
       }
     },
+    "/api/endpoints/{endpointId}/webhook-security": {
+      "get": {
+        "tags": ["Webhook Security"],
+        "summary": "Endpoint imza doğrulama ayarını getirir; secret dönmez",
+        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
+        "parameters": [{ "name": "endpointId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Provider ve imza zorunluluğu" } }
+      },
+      "put": {
+        "tags": ["Webhook Security"],
+        "summary": "Şifreli endpoint webhook secret kaydeder",
+        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
+        "parameters": [{ "name": "endpointId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["provider", "secret"], "properties": { "provider": { "type": "string", "enum": ["stripe", "github", "shopify", "generic"] }, "secret": { "type": "string", "writeOnly": true }, "requireSignature": { "type": "boolean", "default": true } } } } } },
+        "responses": { "200": { "description": "Secret şifrelenerek kaydedildi" } }
+      },
+      "delete": {
+        "tags": ["Webhook Security"],
+        "summary": "Endpoint imza doğrulama ayarını siler",
+        "security": [{ "BearerAuth": [], "OrgHeader": [] }],
+        "parameters": [{ "name": "endpointId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "204": { "description": "Ayar silindi" } }
+      }
+    },
     "/api/projects/{projectId}/findings": {
       "get": {
         "tags": ["Security Findings"],

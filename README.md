@@ -45,6 +45,24 @@ ApiSentinel, webhook ve API trafiğini yakalayan, derinlemesine güvenlik tarama
 - **Frontend Dashboard:** `http://localhost:3000`
 - **gRPC Agent Port:** `localhost:50051`
 
+### Endpoint webhook imza doğrulaması
+
+Her endpoint için imza ayarı, API üzerinden saklanır; secret yalnızca şifrelenmiş biçimde veritabanına yazılır ve bir daha okunarak dönülmez. Önce `WEBHOOK_SECRET_ENCRYPTION_KEY` ayarlanmalıdır. Swagger üzerinden şu çağrıyı yapabilirsin:
+
+```text
+PUT /api/endpoints/{endpointId}/webhook-security
+```
+
+```json
+{
+  "provider": "stripe",
+  "secret": "whsec_...",
+  "requireSignature": true
+}
+```
+
+Agent bağlantısı için dashboard JWT'si yerine o projeye ait bir API key kullanılır. Production'da TLS açıksa Agent'a `APISENTINEL_GRPC_TLS=true` ve gerektiğinde `APISENTINEL_GRPC_SERVER_NAME` verilir.
+
 ---
 
 ## Veritabanı Şeması & Migration Yönetimi (Tek Doğruluk Kaynağı)

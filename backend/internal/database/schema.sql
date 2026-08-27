@@ -209,4 +209,15 @@ CREATE TABLE IF NOT EXISTS api_keys (
 CREATE INDEX IF NOT EXISTS idx_api_keys_project ON api_keys(project_id);
 CREATE INDEX IF NOT EXISTS idx_api_keys_lookup ON api_keys(key_prefix, key_hash);
 
+-- 18. Per-endpoint encrypted webhook signature configuration
+CREATE TABLE IF NOT EXISTS endpoint_webhook_security (
+    endpoint_id UUID PRIMARY KEY REFERENCES endpoints(id) ON DELETE CASCADE,
+    provider VARCHAR(32) NOT NULL,
+    encrypted_secret TEXT NOT NULL,
+    require_signature BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT endpoint_webhook_security_provider_check
+        CHECK (provider IN ('stripe', 'github', 'shopify', 'generic'))
+);
 

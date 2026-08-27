@@ -28,6 +28,7 @@ type Querier interface {
 	DeleteDLQRecordsByEndpoint(ctx context.Context, endpointID pgtype.UUID) error
 	DeleteEndpoint(ctx context.Context, arg DeleteEndpointParams) error
 	DeleteEndpointSchema(ctx context.Context, endpointID pgtype.UUID) error
+	DeleteEndpointWebhookSecurity(ctx context.Context, endpointID pgtype.UUID) error
 	DeleteMockRule(ctx context.Context, arg DeleteMockRuleParams) error
 	DeleteProject(ctx context.Context, arg DeleteProjectParams) error
 	GetAPIKeyByPrefixAndHash(ctx context.Context, arg GetAPIKeyByPrefixAndHashParams) (ApiKey, error)
@@ -37,6 +38,7 @@ type Querier interface {
 	GetEndpointByID(ctx context.Context, arg GetEndpointByIDParams) (Endpoint, error)
 	GetEndpointBySlug(ctx context.Context, slug string) (Endpoint, error)
 	GetEndpointSchema(ctx context.Context, endpointID pgtype.UUID) (EndpointSchema, error)
+	GetEndpointWebhookSecurity(ctx context.Context, endpointID pgtype.UUID) (EndpointWebhookSecurity, error)
 	GetEndpointWithOwnership(ctx context.Context, arg GetEndpointWithOwnershipParams) (GetEndpointWithOwnershipRow, error)
 	GetFindingStats(ctx context.Context, projectID pgtype.UUID) (GetFindingStatsRow, error)
 	GetForwardingConfigByEndpoint(ctx context.Context, endpointID pgtype.UUID) (ForwardingConfig, error)
@@ -44,6 +46,7 @@ type Querier interface {
 	GetMembership(ctx context.Context, arg GetMembershipParams) (Membership, error)
 	GetOrganizationByID(ctx context.Context, id pgtype.UUID) (Organization, error)
 	GetProjectByID(ctx context.Context, arg GetProjectByIDParams) (Project, error)
+	GetProjectOrganizationID(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error)
 	ListAPIKeysByProject(ctx context.Context, projectID pgtype.UUID) ([]ListAPIKeysByProjectRow, error)
@@ -66,6 +69,7 @@ type Querier interface {
 	UpdateReplayJobResult(ctx context.Context, arg UpdateReplayJobResultParams) (ReplayJob, error)
 	UpdateRequestProcessingStatus(ctx context.Context, arg UpdateRequestProcessingStatusParams) error
 	UpsertEndpointSchema(ctx context.Context, arg UpsertEndpointSchemaParams) (EndpointSchema, error)
+	UpsertEndpointWebhookSecurity(ctx context.Context, arg UpsertEndpointWebhookSecurityParams) (EndpointWebhookSecurity, error)
 	UpsertForwardingConfig(ctx context.Context, arg UpsertForwardingConfigParams) (ForwardingConfig, error)
 	VerifyAlertChannelOwnership(ctx context.Context, arg VerifyAlertChannelOwnershipParams) (pgtype.UUID, error)
 	VerifyDLQRecordOwnership(ctx context.Context, arg VerifyDLQRecordOwnershipParams) (pgtype.UUID, error)

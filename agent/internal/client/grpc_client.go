@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	replayv1 "github.com/apisentinel/apisentinel/pkg/genproto/proto/replay/v1"
 	"github.com/fatih/color"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 )
@@ -42,10 +44,15 @@ func NewAgentClient(serverAddr, agentID, token string) *AgentClient {
 func (c *AgentClient) Connect(ctx context.Context) error {
 	color.Cyan("🔌 Connecting to ApiSentinel Cloud gRPC at %s...", c.serverAddr)
 
-	conn, err := grpc.DialContext(ctx, c.serverAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
-	)
+	transportCredentials := credentials.TransportCredentials(insecure.NewCredentials())
+	if os.Getenv("APISENTINEL_GRPC_TLS") == "true" {
+		transportCredentials = credentials.NewTLS(&tls.Config{
+			MinVersion: tls.VersionTLS12,
+			ServerName: os.Getenv("APISENTINEL_GRPC_SERVER_NAME"),
+		})
+	}
+
+	conn, err := grpc.DialContext(ctx, c.serverAddr, grpc.WithTransportCredentials(transportCredentials), grpc.WithBlock())
 	if err != nil {
 		return fmt.Errorf("failed to connect to gRPC server: %w", err)
 	}

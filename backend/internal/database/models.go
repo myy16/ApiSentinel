@@ -79,6 +79,15 @@ type EndpointSchema struct {
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
 }
 
+type EndpointWebhookSecurity struct {
+	EndpointID       pgtype.UUID        `json:"endpoint_id"`
+	Provider         string             `json:"provider"`
+	EncryptedSecret  string             `json:"encrypted_secret"`
+	RequireSignature bool               `json:"require_signature"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+}
+
 type ForwardingConfig struct {
 	ID            pgtype.UUID        `json:"id"`
 	EndpointID    pgtype.UUID        `json:"endpoint_id"`

@@ -16,7 +16,7 @@ import (
 	agentv1 "github.com/apisentinel/apisentinel/pkg/genproto/proto/agent/v1"
 	replayv1 "github.com/apisentinel/apisentinel/pkg/genproto/proto/replay/v1"
 	securityv1 "github.com/apisentinel/apisentinel/pkg/genproto/proto/security/v1"
-	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -27,12 +27,19 @@ import (
 )
 
 type AgentSession struct {
-	AgentID  string
-	Hostname string
-	OS       string
-	Version  string
-	Stream   agentv1.AgentService_ConnectSessionServer
-	LastSeen time.Time
+	AgentID        string
+	ProjectID      string
+	OrganizationID string
+	Hostname       string
+	OS             string
+	Version        string
+	Stream         agentv1.AgentService_ConnectSessionServer
+	LastSeen       time.Time
+}
+
+type agentScope struct {
+	projectID      string
+	organizationID string
 }
 
 type Server struct {
@@ -146,13 +153,20 @@ func (s *Server) unaryAuthInterceptor() grpc.UnaryServerInterceptor {
 }
 
 func (s *Server) validateToken(md metadata.MD) error {
+	_, err := s.resolveAgentScope(md)
+	return err
+}
+
+// resolveAgentScope authenticates agent traffic with a non-expired project API key.
+// A normal dashboard JWT intentionally cannot create a gRPC agent tunnel.
+func (s *Server) resolveAgentScope(md metadata.MD) (agentScope, error) {
 	tokens := md.Get("authorization")
 	if len(tokens) == 0 {
 		tokens = md.Get("x-agent-token")
 	}
 
 	if len(tokens) == 0 {
-		return status.Errorf(codes.Unauthenticated, "agent authorization token required")
+		return agentScope{}, status.Errorf(codes.Unauthenticated, "agent authorization token required")
 	}
 
 	rawToken := strings.TrimPrefix(tokens[0], "Bearer ")
@@ -160,15 +174,10 @@ func (s *Server) validateToken(md metadata.MD) error {
 	// 1. Development default token
 	if isDevelopment() && (rawToken == "apisent_dev_token" || allowInsecureGRPC()) {
 		log.Warn().Msg("SECURITY: gRPC auth bypassed using development-only token — do NOT use in production")
-		return nil
+		return agentScope{}, nil
 	}
 
-	// 2. Check if token matches predefined agent secret
-	if agentKey := os.Getenv("AGENT_SECRET_KEY"); agentKey != "" && rawToken == agentKey {
-		return nil
-	}
-
-	// 3. Check database API key (apisent_live_... or apisent_test_...)
+	// Project API keys provide both authentication and the tenant scope of an agent session.
 	if strings.HasPrefix(rawToken, "apisent_live_") || strings.HasPrefix(rawToken, "apisent_test_") {
 		var prefix string
 		if strings.HasPrefix(rawToken, "apisent_live_") {
@@ -178,27 +187,23 @@ func (s *Server) validateToken(md metadata.MD) error {
 		}
 		hash := sha256.Sum256([]byte(rawToken))
 		keyHash := hex.EncodeToString(hash[:])
-		if _, err := s.queries.GetAPIKeyByPrefixAndHash(context.Background(), database.GetAPIKeyByPrefixAndHashParams{
+		key, err := s.queries.GetAPIKeyByPrefixAndHash(context.Background(), database.GetAPIKeyByPrefixAndHashParams{
 			KeyPrefix: prefix,
 			KeyHash:   keyHash,
-		}); err == nil {
-			return nil
+		})
+		if err == nil {
+			organizationID, orgErr := s.queries.GetProjectOrganizationID(context.Background(), key.ProjectID)
+			if orgErr != nil {
+				return agentScope{}, status.Errorf(codes.Unauthenticated, "agent project no longer exists")
+			}
+			return agentScope{
+				projectID:      uuid.UUID(key.ProjectID.Bytes).String(),
+				organizationID: uuid.UUID(organizationID.Bytes).String(),
+			}, nil
 		}
 	}
 
-	// 4. Validate JWT token
-	token, err := jwt.Parse(rawToken, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, jwt.ErrSignatureInvalid
-		}
-		return []byte(s.jwtSecret), nil
-	})
-
-	if err == nil && token.Valid {
-		return nil
-	}
-
-	return status.Errorf(codes.Unauthenticated, "invalid or expired agent authorization token")
+	return agentScope{}, status.Errorf(codes.Unauthenticated, "a valid project API key is required for agent connections")
 }
 
 func (s *Server) Start() error {
@@ -229,8 +234,32 @@ func (s *Server) GetActiveSessions() []*AgentSession {
 	return sessions
 }
 
+// GetActiveSessionsByOrganization prevents one tenant from seeing another tenant's agents.
+func (s *Server) GetActiveSessionsByOrganization(organizationID string) []*AgentSession {
+	var sessions []*AgentSession
+	s.sessions.Range(func(_, value interface{}) bool {
+		if session, ok := value.(*AgentSession); ok && session.OrganizationID == organizationID {
+			sessions = append(sessions, session)
+		}
+		return true
+	})
+	return sessions
+}
+
 // ConnectSession handles the bidirectional streaming connection from Go Agent
 func (s *Server) ConnectSession(stream agentv1.AgentService_ConnectSessionServer) error {
+	md, ok := metadata.FromIncomingContext(stream.Context())
+	if !ok {
+		return status.Errorf(codes.Unauthenticated, "missing agent metadata")
+	}
+	scope, err := s.resolveAgentScope(md)
+	if err != nil {
+		return err
+	}
+	if scope.organizationID == "" && !isDevelopment() {
+		return status.Errorf(codes.Unauthenticated, "agent connection requires a project API key")
+	}
+
 	var currentAgentID string
 	var session *AgentSession
 
@@ -254,9 +283,11 @@ func (s *Server) ConnectSession(stream agentv1.AgentService_ConnectSessionServer
 		currentAgentID = msg.AgentId
 		if session == nil {
 			session = &AgentSession{
-				AgentID:  currentAgentID,
-				Stream:   stream,
-				LastSeen: time.Now(),
+				AgentID:        currentAgentID,
+				ProjectID:      scope.projectID,
+				OrganizationID: scope.organizationID,
+				Stream:         stream,
+				LastSeen:       time.Now(),
 			}
 			s.sessions.Store(currentAgentID, session)
 		}

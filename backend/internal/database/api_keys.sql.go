@@ -80,7 +80,10 @@ func (q *Queries) DeleteAPIKey(ctx context.Context, arg DeleteAPIKeyParams) erro
 const getAPIKeyByPrefixAndHash = `-- name: GetAPIKeyByPrefixAndHash :one
 SELECT id, project_id, name, key_prefix, key_hash, created_by, expires_at, last_used_at, revoked_at, created_at
 FROM api_keys
-WHERE key_prefix = $1 AND key_hash = $2 AND revoked_at IS NULL
+WHERE key_prefix = $1
+  AND key_hash = $2
+  AND revoked_at IS NULL
+  AND (expires_at IS NULL OR expires_at > NOW())
 LIMIT 1
 `
 

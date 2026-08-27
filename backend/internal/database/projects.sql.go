@@ -72,6 +72,20 @@ func (q *Queries) GetProjectByID(ctx context.Context, arg GetProjectByIDParams) 
 	return i, err
 }
 
+const getProjectOrganizationID = `-- name: GetProjectOrganizationID :one
+SELECT organization_id
+FROM projects
+WHERE id = $1
+LIMIT 1
+`
+
+func (q *Queries) GetProjectOrganizationID(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, getProjectOrganizationID, id)
+	var organization_id pgtype.UUID
+	err := row.Scan(&organization_id)
+	return organization_id, err
+}
+
 const listProjectsByOrg = `-- name: ListProjectsByOrg :many
 SELECT id, organization_id, name, created_at
 FROM projects

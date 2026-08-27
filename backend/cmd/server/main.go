@@ -73,6 +73,7 @@ func main() {
 	mockService := service.NewMockService(queries)
 	findingService := service.NewFindingService(queries)
 	apiKeyService := service.NewAPIKeyService(queries)
+	webhookSecurityService := service.NewWebhookSecurityService(queries, os.Getenv("WEBHOOK_SECRET_ENCRYPTION_KEY"))
 	explainer := ai.NewExplainer("")
 
 	// 4. gRPC Server (Port 50051) with Token Auth Interceptor & TLS
@@ -85,20 +86,21 @@ func main() {
 
 	// 5. HTTP Handlers & Router (Port 3001)
 	handlers := &transporthttp.Handlers{
-		AuthHandler:       transporthttp.NewAuthHandler(authService),
-		ProjectHandler:    transporthttp.NewProjectHandler(projectService),
-		EndpointHandler:   transporthttp.NewEndpointHandler(endpointService),
-		IngestionHandler:  transporthttp.NewIngestionHandler(ingestionService),
-		RequestHandler:    transporthttp.NewRequestHandler(requestService),
-		SSEHandler:        transporthttp.NewSSEHandler(valkeyClient),
-		ReplayHandler:     transporthttp.NewReplayHandler(replayService),
-		MockHandler:       transporthttp.NewMockHandler(mockService),
-		AIHandler:         transporthttp.NewAIHandler(explainer),
-		AlertHandler:      transporthttp.NewAlertHandler(alertService),
-		ForwardingHandler: transporthttp.NewForwardingHandler(forwardingService),
-		FindingHandler:    transporthttp.NewFindingHandler(findingService),
-		APIKeyHandler:     transporthttp.NewAPIKeyHandler(apiKeyService),
-		AgentHandler:      transporthttp.NewAgentHandler(grpcServer),
+		AuthHandler:            transporthttp.NewAuthHandler(authService),
+		ProjectHandler:         transporthttp.NewProjectHandler(projectService),
+		EndpointHandler:        transporthttp.NewEndpointHandler(endpointService),
+		IngestionHandler:       transporthttp.NewIngestionHandler(ingestionService),
+		RequestHandler:         transporthttp.NewRequestHandler(requestService),
+		SSEHandler:             transporthttp.NewSSEHandler(valkeyClient),
+		ReplayHandler:          transporthttp.NewReplayHandler(replayService),
+		MockHandler:            transporthttp.NewMockHandler(mockService),
+		AIHandler:              transporthttp.NewAIHandler(explainer),
+		AlertHandler:           transporthttp.NewAlertHandler(alertService),
+		ForwardingHandler:      transporthttp.NewForwardingHandler(forwardingService),
+		FindingHandler:         transporthttp.NewFindingHandler(findingService),
+		APIKeyHandler:          transporthttp.NewAPIKeyHandler(apiKeyService),
+		AgentHandler:           transporthttp.NewAgentHandler(grpcServer),
+		WebhookSecurityHandler: transporthttp.NewWebhookSecurityHandler(webhookSecurityService),
 	}
 
 	router := transporthttp.SetupRouter(handlers, cfg.JWTSecret, queries, cfg.CORSOrigin)

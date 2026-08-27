@@ -13,20 +13,21 @@ import (
 )
 
 type Handlers struct {
-	AuthHandler       *AuthHandler
-	ProjectHandler    *ProjectHandler
-	EndpointHandler   *EndpointHandler
-	IngestionHandler  *IngestionHandler
-	RequestHandler    *RequestHandler
-	SSEHandler        *SSEHandler
-	ReplayHandler     *ReplayHandler
-	MockHandler       *MockHandler
-	AIHandler         *AIHandler
-	AlertHandler      *AlertHandler
-	ForwardingHandler *ForwardingHandler
-	FindingHandler    *FindingHandler
-	APIKeyHandler     *APIKeyHandler
-	AgentHandler      *AgentHandler
+	AuthHandler            *AuthHandler
+	ProjectHandler         *ProjectHandler
+	EndpointHandler        *EndpointHandler
+	IngestionHandler       *IngestionHandler
+	RequestHandler         *RequestHandler
+	SSEHandler             *SSEHandler
+	ReplayHandler          *ReplayHandler
+	MockHandler            *MockHandler
+	AIHandler              *AIHandler
+	AlertHandler           *AlertHandler
+	ForwardingHandler      *ForwardingHandler
+	FindingHandler         *FindingHandler
+	APIKeyHandler          *APIKeyHandler
+	AgentHandler           *AgentHandler
+	WebhookSecurityHandler *WebhookSecurityHandler
 }
 
 func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsOrigin string) *chi.Mux {
@@ -117,6 +118,11 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 			protected.With(tenantGuard, endpointGuard).Post("/endpoints/{endpointId}/schema", h.EndpointHandler.SaveSchema)
 			protected.With(tenantGuard, endpointGuard).Get("/endpoints/{endpointId}/schema", h.EndpointHandler.GetSchema)
 			protected.With(tenantGuard, endpointGuard).Delete("/endpoints/{endpointId}/schema", h.EndpointHandler.DeleteSchema)
+			if h.WebhookSecurityHandler != nil {
+				protected.With(tenantGuard, endpointGuard).Get("/endpoints/{endpointId}/webhook-security", h.WebhookSecurityHandler.Get)
+				protected.With(tenantGuard, endpointGuard).Put("/endpoints/{endpointId}/webhook-security", h.WebhookSecurityHandler.Save)
+				protected.With(tenantGuard, endpointGuard).Delete("/endpoints/{endpointId}/webhook-security", h.WebhookSecurityHandler.Delete)
+			}
 
 			// Multi-Channel Alerting
 			protected.With(tenantGuard, projectGuard).Post("/projects/{projectId}/alerts", h.AlertHandler.CreateChannel)

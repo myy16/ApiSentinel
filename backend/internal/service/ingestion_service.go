@@ -16,6 +16,7 @@ import (
 	"github.com/apisentinel/apisentinel/internal/policy"
 	"github.com/apisentinel/apisentinel/internal/security"
 	"github.com/apisentinel/apisentinel/internal/security/duplicate"
+	"github.com/apisentinel/apisentinel/internal/security/envelope"
 	"github.com/apisentinel/apisentinel/internal/security/hmac"
 	"github.com/apisentinel/apisentinel/internal/security/ratelimit"
 	"github.com/apisentinel/apisentinel/internal/security/redaction"
@@ -23,6 +24,7 @@ import (
 	"github.com/apisentinel/apisentinel/internal/valkey"
 	"github.com/apisentinel/apisentinel/internal/worker"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/rs/zerolog/log"
 )
@@ -127,7 +129,7 @@ func (s *IngestionService) ProcessWebhook(
 	}
 
 	// 4. Webhook HMAC Signature Verification (if provider signatures are provided)
-	if hmacErr := s.verifyWebhookHMAC(endpoint, rawBody, headers); hmacErr != nil {
+	if hmacErr := s.verifyWebhookHMAC(ctx, endpoint, rawBody, headers); hmacErr != nil {
 		return &IngestionResult{
 			StatusCode: http.StatusUnauthorized,
 			RequestID:  requestId,
@@ -293,10 +295,31 @@ func parseClientIP(raw string) *netip.Addr {
 // --- Pipeline Helper Functions ---
 
 func (s *IngestionService) verifyWebhookHMAC(
+	ctx context.Context,
 	endpoint database.Endpoint,
 	rawBody []byte,
 	headers map[string][]string,
 ) error {
+	configured, err := s.queries.GetEndpointWebhookSecurity(ctx, endpoint.ID)
+	if err == nil {
+		secret, decryptErr := envelope.Decrypt(os.Getenv("WEBHOOK_SECRET_ENCRYPTION_KEY"), configured.EncryptedSecret)
+		if decryptErr != nil {
+			return fmt.Errorf("webhook signature configuration unavailable")
+		}
+		provider, providerErr := webhookProvider(configured.Provider)
+		if providerErr != nil {
+			return providerErr
+		}
+		if !configured.RequireSignature {
+			return nil
+		}
+		return hmac.Verify(provider, secret, rawBody, headers, 5*time.Minute)
+	}
+	if err != pgx.ErrNoRows {
+		return fmt.Errorf("failed to load webhook signature configuration")
+	}
+
+	// Backward-compatible fallback for existing locally configured endpoints.
 	// 1. Check for Stripe signature
 	if hasHeader(headers, "stripe-signature") {
 		secret := os.Getenv("STRIPE_WEBHOOK_SECRET")
@@ -330,6 +353,21 @@ func (s *IngestionService) verifyWebhookHMAC(
 	}
 
 	return nil
+}
+
+func webhookProvider(value string) (hmac.Provider, error) {
+	switch strings.ToLower(value) {
+	case "stripe":
+		return hmac.ProviderStripe, nil
+	case "github":
+		return hmac.ProviderGitHub, nil
+	case "shopify":
+		return hmac.ProviderShopify, nil
+	case "generic":
+		return hmac.ProviderGeneric, nil
+	default:
+		return "", fmt.Errorf("unsupported webhook signature provider")
+	}
 }
 
 func hasHeader(headers map[string][]string, keys ...string) bool {

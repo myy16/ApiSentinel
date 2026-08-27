@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/apisentinel/apisentinel/internal/middleware"
 	grpcTransport "github.com/apisentinel/apisentinel/internal/transport/grpc"
 )
 
@@ -28,7 +29,8 @@ func NewAgentHandler(grpcServer *grpcTransport.Server) *AgentHandler {
 
 // ListSessions returns all currently connected gRPC agent sessions
 func (h *AgentHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
-	sessions := h.grpcServer.GetActiveSessions()
+	organizationID, _ := r.Context().Value(middleware.OrgIDKey).(string)
+	sessions := h.grpcServer.GetActiveSessionsByOrganization(organizationID)
 
 	dtos := make([]AgentSessionDTO, 0, len(sessions))
 	for _, s := range sessions {
