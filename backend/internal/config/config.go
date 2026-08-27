@@ -1,12 +1,56 @@
-							package config
+package config
 
 import (
+	"bufio"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
 
 	"github.com/rs/zerolog/log"
 )
+
+// LoadDotEnv loads a local dotenv file without overwriting variables already
+// supplied by the process environment. It is intended for development only;
+// production should use the platform/container secret store.
+func LoadDotEnv(paths ...string) error {
+	for _, path := range paths {
+		file, err := os.Open(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return err
+		}
+		defer file.Close()
+
+		scanner := bufio.NewScanner(file)
+		lineNo := 0
+		for scanner.Scan() {
+			lineNo++
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			line = strings.TrimPrefix(line, "export ")
+			key, value, ok := strings.Cut(line, "=")
+			if !ok || strings.TrimSpace(key) == "" {
+				return fmt.Errorf("invalid dotenv entry in %s at line %d", path, lineNo)
+			}
+			key = strings.TrimSpace(key)
+			value = strings.TrimSpace(value)
+			value = strings.Trim(value, "\"'")
+			if _, exists := os.LookupEnv(key); !exists {
+				_ = os.Setenv(key, value)
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			return err
+		}
+		return nil
+	}
+	return nil
+}
 
 type Config struct {
 	Port         int

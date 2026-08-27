@@ -21,6 +21,9 @@ import {
   Check,
   CheckCircle2,
   SlidersHorizontal,
+  ChevronDown,
+  ChevronUp,
+  X,
 } from "lucide-react";
 
 interface Finding {
@@ -56,6 +59,7 @@ interface AIExplanation {
   remediationSteps: string[];
   codeSnippet: string;
   confidenceScore: number;
+  provider?: string;
 }
 
 export default function SecurityFindingsPage() {
@@ -71,6 +75,7 @@ export default function SecurityFindingsPage() {
     data: findingsData,
     isLoading: isFindingsLoading,
     refetch: refetchFindings,
+    isRefetching: isRefetchingFindings,
   } = useQuery({
     queryKey: ["findings", activeProjectId],
     queryFn: () =>
@@ -81,9 +86,13 @@ export default function SecurityFindingsPage() {
     enabled: !!accessToken && !!activeProjectId && !!organization?.id,
   });
 
-  // 3. Fetch Real Finding Statistics
-  const { data: statsData, refetch: refetchStats } = useQuery({
-    queryKey: ["findingStats", activeProjectId],
+  // 2. Fetch Aggregated Statistics from DB
+  const {
+    data: statsData,
+    isLoading: isStatsLoading,
+    refetch: refetchStats,
+  } = useQuery({
+    queryKey: ["findings", "stats", activeProjectId],
     queryFn: () =>
       apiFetch<FindingStats>(`/api/projects/${activeProjectId}/findings/stats`, {
         token: accessToken,
@@ -101,7 +110,7 @@ export default function SecurityFindingsPage() {
     totalCount: 0,
   };
 
-  // 4. AI Explain Mutation
+  // 3. AI Explain Mutation
   const explainMutation = useMutation({
     mutationFn: (finding: Finding) =>
       apiFetch<AIExplanation>("/api/ai/explain", {
@@ -118,9 +127,14 @@ export default function SecurityFindingsPage() {
       }),
   });
 
-  const handleExplain = (finding: Finding) => {
-    setActiveFinding(finding);
-    explainMutation.mutate(finding);
+  const handleToggleExplain = (finding: Finding) => {
+    if (activeFinding?.id === finding.id) {
+      // Toggle off if already open
+      setActiveFinding(null);
+    } else {
+      setActiveFinding(finding);
+      explainMutation.mutate(finding);
+    }
   };
 
   const handleRefresh = () => {
@@ -134,8 +148,9 @@ export default function SecurityFindingsPage() {
     setTimeout(() => setCopiedCode(false), 2000);
   };
 
-  // Filtered findings
+  // Filter findings based on severity tab
   const filteredFindings = findings.filter((f) => {
+    if (severityFilter === "ALL") return true;
     if (severityFilter === "CRITICAL") return f.severity === "CRITICAL";
     if (severityFilter === "HIGH") return f.severity === "HIGH";
     if (severityFilter === "MEDIUM") return f.severity === "MEDIUM" || f.severity === "INFO";
@@ -147,35 +162,27 @@ export default function SecurityFindingsPage() {
       {/* Header */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
-              <ShieldAlert className="h-6 w-6 text-rose-500" />
-              Güvenlik Bulguları & Tehdit Analizi
-            </h1>
-            <span className="flex items-center gap-1 rounded-full bg-purple-500/10 px-2.5 py-0.5 text-xs font-semibold text-purple-400">
-              <Bot className="h-3 w-3" />
-              AI Remediation Active
-            </span>
-          </div>
-          <p className="text-sm text-muted-foreground mt-1">
-            API ve Webhook trafiğinde tespit edilip PostgreSQL'e kaydedilen gerçek PII, Secret, SQLi ve Politika ihlalleri
+          <h1 className="text-2xl font-bold tracking-tight">Güvenlik Bulguları & Tehdit Analizi</h1>
+          <p className="text-sm text-muted-foreground">
+            Yakalanan API trafiğinde tespit edilen PII, Secret, Injection ve anomali tehditleri
           </p>
         </div>
 
         <div className="flex items-center gap-3">
           <button
             onClick={handleRefresh}
-            className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground hover:bg-secondary transition"
+            disabled={isRefetchingFindings}
+            className="flex items-center gap-2 rounded-xl border border-border bg-card px-3.5 py-2 text-xs font-semibold hover:bg-secondary transition disabled:opacity-50"
           >
-            <RotateCw className="h-3.5 w-3.5" />
+            <RotateCw className={`h-3.5 w-3.5 ${isRefetchingFindings ? "animate-spin" : ""}`} />
             <span>Yenile</span>
           </button>
 
-          {projects.length > 0 && (
+          {projects && projects.length > 0 && (
             <select
-              value={activeProjectId}
+              value={activeProjectId || ""}
               onChange={(e) => setActiveProjectId(e.target.value)}
-              className="rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              className="rounded-xl border border-border bg-card px-3.5 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary"
             >
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -187,24 +194,24 @@ export default function SecurityFindingsPage() {
         </div>
       </div>
 
-      {/* Summary KPI Cards */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+      {/* 4 Analytics Metrics Cards */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-2xl border border-rose-500/20 bg-rose-500/5 p-5">
           <div className="flex items-center justify-between text-xs font-semibold text-rose-400">
-            <span>Kritik İhlaller</span>
+            <span>Kritik Tehditler</span>
             <AlertOctagon className="h-4 w-4" />
           </div>
           <p className="text-3xl font-bold text-rose-400 mt-2">{stats.criticalCount}</p>
-          <p className="text-[11px] text-muted-foreground mt-1">API Keys & SQL Injection</p>
+          <p className="text-[11px] text-muted-foreground mt-1">AWS Key & SQLi (Engellendi)</p>
         </div>
 
         <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5">
           <div className="flex items-center justify-between text-xs font-semibold text-amber-400">
-            <span>Yüksek Seviye</span>
+            <span>Yüksek Risk (PII/TCKN)</span>
             <AlertTriangle className="h-4 w-4" />
           </div>
           <p className="text-3xl font-bold text-amber-400 mt-2">{stats.highCount}</p>
-          <p className="text-[11px] text-muted-foreground mt-1">TCKN, IBAN & Özel Anahtarlar</p>
+          <p className="text-[11px] text-muted-foreground mt-1">TCKN, Kredi Kartı & XSS</p>
         </div>
 
         <div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 p-5">
@@ -273,33 +280,35 @@ export default function SecurityFindingsPage() {
         </div>
       </div>
 
-      {/* Main Grid: Real Findings List + AI Remediation Drawer */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        {/* Left: Findings Cards (7 cols) */}
-        <div className="space-y-4 lg:col-span-7">
-          {isFindingsLoading ? (
-            <div className="flex flex-col items-center justify-center rounded-2xl border border-border bg-card p-12 text-center h-[300px]">
-              <Loader2 className="h-8 w-8 animate-spin text-primary mb-3" />
-              <p className="text-sm font-semibold">Veritabanından Güvenlik Bulguları Çekiliyor...</p>
-            </div>
-          ) : filteredFindings.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/50 p-12 text-center">
-              <ShieldCheck className="h-12 w-12 text-emerald-400 mb-3" />
-              <p className="text-base font-bold text-foreground">Tertemiz! Güvenlik İhlali Yok</p>
-              <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-                Seçili filtre veya projede engellenen bir tehdit bulunmuyor. Webhook gönderildiğinde bulgular anlık burada listelenecektir.
-              </p>
-            </div>
-          ) : (
-            filteredFindings.map((f) => (
+      {/* Findings List with In-Place (Inline) AI Remediation Drawer */}
+      <div className="space-y-4">
+        {isFindingsLoading ? (
+          <div className="flex flex-col items-center justify-center rounded-2xl border border-border bg-card p-12 text-center h-[300px]">
+            <Loader2 className="h-8 w-8 animate-spin text-primary mb-3" />
+            <p className="text-sm font-semibold">Veritabanından Güvenlik Bulguları Çekiliyor...</p>
+          </div>
+        ) : filteredFindings.length === 0 ? (
+          <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/50 p-12 text-center">
+            <ShieldCheck className="h-12 w-12 text-emerald-400 mb-3" />
+            <p className="text-base font-bold text-foreground">Tertemiz! Güvenlik İhlali Yok</p>
+            <p className="text-xs text-muted-foreground mt-1 max-w-sm">
+              Seçili filtre veya projede engellenen bir tehdit bulunmuyor. Webhook gönderildiğinde bulgular anlık burada listelenecektir.
+            </p>
+          </div>
+        ) : (
+          filteredFindings.map((f) => {
+            const isExpanded = activeFinding?.id === f.id;
+
+            return (
               <div
                 key={f.id}
-                className={`rounded-2xl border p-5 shadow-sm transition flex flex-col justify-between gap-4 ${
-                  activeFinding?.id === f.id
-                    ? "border-primary bg-primary/5 shadow-md ring-1 ring-primary/40"
+                className={`rounded-2xl border p-5 shadow-sm transition flex flex-col gap-4 ${
+                  isExpanded
+                    ? "border-purple-500/50 bg-card shadow-md ring-1 ring-purple-500/30"
                     : "border-border bg-card hover:border-border/80 hover:bg-secondary/20"
                 }`}
               >
+                {/* Header Row */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
                     <span
@@ -328,6 +337,7 @@ export default function SecurityFindingsPage() {
                   </span>
                 </div>
 
+                {/* Finding Details */}
                 <div className="space-y-2 text-xs">
                   <p className="text-foreground leading-relaxed">{f.message}</p>
                   {f.evidenceMasked && (
@@ -340,108 +350,132 @@ export default function SecurityFindingsPage() {
                   )}
                 </div>
 
+                {/* Card Footer: Timestamp & Inline AI Button */}
                 <div className="flex items-center justify-between pt-3 border-t border-border">
                   <span className="text-[11px] text-muted-foreground font-mono">
                     {new Date(f.createdAt).toLocaleString("tr-TR")}
                   </span>
 
                   <button
-                    onClick={() => handleExplain(f)}
-                    className="flex items-center gap-1.5 rounded-xl bg-secondary px-3.5 py-1.5 text-xs font-semibold text-foreground transition hover:bg-primary hover:text-primary-foreground shadow-sm"
+                    onClick={() => handleToggleExplain(f)}
+                    className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-xs font-semibold transition shadow-sm ${
+                      isExpanded
+                        ? "bg-purple-600 text-white hover:bg-purple-700"
+                        : "bg-secondary text-foreground hover:bg-primary hover:text-primary-foreground"
+                    }`}
                   >
-                    <Sparkles className="h-3.5 w-3.5 text-purple-400" />
-                    <span>🤖 AI ile Açıkla & Çöz</span>
+                    <Sparkles className={`h-3.5 w-3.5 ${isExpanded ? "text-white" : "text-purple-400"}`} />
+                    <span>{isExpanded ? "Rehberi Gizle" : "🤖 AI Çözüm Rehberi"}</span>
+                    {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                   </button>
                 </div>
-              </div>
-            ))
-          )}
-        </div>
 
-        {/* Right: AI Explanation & Remediation Panel (5 cols) */}
-        <div className="lg:col-span-5">
-          {explainMutation.isPending ? (
-            <div className="flex flex-col items-center justify-center rounded-2xl border border-border bg-card p-12 text-center h-[460px]">
-              <Loader2 className="h-8 w-8 animate-spin text-primary mb-3" />
-              <p className="text-sm font-semibold">AI Güvenlik Analizi Yapılıyor...</p>
-              <p className="text-xs text-muted-foreground mt-1 max-w-xs">
-                Maskeli kanıtlar inceleniyor, kök neden analizi ve güvenli kod bloğu üretiliyor.
-              </p>
-            </div>
-          ) : explainMutation.data ? (
-            <div className="rounded-2xl border border-purple-500/30 bg-card p-6 shadow-sm space-y-4 animate-in fade-in duration-200 sticky top-20">
-              <div className="flex items-center justify-between border-b border-border pb-3">
-                <div className="flex items-center gap-2">
-                  <Bot className="h-5 w-5 text-purple-400" />
-                  <h3 className="text-sm font-bold text-foreground">{explainMutation.data.title}</h3>
-                </div>
-                <span className="rounded-lg bg-purple-500/10 px-2 py-0.5 text-xs font-mono font-bold text-purple-400">
-                  Güven: %{(explainMutation.data.confidenceScore * 100).toFixed(0)}
-                </span>
-              </div>
+                {/* INLINE EXPANDABLE AI REMEDIATION DRAWER (Opens right below this card!) */}
+                {isExpanded && (
+                  <div className="mt-2 rounded-xl border border-purple-500/30 bg-purple-500/5 p-5 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                    {explainMutation.isPending ? (
+                      <div className="flex flex-col items-center justify-center py-8 text-center space-y-2">
+                        <Loader2 className="h-6 w-6 animate-spin text-purple-400" />
+                        <p className="text-xs font-semibold text-foreground">AI Güvenlik Analizi Yapılıyor...</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          Maskeli kanıt inceleniyor, kök neden analizi ve güvenli kod bloğu üretiliyor.
+                        </p>
+                      </div>
+                    ) : explainMutation.data ? (
+                      <>
+                        {/* Title & Model Tag */}
+                        <div className="flex items-center justify-between border-b border-purple-500/20 pb-3">
+                          <div className="flex items-center gap-2">
+                            <Bot className="h-5 w-5 text-purple-400" />
+                            <div>
+                              <h3 className="text-sm font-bold text-foreground">
+                                {explainMutation.data.title}
+                              </h3>
+                              {explainMutation.data.provider && (
+                                <span className="text-[10px] font-mono text-purple-400/90">
+                                  Model: {explainMutation.data.provider}
+                                </span>
+                              )}
+                            </div>
+                          </div>
 
-              <div>
-                <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
-                  Kök Neden (Root Cause)
-                </h4>
-                <p className="text-xs text-foreground leading-relaxed">
-                  {explainMutation.data.rootCause}
-                </p>
-              </div>
+                          <div className="flex items-center gap-3">
+                            <span className="rounded-lg bg-purple-500/15 px-2.5 py-0.5 text-xs font-mono font-bold text-purple-400">
+                              Güven: %{(explainMutation.data.confidenceScore * 100).toFixed(0)}
+                            </span>
+                            <button
+                              onClick={() => setActiveFinding(null)}
+                              className="rounded-lg p-1 text-muted-foreground hover:text-foreground hover:bg-background transition"
+                              title="Kapat"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
 
-              <div>
-                <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
-                  Güvenlik & İş Riski (Impact)
-                </h4>
-                <p className="text-xs text-rose-400 leading-relaxed">
-                  {explainMutation.data.impact}
-                </p>
-              </div>
+                        {/* Root Cause & Impact Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                          <div className="rounded-lg bg-card p-3 border border-border space-y-1">
+                            <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                              Kök Neden (Root Cause)
+                            </h4>
+                            <p className="text-foreground leading-relaxed">
+                              {explainMutation.data.rootCause}
+                            </p>
+                          </div>
 
-              <div>
-                <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
-                  Önerilen Çözüm Adımları (Remediation)
-                </h4>
-                <ul className="space-y-1.5 text-xs text-muted-foreground">
-                  {explainMutation.data.remediationSteps.map((step, idx) => (
-                    <li key={idx} className="flex items-start gap-1.5 text-foreground">
-                      <span className="text-primary font-bold">•</span>
-                      <span>{step}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+                          <div className="rounded-lg bg-card p-3 border border-border space-y-1">
+                            <h4 className="text-[10px] font-bold uppercase tracking-wider text-rose-400">
+                              Güvenlik & İş Riski (Impact)
+                            </h4>
+                            <p className="text-rose-400/90 leading-relaxed">
+                              {explainMutation.data.impact}
+                            </p>
+                          </div>
+                        </div>
 
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                    Örnek Güvenli Kod Bloğu
-                  </h4>
-                  <button
-                    onClick={() => handleCopyCode(explainMutation.data!.codeSnippet)}
-                    className="flex items-center gap-1 text-[11px] text-primary hover:underline font-semibold"
-                  >
-                    {copiedCode ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-                    <span>{copiedCode ? "Kopyalandı!" : "Kodu Kopyala"}</span>
-                  </button>
-                </div>
-                <pre className="rounded-xl bg-background p-3.5 text-[11px] font-mono text-foreground border border-border overflow-x-auto leading-relaxed">
-                  {explainMutation.data.codeSnippet}
-                </pre>
+                        {/* Remediation Steps */}
+                        <div className="rounded-lg bg-card p-3.5 border border-border space-y-2 text-xs">
+                          <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                            Önerilen Çözüm Adımları (Remediation)
+                          </h4>
+                          <ul className="space-y-1.5 text-foreground">
+                            {explainMutation.data.remediationSteps.map((step, idx) => (
+                              <li key={idx} className="flex items-start gap-2">
+                                <span className="text-purple-400 font-bold">•</span>
+                                <span>{step}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        {/* Code Snippet with Copy Button */}
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                              Örnek Güvenli Kod Bloğu
+                            </h4>
+                            <button
+                              onClick={() => handleCopyCode(explainMutation.data!.codeSnippet)}
+                              className="flex items-center gap-1 text-[11px] text-purple-400 hover:text-purple-300 font-semibold"
+                            >
+                              {copiedCode ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                              <span>{copiedCode ? "Kopyalandı!" : "Kodu Kopyala"}</span>
+                            </button>
+                          </div>
+                          <pre className="rounded-xl bg-background p-4 text-[11px] font-mono text-foreground border border-border overflow-x-auto leading-relaxed">
+                            {explainMutation.data.codeSnippet}
+                          </pre>
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+                )}
               </div>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/40 p-12 text-center text-muted-foreground h-[460px]">
-              <Bot className="h-10 w-10 mx-auto mb-3 text-muted-foreground/60" />
-              <p className="text-sm font-semibold text-foreground">AI Güvenlik & Çözüm Danışmanı</p>
-              <p className="text-xs text-muted-foreground mt-1 max-w-xs">
-                Herhangi bir bulgunun yanındaki "🤖 AI ile Açıkla & Çöz" butonuna basarak kök neden analizi ve doğrudan uygulanabilir kod bloğunu görüntüleyin.
-              </p>
-            </div>
-          )}
-        </div>
+            );
+          })
+        )}
       </div>
     </div>
   );
 }
-

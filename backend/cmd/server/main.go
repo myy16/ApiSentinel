@@ -26,6 +26,9 @@ func main() {
 	// Logger Setup
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339})
+	if err := config.LoadDotEnv(".env", "../.env"); err != nil {
+		log.Warn().Err(err).Msg("Unable to load local .env file")
+	}
 
 	cfg := config.Load()
 
