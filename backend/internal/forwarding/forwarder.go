@@ -24,13 +24,13 @@ type Config struct {
 }
 
 type DeliveryResult struct {
-	Success        bool   `json:"success"`
-	StatusCode     int    `json:"statusCode"`
-	ResponseBody   string `json:"responseBody"`
-	Attempts       int    `json:"attempts"`
-	LatencyMs      int64  `json:"latencyMs"`
-	ErrorMessage   string `json:"errorMessage,omitempty"`
-	SavedToDLQ     bool   `json:"savedToDlq"`
+	Success      bool   `json:"success"`
+	StatusCode   int    `json:"statusCode"`
+	ResponseBody string `json:"responseBody"`
+	Attempts     int    `json:"attempts"`
+	LatencyMs    int64  `json:"latencyMs"`
+	ErrorMessage string `json:"errorMessage,omitempty"`
+	SavedToDLQ   bool   `json:"savedToDlq"`
 }
 
 type Forwarder struct {
@@ -39,7 +39,7 @@ type Forwarder struct {
 
 func NewForwarder() *Forwarder {
 	return &Forwarder{
-		httpClient: &http.Client{Timeout: 10 * time.Second},
+		httpClient: &http.Client{},
 	}
 }
 

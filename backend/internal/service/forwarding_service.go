@@ -7,20 +7,23 @@ import (
 
 	"github.com/apisentinel/apisentinel/internal/database"
 	"github.com/apisentinel/apisentinel/internal/forwarding"
+	"github.com/apisentinel/apisentinel/internal/worker"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/rs/zerolog/log"
 )
 
 type ForwardingService struct {
-	queries   *database.Queries
-	forwarder *forwarding.Forwarder
+	queries    *database.Queries
+	forwarder  *forwarding.Forwarder
+	workerPool *worker.Pool
 }
 
-func NewForwardingService(queries *database.Queries) *ForwardingService {
+func NewForwardingService(queries *database.Queries, workerPool *worker.Pool) *ForwardingService {
 	return &ForwardingService{
-		queries:   queries,
-		forwarder: forwarding.NewForwarder(),
+		queries:    queries,
+		forwarder:  forwarding.NewForwarder(),
+		workerPool: workerPool,
 	}
 }
 
@@ -79,8 +82,12 @@ func (s *ForwardingService) GetConfig(ctx context.Context, endpointID string) (*
 
 // ForwardCleanWebhook handles async upstream forwarding and records DLQ on failure
 func (s *ForwardingService) ForwardCleanWebhook(ctx context.Context, endpointID string, reqID string, method string, headers map[string]string, body []byte) {
-	go func() {
-		bgCtx := context.Background()
+	task := func(taskCtx context.Context) {
+		bgCtx := taskCtx
+		if bgCtx == nil {
+			bgCtx = context.Background()
+		}
+
 		epUUID, err := uuid.Parse(endpointID)
 		if err != nil {
 			return
@@ -139,7 +146,16 @@ func (s *ForwardingService) ForwardCleanWebhook(ctx context.Context, endpointID 
 				ProcessingStatus: "FORWARDED",
 			})
 		}
-	}()
+	}
+
+	if s.workerPool != nil {
+		if err := s.workerPool.Submit(task); err != nil {
+			log.Warn().Err(err).Msg("Worker pool full or closed, falling back to background goroutine for webhook forwarding")
+			go task(context.Background())
+		}
+	} else {
+		go task(context.Background())
+	}
 }
 
 func (s *ForwardingService) ListDLQ(ctx context.Context, endpointID string) ([]database.ForwardingDlq, error) {
@@ -229,5 +245,3 @@ func (s *ForwardingService) PurgeDLQ(ctx context.Context, endpointID string) err
 
 	return s.queries.DeleteDLQRecordsByEndpoint(ctx, pgtype.UUID{Bytes: epUUID, Valid: true})
 }
-
-

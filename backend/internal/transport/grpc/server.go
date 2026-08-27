@@ -27,13 +27,12 @@ import (
 )
 
 type AgentSession struct {
-	AgentID    string
-	Hostname   string
-	OS         string
-	Version    string
-	Stream     agentv1.AgentService_ConnectSessionServer
-	ReplayChan chan *replayv1.ReplayRequest
-	LastSeen   time.Time
+	AgentID  string
+	Hostname string
+	OS       string
+	Version  string
+	Stream   agentv1.AgentService_ConnectSessionServer
+	LastSeen time.Time
 }
 
 type Server struct {
@@ -202,7 +201,6 @@ func (s *Server) validateToken(md metadata.MD) error {
 	return status.Errorf(codes.Unauthenticated, "invalid or expired agent authorization token")
 }
 
-
 func (s *Server) Start() error {
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", s.port))
 	if err != nil {
@@ -256,10 +254,9 @@ func (s *Server) ConnectSession(stream agentv1.AgentService_ConnectSessionServer
 		currentAgentID = msg.AgentId
 		if session == nil {
 			session = &AgentSession{
-				AgentID:    currentAgentID,
-				Stream:     stream,
-				ReplayChan: make(chan *replayv1.ReplayRequest, 10),
-				LastSeen:   time.Now(),
+				AgentID:  currentAgentID,
+				Stream:   stream,
+				LastSeen: time.Now(),
 			}
 			s.sessions.Store(currentAgentID, session)
 		}

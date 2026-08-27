@@ -22,13 +22,20 @@ const (
 func Auth(jwtSecret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var tokenString string
 			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-				http.Error(w, `{"error":{"code":"UNAUTHORIZED","message":"Missing or invalid authorization header"}}`, http.StatusUnauthorized)
+			if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
+				tokenString = strings.TrimPrefix(authHeader, "Bearer ")
+			} else if queryToken := r.URL.Query().Get("token"); queryToken != "" {
+				// EventSource / SSE fallback where browser cannot send custom headers
+				tokenString = queryToken
+			}
+
+			if tokenString == "" {
+				http.Error(w, `{"error":{"code":"UNAUTHORIZED","message":"Missing or invalid authorization token"}}`, http.StatusUnauthorized)
 				return
 			}
 
-			tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 			token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 					return nil, jwt.ErrSignatureInvalid
@@ -50,8 +57,14 @@ func Auth(jwtSecret string) func(http.Handler) http.Handler {
 			userId, _ := claims["userId"].(string)
 			ctx := context.WithValue(r.Context(), UserIDKey, userId)
 
-			// Extract organization ID if present
+			// Extract organization ID from header or query param
 			orgId := r.Header.Get("x-organization-id")
+			if orgId == "" {
+				orgId = r.URL.Query().Get("orgId")
+				if orgId == "" {
+					orgId = r.URL.Query().Get("organizationId")
+				}
+			}
 			if orgId != "" {
 				ctx = context.WithValue(ctx, OrgIDKey, orgId)
 			}

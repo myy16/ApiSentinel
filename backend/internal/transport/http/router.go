@@ -131,7 +131,7 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 			}
 
 			// AI Finding Explanations
-			protected.Post("/ai/explain", h.AIHandler.ExplainFinding)
+			protected.With(tenantGuard).Post("/ai/explain", h.AIHandler.ExplainFinding)
 
 			// API Keys (Multi-Key Management & Rotation)
 			if h.APIKeyHandler != nil {
@@ -140,12 +140,12 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 				protected.With(tenantGuard).Delete("/projects/{projectId}/keys/{keyId}", h.APIKeyHandler.Revoke)
 			}
 
-			// Realtime SSE Stream
-			protected.Get("/projects/{projectId}/events/stream", h.SSEHandler.Stream)
+			// Realtime SSE Stream (Guarded by tenant membership)
+			protected.With(tenantGuard).Get("/projects/{projectId}/events/stream", h.SSEHandler.Stream)
 
 			// Agent Sessions (Real gRPC connected agents)
 			if h.AgentHandler != nil {
-				protected.Get("/agents/sessions", h.AgentHandler.ListSessions)
+				protected.With(tenantGuard).Get("/agents/sessions", h.AgentHandler.ListSessions)
 			}
 		})
 	})

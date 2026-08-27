@@ -54,6 +54,8 @@ export default function AgentsPage() {
     setTimeout(() => setCopiedCommand(false), 2000);
   };
 
+  const onlineAgentsCount = agents.filter((a) => a.status === "ONLINE").length;
+
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -61,10 +63,22 @@ export default function AgentsPage() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold tracking-tight">Local Geliştirici Ajanları (Agent Network)</h1>
-            <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-400">
-              <Radio className="h-3 w-3 animate-pulse" />
-              gRPC Bi-directional Active
-            </span>
+            {onlineAgentsCount > 0 ? (
+              <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-400">
+                <Radio className="h-3 w-3 animate-pulse" />
+                gRPC Aktif ({onlineAgentsCount} Ajan Bağlı)
+              </span>
+            ) : agents.length > 0 ? (
+              <span className="flex items-center gap-1 rounded-full bg-yellow-500/10 px-2.5 py-0.5 text-xs font-semibold text-yellow-400">
+                <Clock className="h-3 w-3" />
+                Ajanlar Yanıt Vermiyor ({agents.length})
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-xs font-semibold text-muted-foreground">
+                <WifiOff className="h-3 w-3" />
+                Ajan Bekleniyor (gRPC Standby)
+              </span>
+            )}
           </div>
           <p className="text-sm text-muted-foreground">
             Geliştirici bilgisayarlarında çalışan ApiSentinel CLI ajanlarını ve canlı gRPC tünellerini yönetin

@@ -39,7 +39,7 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 	projectService := service.NewProjectService(queries)
 	endpointService := service.NewEndpointService(queries)
 	alertService := service.NewAlertService(queries)
-	forwardingService := service.NewForwardingService(queries)
+	forwardingService := service.NewForwardingService(queries, nil)
 	ingestionService := service.NewIngestionService(queries, nil, alertService, forwardingService, nil)
 	requestService := service.NewRequestService(queries)
 	replayService := service.NewReplayService(queries)

@@ -61,13 +61,12 @@ func main() {
 
 	// 3. Worker Pool & Services Initialization
 	workerPool := worker.NewPool(20, 10000)
-	defer workerPool.Stop(5 * time.Second)
 
 	authService := service.NewAuthService(queries, cfg.JWTSecret)
 	projectService := service.NewProjectService(queries)
 	endpointService := service.NewEndpointService(queries)
 	alertService := service.NewAlertService(queries)
-	forwardingService := service.NewForwardingService(queries)
+	forwardingService := service.NewForwardingService(queries, workerPool)
 	ingestionService := service.NewIngestionService(queries, valkeyClient, alertService, forwardingService, workerPool)
 	requestService := service.NewRequestService(queries)
 	replayService := service.NewReplayService(queries)
