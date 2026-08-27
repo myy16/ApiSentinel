@@ -20,6 +20,13 @@ ORDER BY created_at DESC;
 SELECT * FROM alert_channels
 WHERE id = $1;
 
+-- name: VerifyAlertChannelOwnership :one
+SELECT ac.id
+FROM alert_channels ac
+JOIN projects p ON p.id = ac.project_id
+WHERE ac.id = $1 AND p.organization_id = $2
+LIMIT 1;
+
 -- name: DeleteAlertChannel :exec
 DELETE FROM alert_channels
 WHERE id = $1;

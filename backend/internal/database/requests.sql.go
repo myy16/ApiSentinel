@@ -255,3 +255,24 @@ func (q *Queries) UpdateRequestProcessingStatus(ctx context.Context, arg UpdateR
 	_, err := q.db.Exec(ctx, updateRequestProcessingStatus, arg.ID, arg.ProcessingStatus)
 	return err
 }
+
+const verifyRequestOwnership = `-- name: VerifyRequestOwnership :one
+SELECT r.id
+FROM captured_requests r
+JOIN endpoints e ON e.id = r.endpoint_id
+JOIN projects p ON p.id = e.project_id
+WHERE r.id = $1 AND p.organization_id = $2
+LIMIT 1
+`
+
+type VerifyRequestOwnershipParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+func (q *Queries) VerifyRequestOwnership(ctx context.Context, arg VerifyRequestOwnershipParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, verifyRequestOwnership, arg.ID, arg.OrganizationID)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}

@@ -67,7 +67,10 @@ type Querier interface {
 	UpdateRequestProcessingStatus(ctx context.Context, arg UpdateRequestProcessingStatusParams) error
 	UpsertEndpointSchema(ctx context.Context, arg UpsertEndpointSchemaParams) (EndpointSchema, error)
 	UpsertForwardingConfig(ctx context.Context, arg UpsertForwardingConfigParams) (ForwardingConfig, error)
+	VerifyAlertChannelOwnership(ctx context.Context, arg VerifyAlertChannelOwnershipParams) (pgtype.UUID, error)
+	VerifyDLQRecordOwnership(ctx context.Context, arg VerifyDLQRecordOwnershipParams) (pgtype.UUID, error)
 	VerifyProjectOwnership(ctx context.Context, arg VerifyProjectOwnershipParams) (pgtype.UUID, error)
+	VerifyRequestOwnership(ctx context.Context, arg VerifyRequestOwnershipParams) (pgtype.UUID, error)
 }
 
 var _ Querier = (*Queries)(nil)

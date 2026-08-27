@@ -237,3 +237,24 @@ func (q *Queries) UpsertForwardingConfig(ctx context.Context, arg UpsertForwardi
 	)
 	return i, err
 }
+
+const verifyDLQRecordOwnership = `-- name: VerifyDLQRecordOwnership :one
+SELECT d.id
+FROM forwarding_dlq d
+JOIN endpoints e ON e.id = d.endpoint_id
+JOIN projects p ON p.id = e.project_id
+WHERE d.id = $1 AND p.organization_id = $2
+LIMIT 1
+`
+
+type VerifyDLQRecordOwnershipParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+func (q *Queries) VerifyDLQRecordOwnership(ctx context.Context, arg VerifyDLQRecordOwnershipParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, verifyDLQRecordOwnership, arg.ID, arg.OrganizationID)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}

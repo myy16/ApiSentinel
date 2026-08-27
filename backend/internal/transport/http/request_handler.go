@@ -24,6 +24,12 @@ func (h *RequestHandler) ListByProject(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 {
 		limit = 50
 	}
+	if limit > 100 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
 
 	requests, err := h.requestService.ListByProject(r.Context(), projectId, int32(limit), int32(offset))
 	if err != nil {

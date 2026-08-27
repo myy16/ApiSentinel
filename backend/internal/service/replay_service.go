@@ -80,6 +80,10 @@ func (s *ReplayService) ExecuteReplay(ctx context.Context, sourceRequestId, targ
 	var bodyReader io.Reader
 	if reqRecord.RawBody.Valid && len(reqRecord.RawBody.String) > 0 {
 		bodyReader = bytes.NewBufferString(reqRecord.RawBody.String)
+	} else if reqRecord.MaskedBody.Valid && len(reqRecord.MaskedBody.String) > 0 {
+		// Raw payload retention is disabled by default. Replays therefore use the
+		// redacted payload unless an encrypted raw-payload store is introduced.
+		bodyReader = bytes.NewBufferString(reqRecord.MaskedBody.String)
 	}
 
 	outboundReq, err := http.NewRequestWithContext(ctx, reqRecord.HttpMethod, targetUrl, bodyReader)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"os"
 	"strings"
 	"time"
@@ -16,8 +17,8 @@ import (
 	"github.com/apisentinel/apisentinel/internal/security"
 	"github.com/apisentinel/apisentinel/internal/security/duplicate"
 	"github.com/apisentinel/apisentinel/internal/security/hmac"
-	"github.com/apisentinel/apisentinel/internal/security/pii"
 	"github.com/apisentinel/apisentinel/internal/security/ratelimit"
+	"github.com/apisentinel/apisentinel/internal/security/redaction"
 	"github.com/apisentinel/apisentinel/internal/security/schema"
 	"github.com/apisentinel/apisentinel/internal/valkey"
 	"github.com/apisentinel/apisentinel/internal/worker"
@@ -141,23 +142,17 @@ func (s *IngestionService) ProcessWebhook(
 		}, nil
 	}
 
-	headersBytes, _ := json.Marshal(headers)
-	queryBytes, _ := json.Marshal(queryParams)
-
-	var parsedJson []byte
-	var jsonVal interface{}
-	if err := json.Unmarshal(rawBody, &jsonVal); err == nil {
-		parsedJson = rawBody
-	}
-
-	var pgRawBody pgtype.Text
-	if len(rawBody) > 0 {
-		pgRawBody = pgtype.Text{String: string(rawBody), Valid: true}
+	headersBytes, _ := json.Marshal(redaction.Headers(headers))
+	queryBytes, _ := json.Marshal(redaction.QueryParams(queryParams))
+	maskedBodyStr, parsedJson := redaction.Payload(rawBody)
+	var pgMaskedBody pgtype.Text
+	if maskedBodyStr != "" {
+		pgMaskedBody = pgtype.Text{String: maskedBodyStr, Valid: true}
 	}
 
 	// 5. Check for Mock Mode & Active Mock Rules
 	if endpoint.Mode == "MOCK" {
-		return s.handleMockMode(ctx, endpoint, requestId, httpMethod, headersBytes, queryBytes, pgRawBody, parsedJson)
+		return s.handleMockMode(ctx, endpoint, requestId, httpMethod, headersBytes, queryBytes, pgMaskedBody, parsedJson)
 	}
 
 	// 6. Multi-Layer Security Inspection (PII + Secrets + Injection + Obfuscation)
@@ -196,23 +191,17 @@ func (s *IngestionService) ProcessWebhook(
 		action = "BLOCK"
 	}
 
-	// 10. Build Masked Body
-	maskedBodyStr := s.maskPIIAndSecrets(rawBody, findings)
-	var pgMaskedBody pgtype.Text
-	if len(maskedBodyStr) > 0 {
-		pgMaskedBody = pgtype.Text{String: maskedBodyStr, Valid: true}
-	}
-
-	// 11. Persist to PostgreSQL
+	// 10. Persist only redacted payload data to PostgreSQL.
 	captured, err := s.queries.CreateCapturedRequest(ctx, database.CreateCapturedRequestParams{
 		EndpointID:       endpoint.ID,
 		RequestID:        requestId,
 		HttpMethod:       httpMethod,
 		Headers:          headersBytes,
 		QueryParams:      queryBytes,
-		RawBody:          pgRawBody,
+		RawBody:          pgtype.Text{},
 		MaskedBody:       pgMaskedBody,
 		ParsedJson:       parsedJson,
+		ClientIp:         parseClientIP(clientIP),
 		ResponseStatus:   pgtype.Int4{Int32: responseStatus, Valid: true},
 		ProcessingStatus: "RECEIVED",
 	})
@@ -236,13 +225,13 @@ func (s *IngestionService) ProcessWebhook(
 	projectIdStr := uuid.UUID(endpoint.ProjectID.Bytes).String()
 	endpointIdStr := uuid.UUID(endpoint.ID.Bytes).String()
 
-	// 12. Async Worker Pool Stream & SSE Publishing
-	s.dispatchAsyncEvents(capturedIdStr, projectIdStr, endpointIdStr, requestId, httpMethod, responseStatus, action, rawBody)
+	// 11. Async Worker Pool Stream & SSE Publishing
+	s.dispatchAsyncEvents(capturedIdStr, projectIdStr, endpointIdStr, requestId, httpMethod, responseStatus, action)
 
-	// 13. Persist Findings & Dispatch Alerts
+	// 12. Persist Findings & Dispatch Alerts
 	s.persistFindingsAndAlerts(ctx, captured, endpoint, findings)
 
-	// 14. Policy Block Response
+	// 13. Policy Block Response
 	if action == "BLOCK" {
 		var blockReason string
 		for _, f := range findings {
@@ -269,7 +258,7 @@ func (s *IngestionService) ProcessWebhook(
 		}, nil
 	}
 
-	// 15. Forwarding to Upstream Target (if configured)
+	// 14. Forwarding to Upstream Target (if configured)
 	if s.forwardingSvc != nil {
 		flatHeaders := make(map[string]string)
 		for k, v := range headers {
@@ -291,6 +280,14 @@ func (s *IngestionService) ProcessWebhook(
 			"timestamp": time.Now().Format(time.RFC3339),
 		},
 	}, nil
+}
+
+func parseClientIP(raw string) *netip.Addr {
+	ip, err := netip.ParseAddr(raw)
+	if err != nil {
+		return nil
+	}
+	return &ip
 }
 
 // --- Pipeline Helper Functions ---
@@ -423,38 +420,10 @@ func (s *IngestionService) validateSchemaContract(
 	}
 }
 
-func (s *IngestionService) maskPIIAndSecrets(rawBody []byte, findings []security.Finding) string {
-	maskedBodyStr := string(rawBody)
-	for _, f := range findings {
-		if f.Category == "PII" || f.Category == "SECRET" {
-			switch f.Type {
-			case "CREDIT_CARD":
-				for _, match := range pii.FindCreditCards(maskedBodyStr) {
-					maskedBodyStr = strings.Replace(maskedBodyStr, match, pii.MaskCreditCard(match), 1)
-				}
-			case "TCKN":
-				for _, match := range pii.FindTCKNs(maskedBodyStr) {
-					maskedBodyStr = strings.Replace(maskedBodyStr, match, pii.MaskTCKN(match), 1)
-				}
-			case "EMAIL":
-				for _, match := range pii.FindEmails(maskedBodyStr) {
-					maskedBodyStr = strings.Replace(maskedBodyStr, match, pii.MaskEmail(match), 1)
-				}
-			case "IBAN":
-				for _, match := range pii.FindIBANs(maskedBodyStr) {
-					maskedBodyStr = strings.Replace(maskedBodyStr, match, pii.MaskIBAN(match), 1)
-				}
-			}
-		}
-	}
-	return maskedBodyStr
-}
-
 func (s *IngestionService) dispatchAsyncEvents(
 	capturedIdStr, projectIdStr, endpointIdStr, requestId, httpMethod string,
 	responseStatus int32,
 	action string,
-	rawBody []byte,
 ) {
 	if s.valkeyClient != nil && s.workerPool != nil {
 		_ = s.workerPool.Submit(func(taskCtx context.Context) {
@@ -465,7 +434,6 @@ func (s *IngestionService) dispatchAsyncEvents(
 				"requestId":  capturedIdStr,
 				"endpointId": endpointIdStr,
 				"projectId":  projectIdStr,
-				"rawBody":    string(rawBody),
 			})
 
 			eventPayload, _ := json.Marshal(map[string]interface{}{

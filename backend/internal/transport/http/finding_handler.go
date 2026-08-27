@@ -33,6 +33,9 @@ func (h *FindingHandler) ListByProject(w http.ResponseWriter, r *http.Request) {
 			limit = int32(val)
 		}
 	}
+	if limit > 100 {
+		limit = 100
+	}
 	if o := r.URL.Query().Get("offset"); o != "" {
 		if val, err := strconv.Atoi(o); err == nil && val >= 0 {
 			offset = int32(val)

@@ -7,6 +7,7 @@ import (
 
 	"github.com/apisentinel/apisentinel/internal/database"
 	"github.com/apisentinel/apisentinel/internal/forwarding"
+	"github.com/apisentinel/apisentinel/internal/security/redaction"
 	"github.com/apisentinel/apisentinel/internal/worker"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -121,13 +122,14 @@ func (s *ForwardingService) ForwardCleanWebhook(ctx context.Context, endpointID 
 				errMsg = err.Error()
 			}
 
+			maskedPayload, _ := redaction.Payload(body)
 			_, dlqErr := s.queries.CreateDLQRecord(bgCtx, database.CreateDLQRecordParams{
 				EndpointID: pgtype.UUID{Bytes: epUUID, Valid: true},
 				RequestID:  pgtype.UUID{Bytes: reqUUID, Valid: true},
 				TargetUrl:  cfg.TargetUrl,
 				Attempts:   int32(fwdConfig.MaxRetries),
 				LastError:  pgtype.Text{String: errMsg, Valid: true},
-				Payload:    pgtype.Text{String: string(body), Valid: true},
+				Payload:    pgtype.Text{String: maskedPayload, Valid: maskedPayload != ""},
 				Status:     "FAILED",
 			})
 			if dlqErr != nil {
@@ -150,11 +152,10 @@ func (s *ForwardingService) ForwardCleanWebhook(ctx context.Context, endpointID 
 
 	if s.workerPool != nil {
 		if err := s.workerPool.Submit(task); err != nil {
-			log.Warn().Err(err).Msg("Worker pool full or closed, falling back to background goroutine for webhook forwarding")
-			go task(context.Background())
+			log.Warn().Err(err).Msg("Worker pool full or closed; webhook forwarding was not scheduled")
 		}
 	} else {
-		go task(context.Background())
+		log.Warn().Msg("Worker pool unavailable; webhook forwarding was not scheduled")
 	}
 }
 

@@ -4,16 +4,16 @@ ApiSentinel, webhook ve API trafiğini yakalayan, derinlemesine güvenlik tarama
 
 ## Mimari & Teknoloji Yığını
 
-- **Backend:** Go 1.24+ (Chi Router, gRPC bi-directional streaming, sqlc, PostgreSQL, Valkey / Redis)
+- **Backend:** Go 1.25+ (Chi Router, gRPC bi-directional streaming, sqlc, PostgreSQL, Valkey / Redis)
 - **Frontend:** Next.js 14 (App Router, TailwindCSS, TanStack React Query, Server-Sent Events - SSE)
 - **Local Agent / CLI:** Go (Git Pre-Commit / Pre-Push Hook, Shannon Entropy & Regex Secret Scanner)
 - **Protokol:** HTTP/REST, SSE (Realtime Dashboard), gRPC / Protobuf (Agent Tunnel)
 
 ## Gereksinimler
 
-- Go 1.24+
+- Go 1.25+
 - Node.js 20+
-- Docker & Docker Compose (PostgreSQL 16, Valkey 8)
+- Docker & Docker Compose (PostgreSQL 16, Redis 7-compatible Valkey service)
 
 ## Yerel Geliştirme
 
@@ -37,8 +37,8 @@ ApiSentinel, webhook ve API trafiğini yakalayan, derinlemesine güvenlik tarama
    ```
 5. **Local Ajanı (CLI) Çalıştırın / Bağlayın:**
    ```powershell
-   cd backend
-   go run ./cmd/agent connect --server localhost:50051 --token <API_KEY>
+   cd agent
+   go run ./cmd/apisentinel connect --server localhost:50051 --token <API_KEY>
    ```
 
 - **Backend API Gateway & Docs:** `http://localhost:3001` (Swagger: `/swagger` veya `/docs`)
@@ -69,4 +69,3 @@ go test -bench=. ./internal/security
 # Statik Analiz (0 warning)
 go vet ./...
 ```
-

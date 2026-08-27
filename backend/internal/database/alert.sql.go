@@ -150,3 +150,23 @@ func (q *Queries) ToggleAlertChannel(ctx context.Context, arg ToggleAlertChannel
 	)
 	return i, err
 }
+
+const verifyAlertChannelOwnership = `-- name: VerifyAlertChannelOwnership :one
+SELECT ac.id
+FROM alert_channels ac
+JOIN projects p ON p.id = ac.project_id
+WHERE ac.id = $1 AND p.organization_id = $2
+LIMIT 1
+`
+
+type VerifyAlertChannelOwnershipParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+func (q *Queries) VerifyAlertChannelOwnership(ctx context.Context, arg VerifyAlertChannelOwnershipParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, verifyAlertChannelOwnership, arg.ID, arg.OrganizationID)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}

@@ -59,6 +59,7 @@ export default function RequestsPage() {
   useSSE({
     projectId: activeProjectId,
     token: accessToken,
+    organizationId: organization?.id ?? null,
     queryKeys: sseQueryKeys,
     enabled: !!accessToken && !!activeProjectId,
   });
@@ -462,4 +463,3 @@ export default function RequestsPage() {
     </div>
   );
 }
-

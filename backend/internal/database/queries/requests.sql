@@ -32,6 +32,14 @@ FROM captured_requests r
 JOIN endpoints e ON r.endpoint_id = e.id
 WHERE r.id = $1 LIMIT 1;
 
+-- name: VerifyRequestOwnership :one
+SELECT r.id
+FROM captured_requests r
+JOIN endpoints e ON e.id = r.endpoint_id
+JOIN projects p ON p.id = e.project_id
+WHERE r.id = $1 AND p.organization_id = $2
+LIMIT 1;
+
 -- name: UpdateRequestProcessingStatus :exec
 UPDATE captured_requests
 SET processing_status = $2

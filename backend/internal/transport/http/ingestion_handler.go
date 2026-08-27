@@ -2,11 +2,14 @@ package http
 
 import (
 	"io"
+	"net"
 	"net/http"
 
 	"github.com/apisentinel/apisentinel/internal/service"
 	"github.com/go-chi/chi/v5"
 )
+
+const maxWebhookBodyBytes int64 = 5 << 20 // 5 MiB
 
 type IngestionHandler struct {
 	ingestionService *service.IngestionService
@@ -23,12 +26,17 @@ func (h *IngestionHandler) HandleWebhook(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	bodyBytes, _ := io.ReadAll(r.Body)
 	defer r.Body.Close()
+	r.Body = http.MaxBytesReader(w, r.Body, maxWebhookBodyBytes)
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "Webhook payload exceeds the 5 MiB limit")
+		return
+	}
 
-	clientIP := r.RemoteAddr
-	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-		clientIP = forwarded
+	clientIP, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		clientIP = r.RemoteAddr
 	}
 
 	result, err := h.ingestionService.ProcessWebhook(

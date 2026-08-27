@@ -32,7 +32,6 @@ func (h *SSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	// Send initial connection packet
 	fmt.Fprintf(w, "event: connected\ndata: {\"status\":\"connected\",\"projectId\":\"%s\"}\n\n", projectId)

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/apisentinel/apisentinel/internal/database"
+	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -130,4 +131,80 @@ func RequireTenant(queries *database.Queries) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// RequireProjectOwnership verifies that the route project belongs to the active tenant.
+func RequireProjectOwnership(queries *database.Queries, param string) func(http.Handler) http.Handler {
+	return requireResourceOwnership(param, func(ctx context.Context, id, orgID pgtype.UUID) error {
+		_, err := queries.VerifyProjectOwnership(ctx, database.VerifyProjectOwnershipParams{ID: id, OrganizationID: orgID})
+		return err
+	})
+}
+
+// RequireEndpointOwnership verifies endpoint -> project -> organization ownership.
+func RequireEndpointOwnership(queries *database.Queries, param string) func(http.Handler) http.Handler {
+	return requireResourceOwnership(param, func(ctx context.Context, id, orgID pgtype.UUID) error {
+		_, err := queries.GetEndpointWithOwnership(ctx, database.GetEndpointWithOwnershipParams{ID: id, OrganizationID: orgID})
+		return err
+	})
+}
+
+// RequireRequestOwnership verifies captured request -> endpoint -> project -> organization ownership.
+func RequireRequestOwnership(queries *database.Queries, param string) func(http.Handler) http.Handler {
+	return requireResourceOwnership(param, func(ctx context.Context, id, orgID pgtype.UUID) error {
+		_, err := queries.VerifyRequestOwnership(ctx, database.VerifyRequestOwnershipParams{ID: id, OrganizationID: orgID})
+		return err
+	})
+}
+
+// RequireAlertChannelOwnership verifies alert channel -> project -> organization ownership.
+func RequireAlertChannelOwnership(queries *database.Queries, param string) func(http.Handler) http.Handler {
+	return requireResourceOwnership(param, func(ctx context.Context, id, orgID pgtype.UUID) error {
+		_, err := queries.VerifyAlertChannelOwnership(ctx, database.VerifyAlertChannelOwnershipParams{ID: id, OrganizationID: orgID})
+		return err
+	})
+}
+
+// RequireDLQRecordOwnership verifies DLQ record -> endpoint -> project -> organization ownership.
+func RequireDLQRecordOwnership(queries *database.Queries, param string) func(http.Handler) http.Handler {
+	return requireResourceOwnership(param, func(ctx context.Context, id, orgID pgtype.UUID) error {
+		_, err := queries.VerifyDLQRecordOwnership(ctx, database.VerifyDLQRecordOwnershipParams{ID: id, OrganizationID: orgID})
+		return err
+	})
+}
+
+type ownershipCheck func(context.Context, pgtype.UUID, pgtype.UUID) error
+
+func requireResourceOwnership(param string, check ownershipCheck) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			resourceID, err := uuid.Parse(chi.URLParam(r, param))
+			if err != nil {
+				http.Error(w, `{"error":{"code":"INVALID_RESOURCE_ID","message":"Invalid resource ID format"}}`, http.StatusBadRequest)
+				return
+			}
+
+			orgIDRaw, ok := r.Context().Value(OrgIDKey).(string)
+			if !ok {
+				http.Error(w, `{"error":{"code":"TENANT_REQUIRED","message":"Organization context required"}}`, http.StatusBadRequest)
+				return
+			}
+			orgID, err := uuid.Parse(orgIDRaw)
+			if err != nil {
+				http.Error(w, `{"error":{"code":"INVALID_ORG_ID","message":"Invalid organization ID format"}}`, http.StatusBadRequest)
+				return
+			}
+
+			if err := check(r.Context(), uuidToPG(resourceID), uuidToPG(orgID)); err != nil {
+				http.Error(w, `{"error":{"code":"FORBIDDEN","message":"You do not have access to this resource"}}`, http.StatusForbidden)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func uuidToPG(id uuid.UUID) pgtype.UUID {
+	return pgtype.UUID{Bytes: id, Valid: true}
 }

@@ -10,6 +10,8 @@ interface UseSSEOptions {
   projectId: string | null;
   /** Auth token for the SSE endpoint */
   token: string | null;
+	/** Verified organization context required by the API tenant guard */
+  organizationId: string | null;
   /** React Query keys to invalidate on new events */
   queryKeys?: string[][];
   /** Custom event handler */
@@ -28,6 +30,7 @@ interface UseSSEOptions {
 export function useSSE({
   projectId,
   token,
+  organizationId,
   queryKeys = [],
   onEvent,
   enabled = true,
@@ -39,7 +42,7 @@ export function useSSE({
   const maxReconnectDelay = 30_000; // 30 seconds max
 
   const connect = useCallback(() => {
-    if (!projectId || !token || !enabled) return;
+    if (!projectId || !token || !organizationId || !enabled) return;
 
     // Close existing connection
     if (eventSourceRef.current) {
@@ -48,7 +51,7 @@ export function useSSE({
 
     // EventSource doesn't natively support auth headers.
     // Pass token as query parameter (backend SSE endpoint is already auth-protected via middleware).
-    const url = `${API_BASE_URL}/api/projects/${projectId}/events/stream?token=${encodeURIComponent(token)}`;
+    const url = `${API_BASE_URL}/api/projects/${projectId}/events/stream?token=${encodeURIComponent(token)}&organizationId=${encodeURIComponent(organizationId)}`;
 
     const es = new EventSource(url);
     eventSourceRef.current = es;
@@ -99,7 +102,7 @@ export function useSSE({
         connect();
       }, delay);
     };
-  }, [projectId, token, enabled, queryClient, queryKeys, onEvent]);
+  }, [projectId, token, organizationId, enabled, queryClient, queryKeys, onEvent]);
 
   useEffect(() => {
     connect();

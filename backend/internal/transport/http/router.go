@@ -77,6 +77,11 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 
 	// Tenant-verified middleware (validates DB membership)
 	tenantGuard := middleware.RequireTenant(queries)
+	projectGuard := middleware.RequireProjectOwnership(queries, "projectId")
+	endpointGuard := middleware.RequireEndpointOwnership(queries, "endpointId")
+	requestGuard := middleware.RequireRequestOwnership(queries, "id")
+	alertGuard := middleware.RequireAlertChannelOwnership(queries, "id")
+	dlqGuard := middleware.RequireDLQRecordOwnership(queries, "id")
 
 	// API Routes
 	r.Route("/api", func(api chi.Router) {
@@ -93,41 +98,41 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 			// Projects
 			protected.With(tenantGuard).Get("/projects", h.ProjectHandler.List)
 			protected.With(tenantGuard).Post("/projects", h.ProjectHandler.Create)
-			protected.With(tenantGuard).Get("/projects/{id}", h.ProjectHandler.Get)
-			protected.With(tenantGuard).Put("/projects/{id}", h.ProjectHandler.Update)
-			protected.With(tenantGuard).Delete("/projects/{id}", h.ProjectHandler.Delete)
+			protected.With(tenantGuard, middleware.RequireProjectOwnership(queries, "id")).Get("/projects/{id}", h.ProjectHandler.Get)
+			protected.With(tenantGuard, middleware.RequireProjectOwnership(queries, "id")).Put("/projects/{id}", h.ProjectHandler.Update)
+			protected.With(tenantGuard, middleware.RequireProjectOwnership(queries, "id")).Delete("/projects/{id}", h.ProjectHandler.Delete)
 
 			// Endpoints & Mocks & Forwarding & Schemas
-			protected.With(tenantGuard).Get("/projects/{projectId}/endpoints", h.EndpointHandler.List)
-			protected.With(tenantGuard).Post("/projects/{projectId}/endpoints", h.EndpointHandler.Create)
-			protected.With(tenantGuard).Put("/projects/{projectId}/endpoints/{endpointId}", h.EndpointHandler.Update)
-			protected.With(tenantGuard).Delete("/projects/{projectId}/endpoints/{endpointId}", h.EndpointHandler.Delete)
-			protected.With(tenantGuard).Get("/endpoints/{endpointId}/mocks", h.MockHandler.List)
-			protected.With(tenantGuard).Post("/endpoints/{endpointId}/mocks", h.MockHandler.Create)
-			protected.With(tenantGuard).Post("/endpoints/{endpointId}/forwarding", h.ForwardingHandler.SaveConfig)
-			protected.With(tenantGuard).Get("/endpoints/{endpointId}/forwarding", h.ForwardingHandler.GetConfig)
-			protected.With(tenantGuard).Get("/endpoints/{endpointId}/dlq", h.ForwardingHandler.ListDLQ)
-			protected.With(tenantGuard).Delete("/endpoints/{endpointId}/dlq", h.ForwardingHandler.PurgeDLQ)
-			protected.With(tenantGuard).Post("/dlq/{id}/retry", h.ForwardingHandler.RetryDLQ)
-			protected.With(tenantGuard).Post("/endpoints/{endpointId}/schema", h.EndpointHandler.SaveSchema)
-			protected.With(tenantGuard).Get("/endpoints/{endpointId}/schema", h.EndpointHandler.GetSchema)
-			protected.With(tenantGuard).Delete("/endpoints/{endpointId}/schema", h.EndpointHandler.DeleteSchema)
+			protected.With(tenantGuard, projectGuard).Get("/projects/{projectId}/endpoints", h.EndpointHandler.List)
+			protected.With(tenantGuard, projectGuard).Post("/projects/{projectId}/endpoints", h.EndpointHandler.Create)
+			protected.With(tenantGuard, projectGuard, endpointGuard).Put("/projects/{projectId}/endpoints/{endpointId}", h.EndpointHandler.Update)
+			protected.With(tenantGuard, projectGuard, endpointGuard).Delete("/projects/{projectId}/endpoints/{endpointId}", h.EndpointHandler.Delete)
+			protected.With(tenantGuard, endpointGuard).Get("/endpoints/{endpointId}/mocks", h.MockHandler.List)
+			protected.With(tenantGuard, endpointGuard).Post("/endpoints/{endpointId}/mocks", h.MockHandler.Create)
+			protected.With(tenantGuard, endpointGuard).Post("/endpoints/{endpointId}/forwarding", h.ForwardingHandler.SaveConfig)
+			protected.With(tenantGuard, endpointGuard).Get("/endpoints/{endpointId}/forwarding", h.ForwardingHandler.GetConfig)
+			protected.With(tenantGuard, endpointGuard).Get("/endpoints/{endpointId}/dlq", h.ForwardingHandler.ListDLQ)
+			protected.With(tenantGuard, endpointGuard).Delete("/endpoints/{endpointId}/dlq", h.ForwardingHandler.PurgeDLQ)
+			protected.With(tenantGuard, dlqGuard).Post("/dlq/{id}/retry", h.ForwardingHandler.RetryDLQ)
+			protected.With(tenantGuard, endpointGuard).Post("/endpoints/{endpointId}/schema", h.EndpointHandler.SaveSchema)
+			protected.With(tenantGuard, endpointGuard).Get("/endpoints/{endpointId}/schema", h.EndpointHandler.GetSchema)
+			protected.With(tenantGuard, endpointGuard).Delete("/endpoints/{endpointId}/schema", h.EndpointHandler.DeleteSchema)
 
 			// Multi-Channel Alerting
-			protected.With(tenantGuard).Post("/projects/{projectId}/alerts", h.AlertHandler.CreateChannel)
-			protected.With(tenantGuard).Get("/projects/{projectId}/alerts", h.AlertHandler.ListChannels)
-			protected.With(tenantGuard).Delete("/alerts/{id}", h.AlertHandler.DeleteChannel)
-			protected.With(tenantGuard).Post("/alerts/{id}/test", h.AlertHandler.SendTestAlert)
+			protected.With(tenantGuard, projectGuard).Post("/projects/{projectId}/alerts", h.AlertHandler.CreateChannel)
+			protected.With(tenantGuard, projectGuard).Get("/projects/{projectId}/alerts", h.AlertHandler.ListChannels)
+			protected.With(tenantGuard, alertGuard).Delete("/alerts/{id}", h.AlertHandler.DeleteChannel)
+			protected.With(tenantGuard, alertGuard).Post("/alerts/{id}/test", h.AlertHandler.SendTestAlert)
 
 			// Requests & Replay
-			protected.With(tenantGuard).Get("/projects/{projectId}/requests", h.RequestHandler.ListByProject)
-			protected.With(tenantGuard).Post("/requests/{id}/replay", h.ReplayHandler.Execute)
-			protected.With(tenantGuard).Get("/projects/{projectId}/replays", h.ReplayHandler.ListByProject)
+			protected.With(tenantGuard, projectGuard).Get("/projects/{projectId}/requests", h.RequestHandler.ListByProject)
+			protected.With(tenantGuard, requestGuard).Post("/requests/{id}/replay", h.ReplayHandler.Execute)
+			protected.With(tenantGuard, projectGuard).Get("/projects/{projectId}/replays", h.ReplayHandler.ListByProject)
 
 			// Security Findings (Real DB & Statistics)
 			if h.FindingHandler != nil {
-				protected.With(tenantGuard).Get("/projects/{projectId}/findings", h.FindingHandler.ListByProject)
-				protected.With(tenantGuard).Get("/projects/{projectId}/findings/stats", h.FindingHandler.GetStats)
+				protected.With(tenantGuard, projectGuard).Get("/projects/{projectId}/findings", h.FindingHandler.ListByProject)
+				protected.With(tenantGuard, projectGuard).Get("/projects/{projectId}/findings/stats", h.FindingHandler.GetStats)
 			}
 
 			// AI Finding Explanations
@@ -135,13 +140,13 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 
 			// API Keys (Multi-Key Management & Rotation)
 			if h.APIKeyHandler != nil {
-				protected.With(tenantGuard).Post("/projects/{projectId}/keys", h.APIKeyHandler.Create)
-				protected.With(tenantGuard).Get("/projects/{projectId}/keys", h.APIKeyHandler.List)
-				protected.With(tenantGuard).Delete("/projects/{projectId}/keys/{keyId}", h.APIKeyHandler.Revoke)
+				protected.With(tenantGuard, projectGuard).Post("/projects/{projectId}/keys", h.APIKeyHandler.Create)
+				protected.With(tenantGuard, projectGuard).Get("/projects/{projectId}/keys", h.APIKeyHandler.List)
+				protected.With(tenantGuard, projectGuard).Delete("/projects/{projectId}/keys/{keyId}", h.APIKeyHandler.Revoke)
 			}
 
 			// Realtime SSE Stream (Guarded by tenant membership)
-			protected.With(tenantGuard).Get("/projects/{projectId}/events/stream", h.SSEHandler.Stream)
+			protected.With(tenantGuard, projectGuard).Get("/projects/{projectId}/events/stream", h.SSEHandler.Stream)
 
 			// Agent Sessions (Real gRPC connected agents)
 			if h.AgentHandler != nil {
