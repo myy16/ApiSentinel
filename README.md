@@ -87,3 +87,17 @@ go test -bench=. ./internal/security
 # Statik Analiz (0 warning)
 go vet ./...
 ```
+
+---
+
+## Production self-hosted dağıtım
+
+`docker-compose.production.yml`, PostgreSQL ve Valkey'i yalnızca internal Docker ağına koyar; dışarıya yalnızca frontend, HTTP backend ve gRPC portları açılır. gRPC production modunda TLS olmadan başlamaz; `.env.production` içindeki `TLS_CERT_PATH` ve `TLS_KEY_PATH` host üzerindeki gerçek sertifika dosyalarını göstermelidir. Gerçek ortamda HTTP/gRPC portlarını doğrudan internete açmak yerine Caddy, Nginx veya bir cloud load balancer arkasında TLS ile yayınla.
+
+```powershell
+Copy-Item .env.production.example .env.production
+# .env.production içindeki tüm replace_with... değerlerini gerçek secret'larla değiştir.
+docker compose --env-file .env.production -f docker-compose.production.yml up -d --build
+```
+
+Production PostgreSQL portu yayınlanmaz. Yönetim için managed database, VPN veya SSH tunnel kullan; veritabanını public internete açma.

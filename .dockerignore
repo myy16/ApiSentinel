@@ -1,0 +1,11 @@
+.git
+.next
+**/node_modules
+**/bin
+**/*.exe
+.env
+.env.*
+!/.env.example
+coverage
+*.log
+data

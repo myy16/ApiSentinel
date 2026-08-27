@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../../hooks/useAuth";
 import { apiFetch } from "../../../lib/api";
@@ -32,6 +32,14 @@ import {
 import Link from "next/link";
 import { useActiveProject } from "../../../contexts/ProjectContext";
 
+interface WebhookSecurityConfig {
+  endpointId: string;
+  provider: "stripe" | "github" | "shopify" | "generic";
+  requireSignature: boolean;
+  configured: boolean;
+  updatedAt: string;
+}
+
 export default function EndpointsPage() {
   const queryClient = useQueryClient();
   const { accessToken, organization } = useAuth();
@@ -57,6 +65,10 @@ export default function EndpointsPage() {
   const [editUpstreamUrl, setEditUpstreamUrl] = useState("");
   const [editIsActive, setEditIsActive] = useState(true);
   const [editError, setEditError] = useState<string | null>(null);
+  const [webhookProvider, setWebhookProvider] = useState<WebhookSecurityConfig["provider"]>("stripe");
+  const [webhookSecret, setWebhookSecret] = useState("");
+  const [requireSignature, setRequireSignature] = useState(true);
+  const [webhookSecurityError, setWebhookSecurityError] = useState<string | null>(null);
 
   // Fetch endpoints for active project
   const { data: endpointsData, isLoading } = useQuery({
@@ -132,6 +144,54 @@ export default function EndpointsPage() {
     },
   });
 
+  const { data: webhookSecurity } = useQuery({
+    queryKey: ["webhook-security", editingEndpoint?.id],
+    queryFn: () =>
+      apiFetch<WebhookSecurityConfig>(`/api/endpoints/${editingEndpoint?.id}/webhook-security`, {
+        token: accessToken,
+        organizationId: organization?.id,
+      }),
+    enabled: !!editingEndpoint && !!accessToken && !!organization?.id,
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (webhookSecurity) {
+      setWebhookProvider(webhookSecurity.provider);
+      setRequireSignature(webhookSecurity.requireSignature);
+    }
+  }, [webhookSecurity]);
+
+  const saveWebhookSecurityMutation = useMutation({
+    mutationFn: (input: { provider: WebhookSecurityConfig["provider"]; secret: string; requireSignature: boolean }) =>
+      apiFetch<WebhookSecurityConfig>(`/api/endpoints/${editingEndpoint?.id}/webhook-security`, {
+        method: "PUT",
+        token: accessToken,
+        organizationId: organization?.id,
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["webhook-security", editingEndpoint?.id] });
+      setWebhookSecret("");
+      setWebhookSecurityError(null);
+    },
+    onError: (err: any) => setWebhookSecurityError(err.message || "İmza koruması kaydedilemedi."),
+  });
+
+  const deleteWebhookSecurityMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(`/api/endpoints/${editingEndpoint?.id}/webhook-security`, {
+        method: "DELETE",
+        token: accessToken,
+        organizationId: organization?.id,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["webhook-security", editingEndpoint?.id] });
+      setWebhookSecret("");
+      setRequireSignature(true);
+    },
+  });
+
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
@@ -150,6 +210,8 @@ export default function EndpointsPage() {
     setEditUpstreamUrl(ep.upstreamUrl || "");
     setEditIsActive(ep.isActive);
     setEditError(null);
+    setWebhookSecret("");
+    setWebhookSecurityError(null);
   };
 
   const handleSaveEdit = (e: React.FormEvent) => {
@@ -472,6 +534,36 @@ export default function EndpointsPage() {
               </div>
             </div>
 
+            <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 space-y-3">
+              <div className="flex items-start gap-2">
+                <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+                <div>
+                  <p className="text-xs font-bold text-foreground">Webhook İmza Koruması</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">Secret şifrelenerek saklanır ve kaydedildikten sonra tekrar gösterilmez.</p>
+                </div>
+              </div>
+              {webhookSecurityError && <p className="text-xs text-destructive">{webhookSecurityError}</p>}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">Sağlayıcı</label>
+                  <select value={webhookProvider} onChange={(e) => setWebhookProvider(e.target.value as WebhookSecurityConfig["provider"])} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none">
+                    <option value="stripe">Stripe</option><option value="github">GitHub</option><option value="shopify">Shopify</option><option value="generic">Generic HMAC SHA-256</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">Yeni Signing Secret</label>
+                  <input type="password" value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} placeholder={webhookSecurity?.configured ? "Değiştirmek için yeni secret girin" : "Secret girin"} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none" />
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-xs text-foreground cursor-pointer"><input type="checkbox" checked={requireSignature} onChange={(e) => setRequireSignature(e.target.checked)} />İmzasız istekleri reddet</label>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" disabled={!webhookSecret.trim() || saveWebhookSecurityMutation.isPending} onClick={() => saveWebhookSecurityMutation.mutate({ provider: webhookProvider, secret: webhookSecret, requireSignature })} className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-black transition hover:bg-amber-400 disabled:opacity-50">
+                  {saveWebhookSecurityMutation.isPending ? "Kaydediliyor..." : "İmza Korumasını Kaydet"}
+                </button>
+                {webhookSecurity?.configured && <button type="button" onClick={() => deleteWebhookSecurityMutation.mutate()} className="rounded-lg border border-destructive/40 px-3 py-1.5 text-xs font-semibold text-destructive hover:bg-destructive/10">Koruma Ayarını Kaldır</button>}
+              </div>
+            </div>
+
             <div className="flex justify-end gap-3 pt-2">
               <button
                 type="button"
@@ -696,4 +788,3 @@ export default function EndpointsPage() {
     </div>
   );
 }
-

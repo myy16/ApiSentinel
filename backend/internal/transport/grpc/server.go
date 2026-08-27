@@ -73,7 +73,7 @@ func NewServer(queries *database.Queries, port int, jwtSecret string, tlsCertFil
 			log.Info().Msg("gRPC TLS encryption enabled")
 		}
 	} else if !isDevelopment() {
-		log.Warn().Msg("gRPC running without TLS in production — set TLS_CERT_FILE and TLS_KEY_FILE")
+		log.Fatal().Msg("FATAL: gRPC TLS is required in production — set TLS_CERT_FILE and TLS_KEY_FILE")
 	}
 
 	// 2. Authentication Interceptors
