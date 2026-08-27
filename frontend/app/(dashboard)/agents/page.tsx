@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../../hooks/useAuth";
+import { apiFetch } from "../../../lib/api";
 import {
   Terminal,
   Activity,
@@ -13,26 +15,38 @@ import {
   Clock,
   ShieldCheck,
   Zap,
+  WifiOff,
+  Loader2,
 } from "lucide-react";
 
+interface AgentSession {
+  agentId: string;
+  hostname: string;
+  os: string;
+  version: string;
+  status: "ONLINE" | "STALE";
+  lastSeen: string;
+}
+
 export default function AgentsPage() {
-  const { organization } = useAuth();
+  const { accessToken, organization } = useAuth();
   const [copiedCommand, setCopiedCommand] = useState(false);
 
-  // Demo connected agent list
-  const agents = [
-    {
-      id: "agent_dev_macbook_1",
-      hostname: "dev-macbook-pro.local",
-      os: "darwin (arm64)",
-      version: "v0.1.0",
-      status: "ONLINE",
-      lastSeen: new Date().toISOString(),
-      activeTunnel: "http://localhost:8080",
-    },
-  ];
+  // Fetch real connected agents from backend
+  const { data: agentsData, isLoading } = useQuery({
+    queryKey: ["agents", "sessions"],
+    queryFn: () =>
+      apiFetch<{ agents: AgentSession[]; total: number }>("/api/agents/sessions", {
+        token: accessToken,
+        organizationId: organization?.id,
+      }),
+    enabled: !!accessToken,
+    refetchInterval: 10000, // Lightweight poll every 10s for agent status
+  });
 
-  const connectCommand = "apisentinel connect --server localhost:50051 --token super_secret_jwt_key_at_least_32_characters_long_12345";
+  const agents = agentsData?.agents || [];
+
+  const connectCommand = "apisentinel connect --server localhost:50051 --token <YOUR_API_KEY>";
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(connectCommand);
@@ -87,50 +101,74 @@ export default function AgentsPage() {
       </div>
 
       {/* Connected Agents Grid */}
-      <div className="grid grid-cols-1 gap-4">
-        {agents.map((agent) => (
-          <div
-            key={agent.id}
-            className="rounded-xl border border-border bg-card p-6 shadow-sm flex flex-col justify-between gap-4"
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
-                  <Laptop className="h-5 w-5" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-bold text-foreground">{agent.hostname}</h3>
-                    <span className="rounded bg-emerald-500/20 text-emerald-400 px-2 py-0.5 text-[11px] font-bold font-mono">
-                      ONLINE
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground font-mono">
-                    ID: {agent.id} • OS: {agent.os} • Sürüm: {agent.version}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
-                <Clock className="h-3.5 w-3.5" />
-                <span>Son Heartbeat: {new Date(agent.lastSeen).toLocaleTimeString("tr-TR")}</span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between pt-3 border-t border-border text-xs">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <ShieldCheck className="h-4 w-4 text-emerald-400" />
-                <span>Git Pre-Push Hook: <strong>Aktif & Korumalı</strong></span>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground">Local Port:</span>
-                <span className="font-mono font-bold text-primary">{agent.activeTunnel}</span>
-              </div>
+      {isLoading ? (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      ) : agents.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border bg-card p-12 text-center space-y-3">
+          <div className="flex justify-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted">
+              <WifiOff className="h-7 w-7 text-muted-foreground" />
             </div>
           </div>
-        ))}
-      </div>
+          <h3 className="text-lg font-semibold text-foreground">Bağlı Ajan Bulunamadı</h3>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">
+            Henüz hiçbir geliştirici ajanı bağlı değil. Yukarıdaki komutu terminalinizde çalıştırarak
+            ilk ajanınızı bağlayın.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4">
+          {agents.map((agent) => (
+            <div
+              key={agent.agentId}
+              className="rounded-xl border border-border bg-card p-6 shadow-sm flex flex-col justify-between gap-4"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${
+                    agent.status === "ONLINE"
+                      ? "bg-emerald-500/10 text-emerald-400"
+                      : "bg-yellow-500/10 text-yellow-400"
+                  }`}>
+                    <Laptop className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-bold text-foreground">
+                        {agent.hostname || agent.agentId}
+                      </h3>
+                      <span className={`rounded px-2 py-0.5 text-[11px] font-bold font-mono ${
+                        agent.status === "ONLINE"
+                          ? "bg-emerald-500/20 text-emerald-400"
+                          : "bg-yellow-500/20 text-yellow-400"
+                      }`}>
+                        {agent.status}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground font-mono">
+                      ID: {agent.agentId} • OS: {agent.os || "N/A"} • Sürüm: {agent.version || "N/A"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
+                  <Clock className="h-3.5 w-3.5" />
+                  <span>Son Heartbeat: {new Date(agent.lastSeen).toLocaleTimeString("tr-TR")}</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-3 border-t border-border text-xs">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <ShieldCheck className="h-4 w-4 text-emerald-400" />
+                  <span>Git Pre-Push Hook: <strong>Aktif & Korumalı</strong></span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -54,7 +54,7 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println(BannerArt)
+	fmt.Print(BannerArt)
 	fmt.Printf("ApiSentinel Local Agent & Shift-Left Security CLI (v%s)\n\n", Version)
 	fmt.Println("Usage:")
 	fmt.Println("  apisentinel scan [path]          Scan local directory or file for secrets and PII")

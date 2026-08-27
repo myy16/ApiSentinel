@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../../hooks/useAuth";
 import { useActiveProject } from "../../../contexts/ProjectContext";
+import { useSSE } from "../../../hooks/useSSE";
 import { apiFetch } from "../../../lib/api";
 import { Project, CapturedRequest } from "@apisentinel/shared";
 import {
@@ -50,7 +51,16 @@ export default function RequestsPage() {
         }
       ),
     enabled: !!accessToken && !!activeProjectId && !!organization?.id,
-    refetchInterval: 3000,
+    // No polling needed — SSE push handles real-time updates
+  });
+
+  // Real-time SSE: auto-invalidate the query cache when backend pushes new events
+  const sseQueryKeys = useMemo(() => [["requests", activeProjectId || ""]], [activeProjectId]);
+  useSSE({
+    projectId: activeProjectId,
+    token: accessToken,
+    queryKeys: sseQueryKeys,
+    enabled: !!accessToken && !!activeProjectId,
   });
 
   const requests = requestsData?.requests || [];

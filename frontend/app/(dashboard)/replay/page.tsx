@@ -69,7 +69,7 @@ export default function ReplayPage() {
         organizationId: organization?.id,
       }),
     enabled: !!accessToken && !!activeProjectId,
-    refetchInterval: 5000,
+    // No polling — refreshed on replay mutation success
   });
 
   // Replay mutation

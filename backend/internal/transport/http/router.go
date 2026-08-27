@@ -26,6 +26,7 @@ type Handlers struct {
 	ForwardingHandler *ForwardingHandler
 	FindingHandler    *FindingHandler
 	APIKeyHandler     *APIKeyHandler
+	AgentHandler      *AgentHandler
 }
 
 func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsOrigin string) *chi.Mux {
@@ -38,12 +39,16 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 	r.Use(chimiddleware.Recoverer)
 
 	// CORS Setup — origin from config (default "*" in dev, restricted in production)
+	// SECURITY: AllowCredentials MUST be false when AllowedOrigins contains "*"
+	// per the Fetch/CORS specification. Browsers will reject such combinations.
 	allowedOrigins := []string{"*"}
+	allowCredentials := false
 	if corsOrigin != "" && corsOrigin != "*" {
 		allowedOrigins = strings.Split(corsOrigin, ",")
 		for i, o := range allowedOrigins {
 			allowedOrigins[i] = strings.TrimSpace(o)
 		}
+		allowCredentials = true // Only allow credentials with explicit origin list
 	}
 
 	r.Use(cors.Handler(cors.Options{
@@ -51,7 +56,7 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "x-organization-id"},
 		ExposedHeaders:   []string{"Link"},
-		AllowCredentials: true,
+		AllowCredentials: allowCredentials,
 		MaxAge:           300,
 	}))
 
@@ -137,6 +142,11 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 
 			// Realtime SSE Stream
 			protected.Get("/projects/{projectId}/events/stream", h.SSEHandler.Stream)
+
+			// Agent Sessions (Real gRPC connected agents)
+			if h.AgentHandler != nil {
+				protected.Get("/agents/sessions", h.AgentHandler.ListSessions)
+			}
 		})
 	})
 

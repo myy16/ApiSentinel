@@ -94,8 +94,13 @@ func isDevelopment() bool {
 	return env != "production"
 }
 
-// allowInsecureGRPC returns true only if both the env var is set AND we are in development
+// allowInsecureGRPC returns true only if both the env var is set AND we are in development.
+// In production, setting this env var is explicitly warned and ignored.
 func allowInsecureGRPC() bool {
+	if os.Getenv("ALLOW_INSECURE_GRPC") == "true" && !isDevelopment() {
+		log.Warn().Msg("SECURITY: ALLOW_INSECURE_GRPC is set but IGNORED in production mode")
+		return false
+	}
 	return os.Getenv("ALLOW_INSECURE_GRPC") == "true" && isDevelopment()
 }
 
@@ -155,6 +160,7 @@ func (s *Server) validateToken(md metadata.MD) error {
 
 	// 1. Development default token
 	if isDevelopment() && (rawToken == "apisent_dev_token" || allowInsecureGRPC()) {
+		log.Warn().Msg("SECURITY: gRPC auth bypassed using development-only token — do NOT use in production")
 		return nil
 	}
 
@@ -210,6 +216,19 @@ func (s *Server) Start() error {
 func (s *Server) Stop() {
 	s.grpcSrv.GracefulStop()
 	log.Info().Msg("gRPC Server stopped gracefully")
+}
+
+// GetActiveSessions returns a snapshot of all currently connected agent sessions.
+// Used by the HTTP agent handler to expose real agent data to the frontend.
+func (s *Server) GetActiveSessions() []*AgentSession {
+	var sessions []*AgentSession
+	s.sessions.Range(func(key, value interface{}) bool {
+		if session, ok := value.(*AgentSession); ok {
+			sessions = append(sessions, session)
+		}
+		return true
+	})
+	return sessions
 }
 
 // ConnectSession handles the bidirectional streaming connection from Go Agent

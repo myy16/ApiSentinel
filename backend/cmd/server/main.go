@@ -99,6 +99,7 @@ func main() {
 		ForwardingHandler: transporthttp.NewForwardingHandler(forwardingService),
 		FindingHandler:    transporthttp.NewFindingHandler(findingService),
 		APIKeyHandler:     transporthttp.NewAPIKeyHandler(apiKeyService),
+		AgentHandler:      transporthttp.NewAgentHandler(grpcServer),
 	}
 
 	router := transporthttp.SetupRouter(handlers, cfg.JWTSecret, queries, cfg.CORSOrigin)
