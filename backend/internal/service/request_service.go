@@ -87,6 +87,12 @@ func (s *RequestService) ListByProject(ctx context.Context, projectId string, li
 			status = r.ResponseStatus.Int32
 		}
 
+		var clientIP *string
+		if r.ClientIp != nil {
+			ipStr := r.ClientIp.String()
+			clientIP = &ipStr
+		}
+
 		res = append(res, CapturedRequestResponse{
 			ID:               uuid.UUID(r.ID.Bytes).String(),
 			EndpointID:       uuid.UUID(r.EndpointID.Bytes).String(),
@@ -97,6 +103,7 @@ func (s *RequestService) ListByProject(ctx context.Context, projectId string, li
 			RawBody:          raw,
 			MaskedBody:       masked,
 			ParsedJSON:       parsed,
+			ClientIP:         clientIP,
 			ResponseStatus:   status,
 			ProcessingStatus: r.ProcessingStatus,
 			CreatedAt:        r.CreatedAt.Time.Format(time.RFC3339),

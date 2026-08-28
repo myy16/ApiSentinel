@@ -38,7 +38,7 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 	authService := service.NewAuthService(queries, cfg.JWTSecret)
 	projectService := service.NewProjectService(queries)
 	endpointService := service.NewEndpointService(queries)
-	alertService := service.NewAlertService(queries)
+	alertService := service.NewAlertService(queries, nil)
 	forwardingService := service.NewForwardingService(queries, nil)
 	ingestionService := service.NewIngestionService(queries, nil, alertService, forwardingService, nil)
 	requestService := service.NewRequestService(queries)

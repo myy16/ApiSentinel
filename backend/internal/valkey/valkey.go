@@ -59,6 +59,8 @@ func (c *Client) Close() error {
 func (c *Client) PublishStream(ctx context.Context, stream string, values map[string]interface{}) (string, error) {
 	return c.rdb.XAdd(ctx, &redis.XAddArgs{
 		Stream: stream,
+		MaxLen: 10000,
+		Approx: true,
 		Values: values,
 	}).Result()
 }

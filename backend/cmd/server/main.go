@@ -68,7 +68,7 @@ func main() {
 	authService := service.NewAuthService(queries, cfg.JWTSecret)
 	projectService := service.NewProjectService(queries)
 	endpointService := service.NewEndpointService(queries)
-	alertService := service.NewAlertService(queries)
+	alertService := service.NewAlertService(queries, workerPool)
 	forwardingService := service.NewForwardingService(queries, workerPool)
 	ingestionService := service.NewIngestionService(queries, valkeyClient, alertService, forwardingService, workerPool)
 	requestService := service.NewRequestService(queries)

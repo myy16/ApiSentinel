@@ -18,7 +18,7 @@ services:
       retries: 5
 
   valkey:
-    image: redis:7-alpine
+    image: valkey/valkey:8-alpine
     container_name: apisentinel-valkey
     restart: unless-stopped
     ports:
@@ -26,7 +26,7 @@ services:
     volumes:
       - valkey_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "valkey-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5

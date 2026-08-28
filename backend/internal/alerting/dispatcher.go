@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/apisentinel/apisentinel/internal/security/ssrf"
 	"github.com/rs/zerolog/log"
 )
 
@@ -40,7 +41,7 @@ type Dispatcher struct {
 
 func NewDispatcher() *Dispatcher {
 	return &Dispatcher{
-		httpClient: &http.Client{Timeout: 5 * time.Second},
+		httpClient: ssrf.NewSafeHTTPClient(5 * time.Second),
 	}
 }
 

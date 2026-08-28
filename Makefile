@@ -26,4 +26,6 @@ dev-frontend:
 	npm run dev --workspace=apisentinel-frontend
 
 clean:
-	rm -rf backend/bin agent/bin
+	@if [ -d backend/bin ]; then rm -rf backend/bin; fi
+	@if [ -d agent/bin ]; then rm -rf agent/bin; fi
+

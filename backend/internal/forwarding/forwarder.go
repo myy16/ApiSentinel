@@ -39,7 +39,7 @@ type Forwarder struct {
 
 func NewForwarder() *Forwarder {
 	return &Forwarder{
-		httpClient: &http.Client{},
+		httpClient: ssrf.NewSafeHTTPClient(10 * time.Second),
 	}
 }
 

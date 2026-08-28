@@ -24,10 +24,8 @@ type ReplayService struct {
 
 func NewReplayService(queries *database.Queries) *ReplayService {
 	return &ReplayService{
-		queries: queries,
-		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+		queries:    queries,
+		httpClient: ssrf.NewSafeHTTPClient(10 * time.Second),
 	}
 }
 

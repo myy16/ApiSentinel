@@ -7,6 +7,7 @@ import (
 
 	"github.com/apisentinel/apisentinel/internal/alerting"
 	"github.com/apisentinel/apisentinel/internal/database"
+	"github.com/apisentinel/apisentinel/internal/worker"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/rs/zerolog/log"
@@ -15,12 +16,14 @@ import (
 type AlertService struct {
 	queries    *database.Queries
 	dispatcher *alerting.Dispatcher
+	workerPool *worker.Pool
 }
 
-func NewAlertService(queries *database.Queries) *AlertService {
+func NewAlertService(queries *database.Queries, workerPool *worker.Pool) *AlertService {
 	return &AlertService{
 		queries:    queries,
 		dispatcher: alerting.NewDispatcher(),
+		workerPool: workerPool,
 	}
 }
 
@@ -106,8 +109,8 @@ func (s *AlertService) SendTestAlert(ctx context.Context, channelID string) erro
 
 // DispatchForFindings sends alerts in background to all active channels of the project
 func (s *AlertService) DispatchForFindings(projectID string, projectName string, endpointName string, reqID string, findings []database.SecurityFinding, policyAction string) {
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	task := func(taskCtx context.Context) {
+		ctx, cancel := context.WithTimeout(taskCtx, 10*time.Second)
 		defer cancel()
 
 		channels, err := s.ListChannels(ctx, projectID)
@@ -143,5 +146,13 @@ func (s *AlertService) DispatchForFindings(projectID string, projectName string,
 				}
 			}
 		}
-	}()
+	}
+
+	if s.workerPool != nil {
+		if err := s.workerPool.Submit(task); err != nil {
+			log.Warn().Err(err).Msg("Worker pool full or closed; alert dispatch was not scheduled")
+		}
+	} else {
+		log.Warn().Msg("Worker pool unavailable; alert dispatch was not scheduled")
+	}
 }
