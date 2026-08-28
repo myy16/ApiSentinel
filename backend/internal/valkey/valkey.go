@@ -3,6 +3,7 @@ package valkey
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -14,23 +15,31 @@ type Client struct {
 }
 
 func New(addr string) (*Client, error) {
-	rdb := redis.NewClient(&redis.Options{
-		Addr: addr,
+	var opts *redis.Options
 
-		// Connection Pool
-		PoolSize:     20,
-		MinIdleConns: 5,
+	if strings.HasPrefix(addr, "redis://") || strings.HasPrefix(addr, "rediss://") || strings.HasPrefix(addr, "valkey://") {
+		parsed, err := redis.ParseURL(strings.Replace(addr, "valkey://", "redis://", 1))
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse Valkey URL: %w", err)
+		}
+		opts = parsed
+	} else {
+		opts = &redis.Options{
+			Addr: addr,
+		}
+	}
 
-		// Timeouts
-		DialTimeout:  5 * time.Second,
-		ReadTimeout:  3 * time.Second,
-		WriteTimeout: 3 * time.Second,
+	// Connection Pool & Timeouts
+	opts.PoolSize = 20
+	opts.MinIdleConns = 5
+	opts.DialTimeout = 5 * time.Second
+	opts.ReadTimeout = 3 * time.Second
+	opts.WriteTimeout = 3 * time.Second
+	opts.MaxRetries = 3
+	opts.MinRetryBackoff = 100 * time.Millisecond
+	opts.MaxRetryBackoff = 500 * time.Millisecond
 
-		// Retry
-		MaxRetries:      3,
-		MinRetryBackoff: 100 * time.Millisecond,
-		MaxRetryBackoff: 500 * time.Millisecond,
-	})
+	rdb := redis.NewClient(opts)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

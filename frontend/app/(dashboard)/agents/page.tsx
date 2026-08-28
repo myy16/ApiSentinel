@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../../hooks/useAuth";
 import { apiFetch } from "../../../lib/api";
+import { useActiveProject } from "../../../contexts/ProjectContext";
 import {
   Terminal,
   Activity,
@@ -30,7 +31,12 @@ interface AgentSession {
 
 export default function AgentsPage() {
   const { accessToken, organization } = useAuth();
+  const { activeProjectId, activeProject } = useActiveProject();
+  const queryClient = useQueryClient();
   const [copiedCommand, setCopiedCommand] = useState(false);
+  const [keyName, setKeyName] = useState("Local Development Agent");
+  const [isLiveKey, setIsLiveKey] = useState(false);
+  const [createdKey, setCreatedKey] = useState<string | null>(null);
 
   // Fetch real connected agents from backend
   const { data: agentsData, isLoading } = useQuery({
@@ -45,6 +51,37 @@ export default function AgentsPage() {
   });
 
   const agents = agentsData?.agents || [];
+
+  const { data: keysData } = useQuery({
+    queryKey: ["api-keys", activeProjectId],
+    queryFn: () => apiFetch<{ keys: Array<{ id: string; name: string; keyPrefix: string; isRevoked: boolean; createdAt: string }> }>(`/api/projects/${activeProjectId}/keys`, {
+      token: accessToken,
+      organizationId: organization?.id,
+    }),
+    enabled: !!accessToken && !!organization?.id && !!activeProjectId,
+  });
+
+  const createKey = useMutation({
+    mutationFn: () => apiFetch<{ apiKey: { secretKey: string } }>(`/api/projects/${activeProjectId}/keys`, {
+      method: "POST",
+      token: accessToken,
+      organizationId: organization?.id,
+      body: JSON.stringify({ name: keyName || "Local Development Agent", isLive: isLiveKey }),
+    }),
+    onSuccess: (data) => {
+      setCreatedKey(data.apiKey.secretKey);
+      queryClient.invalidateQueries({ queryKey: ["api-keys", activeProjectId] });
+    },
+  });
+
+  const revokeKey = useMutation({
+    mutationFn: (keyId: string) => apiFetch(`/api/projects/${activeProjectId}/keys/${keyId}`, {
+      method: "DELETE",
+      token: accessToken,
+      organizationId: organization?.id,
+    }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["api-keys", activeProjectId] }),
+  });
 
   const connectCommand = "apisentinel connect --server localhost:50051 --token <YOUR_API_KEY>";
 
@@ -111,6 +148,40 @@ export default function AgentsPage() {
             {copiedCommand ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
             <span>{copiedCommand ? "Kopyalandı" : "Kopyala"}</span>
           </button>
+        </div>
+      </div>
+
+      {/* Project API key management */}
+      <div className="rounded-xl border border-border bg-card p-6 shadow-sm space-y-4">
+        <div>
+          <h3 className="text-sm font-bold text-foreground">Agent API Key</h3>
+          <p className="text-xs text-muted-foreground mt-1">
+            {activeProject ? `Aktif proje: ${activeProject.name}` : "Önce bir proje oluştur ve seç."} Bu anahtar yalnızca bu projenin Agent bağlantısı içindir.
+          </p>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <input value={keyName} onChange={(e) => setKeyName(e.target.value)} placeholder="Anahtar adı" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+          <select value={isLiveKey ? "live" : "test"} onChange={(e) => setIsLiveKey(e.target.value === "live")} className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
+            <option value="test">Test anahtarı</option>
+            <option value="live">Live anahtarı</option>
+          </select>
+          <button onClick={() => createKey.mutate()} disabled={!activeProjectId || createKey.isPending} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">
+            {createKey.isPending ? "Oluşturuluyor..." : "Yeni anahtar oluştur"}
+          </button>
+        </div>
+        {createdKey && (
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+            <p className="font-semibold text-amber-300">Bu anahtarı şimdi kopyala. Tekrar gösterilmeyecek.</p>
+            <div className="mt-2 flex gap-2"><code className="min-w-0 flex-1 break-all rounded bg-background px-2 py-1 text-xs">{createdKey}</code><button onClick={() => navigator.clipboard.writeText(createdKey)} className="rounded bg-secondary px-3 py-1 text-xs">Kopyala</button></div>
+          </div>
+        )}
+        <div className="space-y-2">
+          {(keysData?.keys || []).filter((key) => !key.isRevoked).map((key) => (
+            <div key={key.id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-xs">
+              <span><strong>{key.name}</strong> <span className="font-mono text-muted-foreground">{key.keyPrefix}••••</span></span>
+              <button onClick={() => revokeKey.mutate(key.id)} className="text-red-400 hover:underline">İptal et</button>
+            </div>
+          ))}
         </div>
       </div>
 

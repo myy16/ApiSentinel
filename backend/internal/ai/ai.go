@@ -35,18 +35,26 @@ type Explainer struct {
 
 // NewExplainer initializes the AI Explainer.
 // Auto-detects GROQ_API_KEY (default: llama-3.3-70b-versatile) or OPENAI_API_KEY (default: gpt-4o-mini).
-// Falls back to high-accuracy local expert rulebook if no keys are provided or network fails.
+func isValidKey(k string) bool {
+	k = strings.TrimSpace(k)
+	if k == "" || strings.Contains(k, "sizin_") || strings.HasSuffix(k, "...") || len(k) < 20 {
+		return false
+	}
+	return true
+}
+
 func NewExplainer(apiKey string) *Explainer {
 	e := &Explainer{
 		httpClient: &http.Client{Timeout: 12 * time.Second},
 	}
 
-	groqKey := os.Getenv("GROQ_API_KEY")
-	openaiKey := os.Getenv("OPENAI_API_KEY")
-	customModel := os.Getenv("AI_MODEL")
+	groqKey := strings.TrimSpace(os.Getenv("GROQ_API_KEY"))
+	openaiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+	customModel := strings.TrimSpace(os.Getenv("AI_MODEL"))
+	providerOverride := strings.ToLower(strings.TrimSpace(os.Getenv("AI_PROVIDER")))
 
-	if apiKey != "" {
-		if strings.HasPrefix(apiKey, "gsk_") || strings.EqualFold(os.Getenv("AI_PROVIDER"), "groq") {
+	if isValidKey(apiKey) {
+		if strings.HasPrefix(apiKey, "gsk_") || providerOverride == "groq" {
 			e.provider = "groq"
 			e.apiKey = apiKey
 			e.apiURL = "https://api.groq.com/openai/v1/chat/completions"
@@ -57,18 +65,24 @@ func NewExplainer(apiKey string) *Explainer {
 			e.apiURL = "https://api.openai.com/v1/chat/completions"
 			e.model = "gpt-4o-mini"
 		}
-	} else if groqKey != "" {
+	} else if providerOverride == "groq" && isValidKey(groqKey) {
 		e.provider = "groq"
 		e.apiKey = groqKey
 		e.apiURL = "https://api.groq.com/openai/v1/chat/completions"
 		e.model = "llama-3.3-70b-versatile"
 		log.Info().Str("provider", "Groq").Str("model", e.model).Msg("AI Explainer initialized with Groq Cloud (Llama 3.3 70B)")
-	} else if openaiKey != "" {
+	} else if (providerOverride == "openai" || providerOverride == "") && isValidKey(openaiKey) {
 		e.provider = "openai"
 		e.apiKey = openaiKey
 		e.apiURL = "https://api.openai.com/v1/chat/completions"
 		e.model = "gpt-4o-mini"
 		log.Info().Str("provider", "OpenAI").Str("model", e.model).Msg("AI Explainer initialized with OpenAI (GPT-4o Mini)")
+	} else if isValidKey(groqKey) {
+		e.provider = "groq"
+		e.apiKey = groqKey
+		e.apiURL = "https://api.groq.com/openai/v1/chat/completions"
+		e.model = "llama-3.3-70b-versatile"
+		log.Info().Str("provider", "Groq").Str("model", e.model).Msg("AI Explainer initialized with Groq Cloud (Llama 3.3 70B)")
 	} else {
 		e.provider = "local"
 		log.Info().Msg("AI Explainer running in Local Knowledgebase mode (Set GROQ_API_KEY or OPENAI_API_KEY for dynamic LLM insights)")
