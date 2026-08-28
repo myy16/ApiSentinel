@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/apisentinel/apisentinel/internal/alerting"
@@ -46,10 +47,16 @@ func (s *AlertService) CreateChannel(ctx context.Context, input CreateAlertChann
 		minSev = "HIGH"
 	}
 
+	// Validate channel type (#22)
+	normalizedType := strings.ToUpper(input.ChannelType)
+	if !isValidChannelType(normalizedType) {
+		return nil, fmt.Errorf("geçersiz kanal tipi: %s. Kabul edilen tipler: SLACK, DISCORD, TELEGRAM, WEBHOOK", input.ChannelType)
+	}
+
 	channel, err := s.queries.CreateAlertChannel(ctx, database.CreateAlertChannelParams{
 		ProjectID:   pgtype.UUID{Bytes: projUUID, Valid: true},
 		Name:        input.Name,
-		ChannelType: input.ChannelType,
+		ChannelType: normalizedType,
 		WebhookUrl:  input.WebhookURL,
 		MinSeverity: minSev,
 		IsEnabled:   true,
@@ -119,10 +126,6 @@ func (s *AlertService) DispatchForFindings(projectID string, projectName string,
 		}
 
 		for _, f := range findings {
-			if f.Severity != "CRITICAL" && f.Severity != "HIGH" {
-				continue
-			}
-
 			payload := alerting.AlertPayload{
 				EventID:        uuid.New().String(),
 				ProjectName:    projectName,
@@ -141,6 +144,10 @@ func (s *AlertService) DispatchForFindings(projectID string, projectName string,
 				if !ch.IsEnabled {
 					continue
 				}
+				// Use each channel's own minSeverity instead of hardcoded filter (#21)
+				if severityOrder(f.Severity) < severityOrder(ch.MinSeverity) {
+					continue
+				}
 				if err := s.dispatcher.Dispatch(ctx, alerting.ChannelType(ch.ChannelType), ch.WebhookUrl, payload); err != nil {
 					log.Warn().Err(err).Str("channel", ch.Name).Msg("Failed to dispatch alert")
 				}
@@ -154,5 +161,32 @@ func (s *AlertService) DispatchForFindings(projectID string, projectName string,
 		}
 	} else {
 		log.Warn().Msg("Worker pool unavailable; alert dispatch was not scheduled")
+	}
+}
+
+// severityOrder returns a numeric ranking for severity comparison.
+// Higher number = more severe. Unknown values default to 0.
+func severityOrder(severity string) int {
+	switch strings.ToUpper(severity) {
+	case "LOW":
+		return 1
+	case "MEDIUM":
+		return 2
+	case "HIGH":
+		return 3
+	case "CRITICAL":
+		return 4
+	default:
+		return 0
+	}
+}
+
+// isValidChannelType validates that the given channel type is supported.
+func isValidChannelType(channelType string) bool {
+	switch channelType {
+	case "SLACK", "DISCORD", "TELEGRAM", "WEBHOOK":
+		return true
+	default:
+		return false
 	}
 }

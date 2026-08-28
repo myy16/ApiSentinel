@@ -96,7 +96,17 @@ func (s *ForwardingService) ForwardCleanWebhook(ctx context.Context, endpointID 
 
 		cfg, err := s.queries.GetForwardingConfigByEndpoint(bgCtx, pgtype.UUID{Bytes: epUUID, Valid: true})
 		if err != nil || !cfg.IsEnabled || cfg.TargetUrl == "" {
-			return
+			// Fallback: check the endpoint's own upstream_url (#1)
+			endpoint, epErr := s.queries.GetEndpointByIDOnly(bgCtx, pgtype.UUID{Bytes: epUUID, Valid: true})
+			if epErr != nil || !endpoint.UpstreamUrl.Valid || endpoint.UpstreamUrl.String == "" {
+				return
+			}
+			cfg = database.ForwardingConfig{
+				TargetUrl:  endpoint.UpstreamUrl.String,
+				MaxRetries: 3,
+				TimeoutMs:  5000,
+				IsEnabled:  true,
+			}
 		}
 
 		var customHeaders map[string]string

@@ -89,6 +89,8 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 		// Public Auth
 		api.Post("/auth/register", h.AuthHandler.Register)
 		api.Post("/auth/login", h.AuthHandler.Login)
+		api.Post("/auth/logout", h.AuthHandler.Logout)
+		api.Post("/auth/refresh", h.AuthHandler.Refresh)
 
 		// Protected Routes
 		api.Group(func(protected chi.Router) {

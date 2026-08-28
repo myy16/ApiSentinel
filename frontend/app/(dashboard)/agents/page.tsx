@@ -40,13 +40,13 @@ export default function AgentsPage() {
 
   // Fetch real connected agents from backend
   const { data: agentsData, isLoading } = useQuery({
-    queryKey: ["agents", "sessions"],
+    queryKey: ["agents", "sessions", organization?.id],
     queryFn: () =>
       apiFetch<{ agents: AgentSession[]; total: number }>("/api/agents/sessions", {
         token: accessToken,
         organizationId: organization?.id,
       }),
-    enabled: !!accessToken,
+    enabled: !!accessToken && !!organization?.id,
     refetchInterval: 10000, // Lightweight poll every 10s for agent status
   });
 

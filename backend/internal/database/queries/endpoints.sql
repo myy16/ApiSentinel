@@ -58,3 +58,8 @@ WHERE endpoint_id = $1 LIMIT 1;
 -- name: DeleteEndpointSchema :exec
 DELETE FROM endpoint_schemas
 WHERE endpoint_id = $1;
+
+-- name: GetEndpointByIDOnly :one
+SELECT id, project_id, slug, name, mode, is_active, upstream_url, created_at
+FROM endpoints
+WHERE id = $1 LIMIT 1;

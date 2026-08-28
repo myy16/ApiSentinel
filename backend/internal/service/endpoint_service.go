@@ -208,22 +208,44 @@ func (s *EndpointService) UpdateEndpoint(ctx context.Context, endpointId, projec
 	copy(pgProjId.Bytes[:], projUUID[:])
 	pgProjId.Valid = true
 
+	// Fetch existing endpoint to preserve unmodified fields (PATCH semantics, #5)
+	existing, err := s.queries.GetEndpointByID(ctx, database.GetEndpointByIDParams{
+		ID:        pgEpId,
+		ProjectID: pgProjId,
+	})
+	if err != nil {
+		return nil, errors.New("endpoint bulunamadı")
+	}
+
+	// Only update fields that were explicitly provided; keep existing values otherwise
+	effectiveName := existing.Name
+	if name != "" {
+		effectiveName = name
+	}
+
+	effectiveMode := existing.Mode
+	if mode != "" {
+		effectiveMode = mode
+	}
+
+	effectiveActive := existing.IsActive
+	if isActive != nil {
+		effectiveActive = *isActive
+	}
+
 	var pgUpstream pgtype.Text
 	if upstreamUrl != nil {
 		pgUpstream = pgtype.Text{String: *upstreamUrl, Valid: true}
-	}
-
-	activeVal := true
-	if isActive != nil {
-		activeVal = *isActive
+	} else if existing.UpstreamUrl.Valid {
+		pgUpstream = existing.UpstreamUrl
 	}
 
 	ep, err := s.queries.UpdateEndpoint(ctx, database.UpdateEndpointParams{
 		ID:          pgEpId,
 		ProjectID:   pgProjId,
-		Name:        name,
-		Mode:        mode,
-		IsActive:    activeVal,
+		Name:        effectiveName,
+		Mode:        effectiveMode,
+		IsActive:    effectiveActive,
 		UpstreamUrl: pgUpstream,
 	})
 	if err != nil {

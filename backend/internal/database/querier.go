@@ -36,6 +36,7 @@ type Querier interface {
 	GetCapturedRequestByID(ctx context.Context, id pgtype.UUID) (GetCapturedRequestByIDRow, error)
 	GetDLQRecordByID(ctx context.Context, id pgtype.UUID) (ForwardingDlq, error)
 	GetEndpointByID(ctx context.Context, arg GetEndpointByIDParams) (Endpoint, error)
+	GetEndpointByIDOnly(ctx context.Context, id pgtype.UUID) (Endpoint, error)
 	GetEndpointBySlug(ctx context.Context, slug string) (Endpoint, error)
 	GetEndpointSchema(ctx context.Context, endpointID pgtype.UUID) (EndpointSchema, error)
 	GetEndpointWebhookSecurity(ctx context.Context, endpointID pgtype.UUID) (EndpointWebhookSecurity, error)

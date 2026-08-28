@@ -101,6 +101,28 @@ func (q *Queries) GetEndpointByID(ctx context.Context, arg GetEndpointByIDParams
 	return i, err
 }
 
+const getEndpointByIDOnly = `-- name: GetEndpointByIDOnly :one
+SELECT id, project_id, slug, name, mode, is_active, upstream_url, created_at
+FROM endpoints
+WHERE id = $1 LIMIT 1
+`
+
+func (q *Queries) GetEndpointByIDOnly(ctx context.Context, id pgtype.UUID) (Endpoint, error) {
+	row := q.db.QueryRow(ctx, getEndpointByIDOnly, id)
+	var i Endpoint
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.Slug,
+		&i.Name,
+		&i.Mode,
+		&i.IsActive,
+		&i.UpstreamUrl,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getEndpointBySlug = `-- name: GetEndpointBySlug :one
 SELECT id, project_id, slug, name, mode, is_active, upstream_url, created_at
 FROM endpoints

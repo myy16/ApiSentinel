@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/apisentinel/apisentinel/internal/database"
+	"github.com/apisentinel/apisentinel/internal/forwarding"
 	"github.com/apisentinel/apisentinel/internal/id"
 	"github.com/apisentinel/apisentinel/internal/policy"
 	"github.com/apisentinel/apisentinel/internal/security"
@@ -130,6 +131,22 @@ func (s *IngestionService) ProcessWebhook(
 
 	// 4. Webhook HMAC Signature Verification (if provider signatures are provided)
 	if hmacErr := s.verifyWebhookHMAC(ctx, endpoint, rawBody, headers); hmacErr != nil {
+		// Record failed HMAC attempt for audit trail (#8)
+		headersBytes, _ := json.Marshal(redaction.Headers(headers))
+		queryBytes, _ := json.Marshal(redaction.QueryParams(queryParams))
+		_, _ = s.queries.CreateCapturedRequest(ctx, database.CreateCapturedRequestParams{
+			EndpointID:       endpoint.ID,
+			RequestID:        requestId,
+			HttpMethod:       httpMethod,
+			Headers:          headersBytes,
+			QueryParams:      queryBytes,
+			RawBody:          pgtype.Text{},
+			MaskedBody:       pgtype.Text{String: "[REDACTED: HMAC verification failed]", Valid: true},
+			ClientIp:         parseClientIP(clientIP),
+			ResponseStatus:   pgtype.Int4{Int32: http.StatusUnauthorized, Valid: true},
+			ProcessingStatus: "HMAC_REJECTED",
+		})
+
 		return &IngestionResult{
 			StatusCode: http.StatusUnauthorized,
 			RequestID:  requestId,
@@ -161,12 +178,14 @@ func (s *IngestionService) ProcessWebhook(
 	findings := s.securityEngine.Inspect(string(rawBody))
 
 	// 7. Idempotency & Duplicate Request Detection (Valkey sliding window)
+	isDuplicate := false
 	if s.valkeyClient != nil && len(rawBody) > 0 {
 		endpointIdStr := uuid.UUID(endpoint.ID.Bytes).String()
 		payloadHash := duplicate.CalculatePayloadHash(rawBody)
 		idempKey := duplicate.BuildIdempotencyKey(endpointIdStr, payloadHash)
 
 		if isDup, origReqID, err := s.valkeyClient.CheckAndSetIdempotency(ctx, idempKey, requestId, duplicate.DefaultIdempotencyTTL); err == nil && isDup {
+			isDuplicate = true
 			dupFinding := duplicate.CreateDuplicateFinding(origReqID, payloadHash)
 			findings = append(findings, security.Finding{
 				Category:       "DUPLICATE",
@@ -231,7 +250,7 @@ func (s *IngestionService) ProcessWebhook(
 	s.dispatchAsyncEvents(capturedIdStr, projectIdStr, endpointIdStr, requestId, httpMethod, responseStatus, action)
 
 	// 12. Persist Findings & Dispatch Alerts
-	s.persistFindingsAndAlerts(ctx, captured, endpoint, findings)
+	s.persistFindingsAndAlerts(ctx, captured, endpoint, findings, action)
 
 	// 13. Policy Block Response
 	if action == "BLOCK" {
@@ -260,7 +279,24 @@ func (s *IngestionService) ProcessWebhook(
 		}, nil
 	}
 
+	// 13b. Duplicate Idempotency Guard — block forwarding for duplicate webhooks (#2)
+	if isDuplicate {
+		return &IngestionResult{
+			StatusCode: http.StatusConflict,
+			RequestID:  requestId,
+			Action:     "DUPLICATE",
+			ResponseBody: map[string]interface{}{
+				"error": map[string]interface{}{
+					"code":      "DUPLICATE_REQUEST",
+					"message":   "Bu webhook daha önce işlendi. Tekrar iletim engellendi.",
+					"requestId": requestId,
+				},
+			},
+		}, nil
+	}
+
 	// 14. Forwarding to Upstream Target (if configured)
+	// Apply header allowlist to prevent credential leakage (#9)
 	if s.forwardingSvc != nil {
 		flatHeaders := make(map[string]string)
 		for k, v := range headers {
@@ -268,7 +304,8 @@ func (s *IngestionService) ProcessWebhook(
 				flatHeaders[k] = v[0]
 			}
 		}
-		s.forwardingSvc.ForwardCleanWebhook(ctx, endpointIdStr, capturedIdStr, httpMethod, flatHeaders, rawBody)
+		safeHeaders := forwarding.FilterHeaders(flatHeaders)
+		s.forwardingSvc.ForwardCleanWebhook(ctx, endpointIdStr, capturedIdStr, httpMethod, safeHeaders, rawBody)
 	}
 
 	return &IngestionResult{
@@ -493,19 +530,23 @@ func (s *IngestionService) persistFindingsAndAlerts(
 	captured database.CapturedRequest,
 	endpoint database.Endpoint,
 	findings []security.Finding,
+	policyAction string,
 ) {
 	if len(findings) == 0 {
 		return
 	}
 
+	projectIdStr := uuid.UUID(endpoint.ProjectID.Bytes).String()
+
 	var dbFindings []database.SecurityFinding
 	for _, f := range findings {
+		// Use the actual policy decision instead of hardcoded "LOG" (#6)
 		createdFinding, fErr := s.queries.CreateSecurityFinding(ctx, database.CreateSecurityFindingParams{
 			RequestID:      captured.ID,
 			Category:       f.Category,
 			Type:           f.Type,
 			Severity:       f.Severity,
-			Action:         "LOG",
+			Action:         policyAction,
 			FieldPath:      pgtype.Text{Valid: false},
 			Message:        f.Message,
 			EvidenceMasked: pgtype.Text{String: f.EvidenceMasked, Valid: f.EvidenceMasked != ""},
@@ -518,8 +559,31 @@ func (s *IngestionService) persistFindingsAndAlerts(
 		dbFindings = append(dbFindings, createdFinding)
 	}
 
+	// Publish finding.created SSE events for real-time frontend updates (#7)
+	if s.valkeyClient != nil && s.workerPool != nil && len(dbFindings) > 0 {
+		findingsToPublish := dbFindings // capture for closure
+		_ = s.workerPool.Submit(func(taskCtx context.Context) {
+			bgCtx, cancel := context.WithTimeout(taskCtx, 3*time.Second)
+			defer cancel()
+
+			for _, df := range findingsToPublish {
+				eventPayload, _ := json.Marshal(map[string]interface{}{
+					"event":     "finding.created",
+					"id":        uuid.UUID(df.ID.Bytes).String(),
+					"requestId": captured.RequestID,
+					"category":  df.Category,
+					"type":      df.Type,
+					"severity":  df.Severity,
+					"action":    df.Action,
+					"message":   df.Message,
+					"createdAt": time.Now().Format(time.RFC3339),
+				})
+				s.valkeyClient.PublishEvent(bgCtx, "channel:events:"+projectIdStr, string(eventPayload))
+			}
+		})
+	}
+
 	if s.alertService != nil && len(dbFindings) > 0 {
-		projectIdStr := uuid.UUID(endpoint.ProjectID.Bytes).String()
-		s.alertService.DispatchForFindings(projectIdStr, endpoint.Name, endpoint.Name, captured.RequestID, dbFindings, "ALERT")
+		s.alertService.DispatchForFindings(projectIdStr, endpoint.Name, endpoint.Name, captured.RequestID, dbFindings, policyAction)
 	}
 }

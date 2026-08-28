@@ -191,6 +191,50 @@ func (s *AuthService) GetMe(ctx context.Context, userId string) (*UserResponse, 
 	}, orgs, nil
 }
 
+type RefreshResponse struct {
+	AccessToken string `json:"accessToken"`
+}
+
+// RefreshAccessToken validates a refresh token and issues a new short-lived access token (#17).
+func (s *AuthService) RefreshAccessToken(ctx context.Context, refreshToken string) (*RefreshResponse, error) {
+	token, err := jwt.Parse(refreshToken, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("beklenmeyen imza yöntemi")
+		}
+		return []byte(s.jwtSecret), nil
+	})
+	if err != nil || !token.Valid {
+		return nil, errors.New("geçersiz veya süresi dolmuş refresh token")
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, errors.New("token claims okunamadı")
+	}
+
+	// Verify this is actually a refresh token (not an access token being reused)
+	if tokenType, exists := claims["tokenType"]; exists {
+		if tokenType != "refresh" {
+			return nil, errors.New("bu bir refresh token değil")
+		}
+	}
+
+	userId, _ := claims["userId"].(string)
+	orgId, _ := claims["organizationId"].(string)
+	role, _ := claims["role"].(string)
+
+	if userId == "" || orgId == "" {
+		return nil, errors.New("eksik token bilgileri")
+	}
+
+	accessToken, err := s.generateToken(userId, orgId, role, 1*time.Hour)
+	if err != nil {
+		return nil, err
+	}
+
+	return &RefreshResponse{AccessToken: accessToken}, nil
+}
+
 func (s *AuthService) generateToken(userId, orgId, role string, ttl time.Duration) (string, error) {
 	claims := jwt.MapClaims{
 		"userId":         userId,
@@ -198,6 +242,11 @@ func (s *AuthService) generateToken(userId, orgId, role string, ttl time.Duratio
 		"role":           role,
 		"exp":            time.Now().Add(ttl).Unix(),
 		"iat":            time.Now().Unix(),
+	}
+
+	// Tag refresh tokens so they can be distinguished from access tokens
+	if ttl > 24*time.Hour {
+		claims["tokenType"] = "refresh"
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
