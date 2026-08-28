@@ -39,17 +39,14 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 	r.Use(chimiddleware.Logger)
 	r.Use(chimiddleware.Recoverer)
 
-	// CORS Setup — origin from config (default "*" in dev, restricted in production)
-	// SECURITY: AllowCredentials MUST be false when AllowedOrigins contains "*"
-	// per the Fetch/CORS specification. Browsers will reject such combinations.
-	allowedOrigins := []string{"*"}
-	allowCredentials := false
+	// CORS Setup — support credentials for cookie-based auth
+	allowedOrigins := []string{"http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000", "http://127.0.0.1:3001"}
+	allowCredentials := true
 	if corsOrigin != "" && corsOrigin != "*" {
 		allowedOrigins = strings.Split(corsOrigin, ",")
 		for i, o := range allowedOrigins {
 			allowedOrigins[i] = strings.TrimSpace(o)
 		}
-		allowCredentials = true // Only allow credentials with explicit origin list
 	}
 
 	r.Use(cors.Handler(cors.Options{

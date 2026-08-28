@@ -39,7 +39,21 @@ func InstallHook() error {
 		return err
 	}
 
-	hookPath := filepath.Join(gitRoot, ".git", "hooks", "pre-push")
+	hooksDir := filepath.Join(gitRoot, ".git", "hooks")
+	if err := os.MkdirAll(hooksDir, 0755); err != nil {
+		return fmt.Errorf("failed to create hooks directory: %w", err)
+	}
+
+	hookPath := filepath.Join(hooksDir, "pre-push")
+
+	// If existing hook file exists, check if it's already ApiSentinel. If not, back it up (#24)
+	if existingContent, err := os.ReadFile(hookPath); err == nil {
+		if !strings.Contains(string(existingContent), "ApiSentinel") {
+			backupPath := filepath.Join(hooksDir, "pre-push.bak")
+			_ = os.WriteFile(backupPath, existingContent, 0755)
+		}
+	}
+
 	if err := os.WriteFile(hookPath, []byte(prePushScript), 0755); err != nil {
 		return fmt.Errorf("failed to write git hook: %w", err)
 	}

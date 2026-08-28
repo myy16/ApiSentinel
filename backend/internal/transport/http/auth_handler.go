@@ -57,6 +57,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	setAuthCookies(w, res.AccessToken, res.RefreshToken)
 	writeJSON(w, http.StatusCreated, res)
 }
 
@@ -73,6 +74,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	setAuthCookies(w, res.AccessToken, res.RefreshToken)
 	writeJSON(w, http.StatusOK, res)
 }
 
@@ -95,31 +97,86 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Logout provides a stateless logout endpoint. No server-side invalidation;
-// the frontend clears local tokens. This prevents the frontend from hitting a 404 (#18).
+// Logout clears the auth cookies and returns 200 (#18, #19).
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	clearAuthCookies(w)
 	writeJSON(w, http.StatusOK, map[string]string{
 		"message": "Çıkış başarılı",
 	})
 }
 
-// Refresh validates a refresh token and issues a new access token (#17).
+// Refresh validates a refresh token (from body or cookie) and issues a new access token (#17, #19).
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		RefreshToken string `json:"refreshToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RefreshToken == "" {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", "refreshToken alanı zorunludur")
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	refreshToken := req.RefreshToken
+	if refreshToken == "" {
+		if cookie, err := r.Cookie("apisentinel_refresh_token"); err == nil {
+			refreshToken = cookie.Value
+		}
+	}
+
+	if refreshToken == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_BODY", "refreshToken alanı veya cookie'si zorunludur")
 		return
 	}
 
-	res, err := h.authService.RefreshAccessToken(r.Context(), req.RefreshToken)
+	res, err := h.authService.RefreshAccessToken(r.Context(), refreshToken)
 	if err != nil {
+		clearAuthCookies(w)
 		writeError(w, http.StatusUnauthorized, "INVALID_REFRESH_TOKEN", err.Error())
 		return
 	}
 
+	setAccessTokenCookie(w, res.AccessToken)
 	writeJSON(w, http.StatusOK, res)
+}
+
+func setAuthCookies(w http.ResponseWriter, accessToken, refreshToken string) {
+	setAccessTokenCookie(w, accessToken)
+	if refreshToken != "" {
+		http.SetCookie(w, &http.Cookie{
+			Name:     "apisentinel_refresh_token",
+			Value:    refreshToken,
+			Path:     "/api/auth",
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   7 * 24 * 3600, // 7 days
+		})
+	}
+}
+
+func setAccessTokenCookie(w http.ResponseWriter, accessToken string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "apisentinel_access_token",
+		Value:    accessToken,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   24 * 3600, // 24 hours
+	})
+}
+
+func clearAuthCookies(w http.ResponseWriter, ) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "apisentinel_access_token",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     "apisentinel_refresh_token",
+		Value:    "",
+		Path:     "/api/auth",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
 }
 
 var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)

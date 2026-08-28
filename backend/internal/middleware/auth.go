@@ -27,6 +27,8 @@ func Auth(jwtSecret string) func(http.Handler) http.Handler {
 			authHeader := r.Header.Get("Authorization")
 			if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
 				tokenString = strings.TrimPrefix(authHeader, "Bearer ")
+			} else if cookie, err := r.Cookie("apisentinel_access_token"); err == nil && cookie.Value != "" {
+				tokenString = cookie.Value
 			} else if queryToken := r.URL.Query().Get("token"); queryToken != "" {
 				// EventSource / SSE fallback where browser cannot send custom headers
 				tokenString = queryToken

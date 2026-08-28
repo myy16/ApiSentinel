@@ -38,6 +38,7 @@ export async function apiFetch<T>(endpoint: string, options: FetchOptions = {}):
   const url = `${API_BASE_URL}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
 
   const response = await fetch(url, {
+    credentials: "include",
     headers: requestHeaders,
     ...rest,
   });

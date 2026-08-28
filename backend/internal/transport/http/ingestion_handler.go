@@ -54,5 +54,9 @@ func (h *IngestionHandler) HandleWebhook(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	for k, v := range result.ResponseHeaders {
+		w.Header().Set(k, v)
+	}
+
 	writeJSON(w, result.StatusCode, result.ResponseBody)
 }

@@ -66,10 +66,11 @@ func NewIngestionService(
 }
 
 type IngestionResult struct {
-	StatusCode   int                    `json:"statusCode"`
-	ResponseBody map[string]interface{} `json:"responseBody"`
-	RequestID    string                 `json:"requestId"`
-	Action       string                 `json:"action"`
+	StatusCode      int                    `json:"statusCode"`
+	ResponseBody    map[string]interface{} `json:"responseBody"`
+	ResponseHeaders map[string]string      `json:"responseHeaders,omitempty"`
+	RequestID       string                 `json:"requestId"`
+	Action          string                 `json:"action"`
 }
 
 // ProcessWebhook executes the complete ingestion pipeline:
@@ -171,7 +172,7 @@ func (s *IngestionService) ProcessWebhook(
 
 	// 5. Check for Mock Mode & Active Mock Rules
 	if endpoint.Mode == "MOCK" {
-		return s.handleMockMode(ctx, endpoint, requestId, httpMethod, headersBytes, queryBytes, pgMaskedBody, parsedJson)
+		return s.handleMockMode(ctx, endpoint, requestId, httpMethod, headersBytes, queryBytes, pgMaskedBody, parsedJson, headers, queryParams, rawBody)
 	}
 
 	// 6. Multi-Layer Security Inspection (PII + Secrets + Injection + Obfuscation)
@@ -425,38 +426,71 @@ func (s *IngestionService) handleMockMode(
 	headersBytes, queryBytes []byte,
 	pgRawBody pgtype.Text,
 	parsedJson []byte,
+	headers map[string][]string,
+	queryParams map[string][]string,
+	rawBody []byte,
 ) (*IngestionResult, error) {
-	mockRule, mErr := s.queries.GetMatchingMockRule(ctx, endpoint.ID)
-	if mErr == nil {
-		if mockRule.DelayMs > 0 {
-			time.Sleep(time.Duration(mockRule.DelayMs) * time.Millisecond)
+	rules, err := s.queries.ListMockRulesByEndpoint(ctx, endpoint.ID)
+	if err == nil && len(rules) > 0 {
+		var selectedRule *database.MockRule
+
+		// Evaluate conditions on enabled rules
+		for _, r := range rules {
+			if !r.Enabled {
+				continue
+			}
+
+			// If condition is defined, test match (#3)
+			if len(r.Condition) > 0 && string(r.Condition) != "{}" && string(r.Condition) != "null" {
+				if matchMockCondition(r.Condition, rawBody, headers, queryParams) {
+					ruleCopy := r
+					selectedRule = &ruleCopy
+					break
+				}
+			} else if selectedRule == nil {
+				// Fallback to first unconditional enabled rule if no explicit condition matched yet
+				ruleCopy := r
+				selectedRule = &ruleCopy
+			}
 		}
 
-		var mockRespBody map[string]interface{}
-		_ = json.Unmarshal(mockRule.ResponseBody, &mockRespBody)
-		if mockRespBody == nil {
-			mockRespBody = map[string]interface{}{"status": "mocked", "rule": mockRule.Name}
+		if selectedRule != nil {
+			if selectedRule.DelayMs > 0 {
+				time.Sleep(time.Duration(selectedRule.DelayMs) * time.Millisecond)
+			}
+
+			var mockRespBody map[string]interface{}
+			_ = json.Unmarshal(selectedRule.ResponseBody, &mockRespBody)
+			if mockRespBody == nil {
+				mockRespBody = map[string]interface{}{"status": "mocked", "rule": selectedRule.Name}
+			}
+
+			var mockRespHeaders map[string]string
+			if len(selectedRule.ResponseHeaders) > 0 {
+				_ = json.Unmarshal(selectedRule.ResponseHeaders, &mockRespHeaders)
+			}
+
+			_, _ = s.queries.CreateCapturedRequest(ctx, database.CreateCapturedRequestParams{
+				EndpointID:       endpoint.ID,
+				RequestID:        requestId,
+				HttpMethod:       httpMethod,
+				Headers:          headersBytes,
+				QueryParams:      queryBytes,
+				RawBody:          pgRawBody,
+				MaskedBody:       pgRawBody,
+				ParsedJson:       parsedJson,
+				ResponseStatus:   pgtype.Int4{Int32: selectedRule.StatusCode, Valid: true},
+				ProcessingStatus: "MOCKED",
+			})
+
+			return &IngestionResult{
+				StatusCode:      int(selectedRule.StatusCode),
+				RequestID:       requestId,
+				Action:          "MOCK",
+				ResponseBody:    mockRespBody,
+				ResponseHeaders: mockRespHeaders,
+			}, nil
 		}
-
-		_, _ = s.queries.CreateCapturedRequest(ctx, database.CreateCapturedRequestParams{
-			EndpointID:       endpoint.ID,
-			RequestID:        requestId,
-			HttpMethod:       httpMethod,
-			Headers:          headersBytes,
-			QueryParams:      queryBytes,
-			RawBody:          pgRawBody,
-			MaskedBody:       pgRawBody,
-			ParsedJson:       parsedJson,
-			ResponseStatus:   pgtype.Int4{Int32: mockRule.StatusCode, Valid: true},
-			ProcessingStatus: "MOCKED",
-		})
-
-		return &IngestionResult{
-			StatusCode:   int(mockRule.StatusCode),
-			RequestID:    requestId,
-			Action:       "MOCK",
-			ResponseBody: mockRespBody,
-		}, nil
 	}
 
 	return &IngestionResult{
@@ -468,6 +502,55 @@ func (s *IngestionService) handleMockMode(
 			"requestId": requestId,
 		},
 	}, nil
+}
+
+func matchMockCondition(condition []byte, body []byte, headers map[string][]string, queryParams map[string][]string) bool {
+	var condMap map[string]interface{}
+	if err := json.Unmarshal(condition, &condMap); err != nil {
+		return false
+	}
+
+	// Match key-values against parsed JSON body, headers, or query parameters
+	var bodyMap map[string]interface{}
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &bodyMap)
+	}
+
+	for k, expectedVal := range condMap {
+		expectedStr := fmt.Sprintf("%v", expectedVal)
+
+		// Check body
+		if bodyMap != nil {
+			if actualVal, exists := bodyMap[k]; exists {
+				if fmt.Sprintf("%v", actualVal) == expectedStr {
+					continue
+				}
+			}
+		}
+
+		// Check headers
+		if hVals, exists := headers[k]; exists && len(hVals) > 0 {
+			if hVals[0] == expectedStr {
+				continue
+			}
+		}
+		if hVals, exists := headers[strings.ToLower(k)]; exists && len(hVals) > 0 {
+			if hVals[0] == expectedStr {
+				continue
+			}
+		}
+
+		// Check query params
+		if qVals, exists := queryParams[k]; exists && len(qVals) > 0 {
+			if qVals[0] == expectedStr {
+				continue
+			}
+		}
+
+		return false
+	}
+
+	return true
 }
 
 func (s *IngestionService) validateSchemaContract(
