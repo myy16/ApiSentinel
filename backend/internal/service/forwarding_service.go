@@ -10,6 +10,7 @@ import (
 
 	"github.com/apisentinel/apisentinel/internal/database"
 	"github.com/apisentinel/apisentinel/internal/forwarding"
+	"github.com/apisentinel/apisentinel/internal/security/envelope"
 	"github.com/apisentinel/apisentinel/internal/security/redaction"
 	"github.com/apisentinel/apisentinel/internal/worker"
 	"github.com/google/uuid"
@@ -18,19 +19,26 @@ import (
 )
 
 type ForwardingService struct {
-	queries    *database.Queries
-	forwarder  *forwarding.Forwarder
-	workerPool *worker.Pool
-	workerID   string
+	queries       *database.Queries
+	forwarder     *forwarding.Forwarder
+	workerPool    *worker.Pool
+	workerID      string
+	encryptionKey string
 }
 
-func NewForwardingService(queries *database.Queries, workerPool *worker.Pool) *ForwardingService {
+func NewForwardingService(queries *database.Queries, workerPool *worker.Pool, encryptionKey ...string) *ForwardingService {
 	workerID := fmt.Sprintf("worker-%s", uuid.New().String()[:8])
+	encKey := ""
+	if len(encryptionKey) > 0 {
+		encKey = encryptionKey[0]
+	}
+
 	svc := &ForwardingService{
-		queries:    queries,
-		forwarder:  forwarding.NewForwarder(),
-		workerPool: workerPool,
-		workerID:   workerID,
+		queries:       queries,
+		forwarder:     forwarding.NewForwarder(),
+		workerPool:    workerPool,
+		workerID:      workerID,
+		encryptionKey: encKey,
 	}
 
 	// Recover any stale jobs left in PROCESSING on startup (#2.2, #9)
@@ -64,6 +72,14 @@ func (s *ForwardingService) SaveConfig(ctx context.Context, input SaveForwarding
 	}
 
 	headersJSON, _ := json.Marshal(input.CustomHeaders)
+	if s.encryptionKey != "" && len(input.CustomHeaders) > 0 {
+		encrypted, err := envelope.Encrypt(s.encryptionKey, string(headersJSON))
+		if err == nil && encrypted != "" {
+			envelopePayload, _ := json.Marshal(map[string]string{"_encrypted": encrypted})
+			headersJSON = envelopePayload
+		}
+	}
+
 	maxRetries := input.MaxRetries
 	if maxRetries <= 0 {
 		maxRetries = 3
@@ -104,6 +120,15 @@ func (s *ForwardingService) GetConfig(ctx context.Context, endpointID string) (*
 	if err != nil {
 		return nil, err
 	}
+
+	// Decrypt and mask sensitive custom headers for API response (#3.1, #3.2)
+	headersMap := s.resolveCustomHeaders(cfg)
+	maskedHeaders := make(map[string]string)
+	for k, v := range headersMap {
+		maskedHeaders[k] = envelope.MaskHeaderValue(k, v)
+	}
+	cfg.CustomHeaders, _ = json.Marshal(maskedHeaders)
+
 	return &cfg, nil
 }
 
@@ -190,7 +215,7 @@ func (s *ForwardingService) executeOutboxJob(ctx context.Context, job database.F
 	var customHeaders map[string]string
 	cfg, err := s.queries.GetForwardingConfigByEndpoint(ctx, job.EndpointID)
 	if err == nil {
-		_ = json.Unmarshal(cfg.CustomHeaders, &customHeaders)
+		customHeaders = s.resolveCustomHeaders(cfg)
 	}
 
 	fwdConfig := forwarding.Config{
@@ -279,7 +304,7 @@ func (s *ForwardingService) RetryDLQRecord(ctx context.Context, dlqID string) er
 	var customHeaders map[string]string
 	cfg, err := s.queries.GetForwardingConfigByEndpoint(ctx, record.EndpointID)
 	if err == nil {
-		_ = json.Unmarshal(cfg.CustomHeaders, &customHeaders)
+		customHeaders = s.resolveCustomHeaders(cfg)
 	}
 
 	targetURL := record.TargetUrl
@@ -333,4 +358,45 @@ func (s *ForwardingService) PurgeDLQ(ctx context.Context, endpointID string) err
 	}
 
 	return s.queries.DeleteDLQRecordsByEndpoint(ctx, pgtype.UUID{Bytes: epUUID, Valid: true})
+}
+
+// resolveCustomHeaders decrypts stored headers if encrypted, or unmarshals JSON directly
+func (s *ForwardingService) resolveCustomHeaders(cfg database.ForwardingConfig) map[string]string {
+	if len(cfg.CustomHeaders) == 0 {
+		return nil
+	}
+
+	// 1. Check for encrypted JSON envelope {"_encrypted": "..."}
+	var env map[string]string
+	if err := json.Unmarshal(cfg.CustomHeaders, &env); err == nil {
+		if encVal, ok := env["_encrypted"]; ok && encVal != "" {
+			if s.encryptionKey != "" {
+				decrypted, dErr := envelope.Decrypt(s.encryptionKey, encVal)
+				if dErr == nil && decrypted != "" {
+					var headers map[string]string
+					if err := json.Unmarshal([]byte(decrypted), &headers); err == nil {
+						return headers
+					}
+				}
+			}
+		} else {
+			// Direct unencrypted map
+			return env
+		}
+	}
+
+	// 2. Direct string decrypt fallback
+	if s.encryptionKey != "" {
+		decrypted, err := envelope.Decrypt(s.encryptionKey, string(cfg.CustomHeaders))
+		if err == nil && decrypted != "" {
+			var headers map[string]string
+			if err := json.Unmarshal([]byte(decrypted), &headers); err == nil {
+				return headers
+			}
+		}
+	}
+
+	var headers map[string]string
+	_ = json.Unmarshal(cfg.CustomHeaders, &headers)
+	return headers
 }

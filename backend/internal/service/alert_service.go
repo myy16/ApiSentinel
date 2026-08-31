@@ -8,6 +8,7 @@ import (
 
 	"github.com/apisentinel/apisentinel/internal/alerting"
 	"github.com/apisentinel/apisentinel/internal/database"
+	"github.com/apisentinel/apisentinel/internal/security/envelope"
 	"github.com/apisentinel/apisentinel/internal/worker"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -15,16 +16,22 @@ import (
 )
 
 type AlertService struct {
-	queries    *database.Queries
-	dispatcher *alerting.Dispatcher
-	workerPool *worker.Pool
+	queries       *database.Queries
+	dispatcher    *alerting.Dispatcher
+	workerPool    *worker.Pool
+	encryptionKey string
 }
 
-func NewAlertService(queries *database.Queries, workerPool *worker.Pool) *AlertService {
+func NewAlertService(queries *database.Queries, workerPool *worker.Pool, encryptionKey ...string) *AlertService {
+	encKey := ""
+	if len(encryptionKey) > 0 {
+		encKey = encryptionKey[0]
+	}
 	return &AlertService{
-		queries:    queries,
-		dispatcher: alerting.NewDispatcher(),
-		workerPool: workerPool,
+		queries:       queries,
+		dispatcher:    alerting.NewDispatcher(),
+		workerPool:    workerPool,
+		encryptionKey: encKey,
 	}
 }
 
@@ -53,11 +60,20 @@ func (s *AlertService) CreateChannel(ctx context.Context, input CreateAlertChann
 		return nil, fmt.Errorf("geçersiz kanal tipi: %s. Kabul edilen tipler: SLACK, DISCORD, TELEGRAM, WEBHOOK", input.ChannelType)
 	}
 
+	// Encrypt webhook URL before persisting to PostgreSQL (#3.1, #5)
+	storedURL := input.WebhookURL
+	if s.encryptionKey != "" {
+		encrypted, err := envelope.Encrypt(s.encryptionKey, input.WebhookURL)
+		if err == nil && encrypted != "" {
+			storedURL = encrypted
+		}
+	}
+
 	channel, err := s.queries.CreateAlertChannel(ctx, database.CreateAlertChannelParams{
 		ProjectID:   pgtype.UUID{Bytes: projUUID, Valid: true},
 		Name:        input.Name,
 		ChannelType: normalizedType,
-		WebhookUrl:  input.WebhookURL,
+		WebhookUrl:  storedURL,
 		MinSeverity: minSev,
 		IsEnabled:   true,
 	})
@@ -65,6 +81,8 @@ func (s *AlertService) CreateChannel(ctx context.Context, input CreateAlertChann
 		return nil, fmt.Errorf("failed to create alert channel: %w", err)
 	}
 
+	// Mask the returned URL so secrets are never returned in response (#3.2)
+	channel.WebhookUrl = envelope.MaskWebhookURL(input.WebhookURL)
 	return &channel, nil
 }
 
@@ -74,7 +92,18 @@ func (s *AlertService) ListChannels(ctx context.Context, projectID string) ([]da
 		return nil, fmt.Errorf("invalid project ID: %w", err)
 	}
 
-	return s.queries.ListAlertChannelsByProject(ctx, pgtype.UUID{Bytes: projUUID, Valid: true})
+	channels, err := s.queries.ListAlertChannelsByProject(ctx, pgtype.UUID{Bytes: projUUID, Valid: true})
+	if err != nil {
+		return nil, err
+	}
+
+	// Mask Webhook URLs in listed channels
+	for i := range channels {
+		rawURL := s.resolveChannelURL(channels[i])
+		channels[i].WebhookUrl = envelope.MaskWebhookURL(rawURL)
+	}
+
+	return channels, nil
 }
 
 func (s *AlertService) DeleteChannel(ctx context.Context, channelID string) error {
@@ -97,6 +126,8 @@ func (s *AlertService) SendTestAlert(ctx context.Context, channelID string) erro
 		return fmt.Errorf("alert channel not found: %w", err)
 	}
 
+	targetURL := s.resolveChannelURL(ch)
+
 	testPayload := alerting.AlertPayload{
 		EventID:        uuid.New().String(),
 		ProjectName:    "Production API Gateway",
@@ -111,7 +142,7 @@ func (s *AlertService) SendTestAlert(ctx context.Context, channelID string) erro
 		Timestamp:      time.Now().Format(time.RFC3339),
 	}
 
-	return s.dispatcher.Dispatch(ctx, alerting.ChannelType(ch.ChannelType), ch.WebhookUrl, testPayload)
+	return s.dispatcher.Dispatch(ctx, alerting.ChannelType(ch.ChannelType), targetURL, testPayload)
 }
 
 // DispatchForFindings sends alerts in background to all active channels of the project
@@ -120,7 +151,12 @@ func (s *AlertService) DispatchForFindings(projectID string, projectName string,
 		ctx, cancel := context.WithTimeout(taskCtx, 10*time.Second)
 		defer cancel()
 
-		channels, err := s.ListChannels(ctx, projectID)
+		projUUID, err := uuid.Parse(projectID)
+		if err != nil {
+			return
+		}
+
+		channels, err := s.queries.ListAlertChannelsByProject(ctx, pgtype.UUID{Bytes: projUUID, Valid: true})
 		if err != nil || len(channels) == 0 {
 			return
 		}
@@ -144,11 +180,11 @@ func (s *AlertService) DispatchForFindings(projectID string, projectName string,
 				if !ch.IsEnabled {
 					continue
 				}
-				// Use each channel's own minSeverity instead of hardcoded filter (#21)
 				if severityOrder(f.Severity) < severityOrder(ch.MinSeverity) {
 					continue
 				}
-				if err := s.dispatcher.Dispatch(ctx, alerting.ChannelType(ch.ChannelType), ch.WebhookUrl, payload); err != nil {
+				targetURL := s.resolveChannelURL(ch)
+				if err := s.dispatcher.Dispatch(ctx, alerting.ChannelType(ch.ChannelType), targetURL, payload); err != nil {
 					log.Warn().Err(err).Str("channel", ch.Name).Msg("Failed to dispatch alert")
 				}
 			}
@@ -164,8 +200,18 @@ func (s *AlertService) DispatchForFindings(projectID string, projectName string,
 	}
 }
 
+// resolveChannelURL decrypts the stored webhook URL if encrypted, or falls back gracefully
+func (s *AlertService) resolveChannelURL(ch database.AlertChannel) string {
+	if s.encryptionKey != "" && ch.WebhookUrl != "" {
+		decrypted, err := envelope.Decrypt(s.encryptionKey, ch.WebhookUrl)
+		if err == nil && decrypted != "" {
+			return decrypted
+		}
+	}
+	return ch.WebhookUrl
+}
+
 // severityOrder returns a numeric ranking for severity comparison.
-// Higher number = more severe. Unknown values default to 0.
 func severityOrder(severity string) int {
 	switch strings.ToUpper(severity) {
 	case "LOW":

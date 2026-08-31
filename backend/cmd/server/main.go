@@ -73,18 +73,23 @@ func main() {
 	// 3. Worker Pool & Services Initialization
 	workerPool := worker.NewPool(20, 10000)
 
+	encryptionKey := os.Getenv("WEBHOOK_SECRET_ENCRYPTION_KEY")
+	if encryptionKey == "" {
+		encryptionKey = cfg.JWTSecret
+	}
+
 	authService := service.NewAuthService(queries, cfg.JWTSecret)
 	projectService := service.NewProjectService(queries)
 	endpointService := service.NewEndpointService(queries)
-	alertService := service.NewAlertService(queries, workerPool)
-	forwardingService := service.NewForwardingService(queries, workerPool)
+	alertService := service.NewAlertService(queries, workerPool, encryptionKey)
+	forwardingService := service.NewForwardingService(queries, workerPool, encryptionKey)
 	ingestionService := service.NewIngestionService(queries, valkeyClient, alertService, forwardingService, workerPool)
 	requestService := service.NewRequestService(queries)
 	replayService := service.NewReplayService(queries)
 	mockService := service.NewMockService(queries)
 	findingService := service.NewFindingService(queries)
 	apiKeyService := service.NewAPIKeyService(queries)
-	webhookSecurityService := service.NewWebhookSecurityService(queries, os.Getenv("WEBHOOK_SECRET_ENCRYPTION_KEY"))
+	webhookSecurityService := service.NewWebhookSecurityService(queries, encryptionKey)
 	explainer := ai.NewExplainer("")
 
 	// 4. gRPC Server (Port 50051) with Token Auth Interceptor & TLS
