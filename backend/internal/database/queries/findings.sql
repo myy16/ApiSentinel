@@ -23,6 +23,13 @@ WHERE project_id = $1
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3;
 
+-- name: GetAgentScanByIdempotencyKey :one
+SELECT id, project_id, agent_id, repository, branch, commit_hash, scan_type, total_findings, action, created_at
+FROM agent_scans
+WHERE project_id = $1 AND repository = $2 AND commit_hash = $3 AND scan_type = $4
+ORDER BY created_at DESC
+LIMIT 1;
+
 -- name: ListFindingsByProject :many
 SELECT sf.id, sf.request_id, sf.project_id, sf.scan_id, sf.source_type, sf.rule_id, sf.category, sf.type, sf.severity,
        sf.action, sf.field_path, sf.file_path, sf.line_number, sf.commit_hash, sf.repository,

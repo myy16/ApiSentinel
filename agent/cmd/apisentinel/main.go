@@ -13,7 +13,7 @@ import (
 
 	"github.com/apisentinel/apisentinel/agent/internal/client"
 	"github.com/apisentinel/apisentinel/agent/internal/git"
-	"github.com/apisentinel/apisentinel/internal/security"
+	"github.com/apisentinel/apisentinel/internal/agent"
 	securityv1 "github.com/apisentinel/apisentinel/pkg/genproto/proto/security/v1"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -146,73 +146,52 @@ func shouldIgnoreFile(path string) bool {
 }
 
 func runScan(cmd *cobra.Command, args []string) {
-	engine := security.NewEngine()
+	scanner := agent.NewLocalScanner()
 	color.Cyan("🔍 ApiSentinel scanning in progress...")
 
 	var criticalCount int
-	var allProtoFindings []*securityv1.SecurityFinding
+	var allFindings []agent.FileFinding
 
 	if stagedOnly {
-		diff, err := git.GetStagedDiff()
+		findings, err := scanner.ScanGitStaged(cmd.Context())
 		if err != nil {
-			color.Red("❌ Failed to read git staged diff: %v", err)
+			color.Red("❌ Failed to scan git staged changes: %v", err)
 			os.Exit(1)
 		}
-		if len(diff) == 0 {
-			color.Green("✨ No staged changes to scan.")
-			return
-		}
-
-		findings := engine.Inspect(diff)
-		for _, f := range findings {
-			if f.Severity == "CRITICAL" || f.Severity == "HIGH" {
-				criticalCount++
-			}
-		}
-		allProtoFindings = append(allProtoFindings, convertFindingsToProto("Git Staged Changes", findings)...)
-		printFindings("Git Staged Changes", findings)
+		allFindings = findings
 	} else {
-		err := filepath.Walk(targetPath, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return nil
-			}
-
-			if info.IsDir() {
-				if shouldIgnoreDir(info.Name()) {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-
-			if shouldIgnoreFile(path) || info.Size() > 1024*1024 {
-				return nil
-			}
-
-			content, err := os.ReadFile(path)
-			if err != nil {
-				return nil
-			}
-
-			findings := engine.Inspect(string(content))
-			if len(findings) > 0 {
-				for _, f := range findings {
-					if f.Severity == "CRITICAL" || f.Severity == "HIGH" {
-						criticalCount++
-					}
-				}
-				allProtoFindings = append(allProtoFindings, convertFindingsToProto(path, findings)...)
-				printFindings(path, findings)
-			}
-			return nil
-		})
-
+		fi, err := os.Stat(targetPath)
 		if err != nil {
-			color.Red("❌ Scan error: %v", err)
+			color.Red("❌ Target path error: %v", err)
 			os.Exit(1)
+		}
+
+		if fi.IsDir() {
+			findings, err := scanner.ScanDirectory(cmd.Context(), targetPath)
+			if err != nil {
+				color.Red("❌ Directory scan error: %v", err)
+				os.Exit(1)
+			}
+			allFindings = findings
+		} else {
+			findings, err := scanner.ScanFile(cmd.Context(), targetPath)
+			if err != nil {
+				color.Red("❌ File scan error: %v", err)
+				os.Exit(1)
+			}
+			allFindings = findings
 		}
 	}
 
-	// Sync findings to ApiSentinel Cloud Dashboard if token is configured (#2.1, #2.5)
+	for _, ff := range allFindings {
+		if ff.Finding.Severity == "CRITICAL" || ff.Finding.Severity == "HIGH" {
+			criticalCount++
+		}
+	}
+
+	printFileFindings(allFindings)
+
+	// Sync findings to ApiSentinel Cloud Dashboard if token is configured (#1.1, #1.2, #1.3)
 	tok := agentToken
 	if tok == "" {
 		tok = os.Getenv("APISENTINEL_TOKEN")
@@ -222,11 +201,17 @@ func runScan(cmd *cobra.Command, args []string) {
 		if repo == "" {
 			repo = "local-repo"
 		}
+		protoFindings := convertFileFindingsToProto(allFindings)
 		c := client.NewAgentClient(serverAddr, agentID, tok)
 		syncCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if _, err := c.SyncScanResults(syncCtx, repo, branch, commit, allProtoFindings); err == nil {
-			color.Cyan("☁️  Scan results synced to ApiSentinel Cloud Dashboard")
+		resp, err := c.SyncScanResults(syncCtx, repo, branch, commit, protoFindings)
+		if err != nil {
+			color.Yellow("⚠️  Failed to sync scan results with Cloud: %v", err)
+		} else if !resp.Accepted {
+			color.Yellow("⚠️  Cloud rejected scan results: %s", resp.Message)
+		} else {
+			color.Cyan("☁️  Scan results successfully synced to ApiSentinel Cloud Dashboard (%s)", resp.Action)
 		}
 	}
 
@@ -254,9 +239,10 @@ func getGitRepoInfo() (repo, branch, commit string) {
 	return
 }
 
-func convertFindingsToProto(source string, findings []security.Finding) []*securityv1.SecurityFinding {
+func convertFileFindingsToProto(findings []agent.FileFinding) []*securityv1.SecurityFinding {
 	var protoList []*securityv1.SecurityFinding
-	for _, f := range findings {
+	for _, ff := range findings {
+		f := ff.Finding
 		var sev securityv1.Severity
 		switch f.Severity {
 		case "CRITICAL":
@@ -275,7 +261,9 @@ func convertFindingsToProto(source string, findings []security.Finding) []*secur
 			Category:       f.Category,
 			Type:           f.Type,
 			Severity:       sev,
-			FieldPath:      source,
+			FieldPath:      fmt.Sprintf("%s:%d", ff.FilePath, ff.LineNumber),
+			FilePath:       ff.FilePath,
+			LineNumber:     int32(ff.LineNumber),
 			Message:        f.Message,
 			EvidenceMasked: f.EvidenceMasked,
 			Confidence:     f.Confidence,
@@ -284,15 +272,22 @@ func convertFindingsToProto(source string, findings []security.Finding) []*secur
 	return protoList
 }
 
-func printFindings(source string, findings []security.Finding) {
-	for _, f := range findings {
+func printFileFindings(findings []agent.FileFinding) {
+	if len(findings) == 0 {
+		return
+	}
+	for _, ff := range findings {
+		f := ff.Finding
 		fmt.Println()
 		if f.Severity == "CRITICAL" || f.Severity == "HIGH" {
-			color.Red("❌ [%s] %s in %s", f.Severity, f.Type, source)
+			color.Red("❌ [%s] %s in %s:%d", f.Severity, f.Type, ff.FilePath, ff.LineNumber)
 		} else {
-			color.Yellow("⚠️  [%s] %s in %s", f.Severity, f.Type, source)
+			color.Yellow("⚠️  [%s] %s in %s:%d", f.Severity, f.Type, ff.FilePath, ff.LineNumber)
 		}
 		color.White("   Message:  %s", f.Message)
 		color.White("   Evidence: %s", f.EvidenceMasked)
+		if ff.MatchedSnippet != "" {
+			color.White("   Snippet:  %s", ff.MatchedSnippet)
+		}
 	}
 }

@@ -151,6 +151,8 @@ type SecurityFinding struct {
 	EvidenceMasked string                 `protobuf:"bytes,10,opt,name=evidence_masked,json=evidenceMasked,proto3" json:"evidence_masked,omitempty"`
 	Confidence     float64                `protobuf:"fixed64,11,opt,name=confidence,proto3" json:"confidence,omitempty"`
 	CreatedAt      string                 `protobuf:"bytes,12,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	FilePath       string                 `protobuf:"bytes,13,opt,name=file_path,json=filePath,proto3" json:"file_path,omitempty"`
+	LineNumber     int32                  `protobuf:"varint,14,opt,name=line_number,json=lineNumber,proto3" json:"line_number,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -269,11 +271,25 @@ func (x *SecurityFinding) GetCreatedAt() string {
 	return ""
 }
 
+func (x *SecurityFinding) GetFilePath() string {
+	if x != nil {
+		return x.FilePath
+	}
+	return ""
+}
+
+func (x *SecurityFinding) GetLineNumber() int32 {
+	if x != nil {
+		return x.LineNumber
+	}
+	return 0
+}
+
 var File_proto_security_v1_finding_proto protoreflect.FileDescriptor
 
 const file_proto_security_v1_finding_proto_rawDesc = "" +
 	"\n" +
-	"\x1fproto/security/v1/finding.proto\x12\x17apisentinel.security.v1\"\xa8\x03\n" +
+	"\x1fproto/security/v1/finding.proto\x12\x17apisentinel.security.v1\"\xe6\x03\n" +
 	"\x0fSecurityFinding\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
@@ -292,7 +308,10 @@ const file_proto_security_v1_finding_proto_rawDesc = "" +
 	"confidence\x18\v \x01(\x01R\n" +
 	"confidence\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\f \x01(\tR\tcreatedAt*\x88\x01\n" +
+	"created_at\x18\f \x01(\tR\tcreatedAt\x12\x1b\n" +
+	"\tfile_path\x18\r \x01(\tR\bfilePath\x12\x1f\n" +
+	"\vline_number\x18\x0e \x01(\x05R\n" +
+	"lineNumber*\x88\x01\n" +
 	"\bSeverity\x12\x18\n" +
 	"\x14SEVERITY_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rSEVERITY_INFO\x10\x01\x12\x10\n" +

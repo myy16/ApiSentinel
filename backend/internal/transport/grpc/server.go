@@ -358,6 +358,28 @@ func (s *Server) SyncScanResults(ctx context.Context, req *agentv1.SyncScanReque
 		Int("findings", len(req.Findings)).
 		Msg("Batch scan results synced from CLI")
 
+	// 1. Resolve and enforce project authentication from metadata (#1.3)
+	var projectID string
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if scope, err := s.resolveAgentScope(md); err == nil {
+			projectID = scope.projectID
+		}
+	}
+
+	if projectID == "" {
+		return nil, status.Error(codes.Unauthenticated, "Proje doğrulaması başarısız: Geçersiz veya eksik Agent API anahtarı")
+	}
+
+	// 2. Validate commit hash & repository format (#1.4)
+	commitHash := strings.TrimSpace(req.CommitHash)
+	if len(commitHash) > 64 {
+		commitHash = commitHash[:64]
+	}
+	repoName := strings.TrimSpace(req.Repository)
+	if repoName == "" {
+		repoName = "workspace"
+	}
+
 	action := "ALLOW"
 	msg := "Temiz! Kritik bir güvenlik bulgusu tespit edilmedi."
 
@@ -369,27 +391,25 @@ func (s *Server) SyncScanResults(ctx context.Context, req *agentv1.SyncScanReque
 		}
 	}
 
-	// Resolve project context from metadata (#2.1, #2.5)
-	var projectID string
-	if md, ok := metadata.FromIncomingContext(ctx); ok {
-		if scope, err := s.resolveAgentScope(md); err == nil {
-			projectID = scope.projectID
-		}
-	}
-
-	// Persist scan and findings into PostgreSQL
-	if projectID != "" && len(req.Findings) > 0 {
-		s.persistScanAndFindings(
-			ctx,
-			projectID,
-			req.AgentId,
-			req.Repository,
-			req.Branch,
-			req.CommitHash,
-			"CLI_SCAN",
-			action,
-			req.Findings,
-		)
+	// 3. Persist scan and findings into PostgreSQL (including 0 findings clean scans) (#1.2, #1.4)
+	_, err := s.persistScanAndFindings(
+		ctx,
+		projectID,
+		req.AgentId,
+		repoName,
+		req.Branch,
+		commitHash,
+		"CLI_SCAN",
+		action,
+		req.Findings,
+	)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to persist agent scan results")
+		return &agentv1.SyncScanResponse{
+			Accepted: false,
+			Action:   "ERROR",
+			Message:  fmt.Sprintf("Veritabanı kayıt hatası: %v", err),
+		}, status.Error(codes.Internal, "Tarama sonuçları kaydedilemedi")
 	}
 
 	return &agentv1.SyncScanResponse{
@@ -409,16 +429,34 @@ func (s *Server) persistScanAndFindings(
 	scanType string,
 	action string,
 	findings []*securityv1.SecurityFinding,
-) {
+) (string, error) {
 	if projectIDStr == "" {
-		return
+		return "", fmt.Errorf("project ID is required")
 	}
 	projUUID, err := uuid.Parse(projectIDStr)
 	if err != nil {
-		return
+		return "", fmt.Errorf("invalid project UUID: %w", err)
 	}
 	pgProjID := pgtype.UUID{Bytes: projUUID, Valid: true}
 
+	// 1. Idempotency Check: if identical scan for this commit already exists, reuse it (#1.4)
+	if commitHash != "" && repository != "" {
+		existingScan, err := s.queries.GetAgentScanByIdempotencyKey(ctx, database.GetAgentScanByIdempotencyKeyParams{
+			ProjectID:  pgProjID,
+			Repository: repository,
+			CommitHash: commitHash,
+			ScanType:   scanType,
+		})
+		if err == nil {
+			log.Info().
+				Str("scanId", uuid.UUID(existingScan.ID.Bytes).String()).
+				Str("commit", commitHash).
+				Msg("Idempotent scan match: returning existing scan record")
+			return uuid.UUID(existingScan.ID.Bytes).String(), nil
+		}
+	}
+
+	// 2. Insert agent_scans record (records even with 0 findings #1.2)
 	scan, err := s.queries.CreateAgentScan(ctx, database.CreateAgentScanParams{
 		ProjectID:     pgProjID,
 		AgentID:       agentID,
@@ -431,11 +469,19 @@ func (s *Server) persistScanAndFindings(
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to persist agent_scan record")
-		return
+		return "", fmt.Errorf("failed to persist agent scan: %w", err)
 	}
 
+	scanIDStr := uuid.UUID(scan.ID.Bytes).String()
+
+	// 3. Persist individual security findings with precise FilePath and LineNumber (#1.1)
 	for _, f := range findings {
 		sevStr := protoSeverityToString(f.Severity)
+		filePath := f.FilePath
+		if filePath == "" {
+			filePath = f.FieldPath
+		}
+
 		findingRecord, fErr := s.queries.CreateSecurityFinding(ctx, database.CreateSecurityFindingParams{
 			ProjectID:      pgProjID,
 			ScanID:         scan.ID,
@@ -445,7 +491,8 @@ func (s *Server) persistScanAndFindings(
 			Severity:       sevStr,
 			Action:         action,
 			FieldPath:      pgtype.Text{String: f.FieldPath, Valid: f.FieldPath != ""},
-			FilePath:       pgtype.Text{String: f.FieldPath, Valid: f.FieldPath != ""},
+			FilePath:       pgtype.Text{String: filePath, Valid: filePath != ""},
+			LineNumber:     pgtype.Int4{Int32: f.LineNumber, Valid: f.LineNumber > 0},
 			Repository:     pgtype.Text{String: repository, Valid: repository != ""},
 			CommitHash:     pgtype.Text{String: commitHash, Valid: commitHash != ""},
 			Message:        f.Message,
@@ -457,12 +504,12 @@ func (s *Server) persistScanAndFindings(
 			continue
 		}
 
-		// Publish finding.created SSE event (#2.2)
+		// Publish finding.created SSE event
 		if s.valkeyClient != nil {
 			eventPayload, _ := json.Marshal(map[string]interface{}{
 				"event":      "finding.created",
 				"id":         uuid.UUID(findingRecord.ID.Bytes).String(),
-				"scanId":     uuid.UUID(scan.ID.Bytes).String(),
+				"scanId":     scanIDStr,
 				"sourceType": "AGENT_GIT",
 				"category":   findingRecord.Category,
 				"type":       findingRecord.Type,
@@ -470,7 +517,8 @@ func (s *Server) persistScanAndFindings(
 				"action":     findingRecord.Action,
 				"message":    findingRecord.Message,
 				"repository": repository,
-				"filePath":   f.FieldPath,
+				"filePath":   filePath,
+				"lineNumber": f.LineNumber,
 				"createdAt":  time.Now().Format(time.RFC3339),
 			})
 			s.valkeyClient.PublishEvent(ctx, "channel:events:"+projectIDStr, string(eventPayload))
@@ -481,7 +529,7 @@ func (s *Server) persistScanAndFindings(
 	if s.valkeyClient != nil {
 		scanPayload, _ := json.Marshal(map[string]interface{}{
 			"event":         "scan.completed",
-			"id":            uuid.UUID(scan.ID.Bytes).String(),
+			"id":            scanIDStr,
 			"agentId":       agentID,
 			"repository":    repository,
 			"branch":        branch,
@@ -493,6 +541,8 @@ func (s *Server) persistScanAndFindings(
 		})
 		s.valkeyClient.PublishEvent(ctx, "channel:events:"+projectIDStr, string(scanPayload))
 	}
+
+	return scanIDStr, nil
 }
 
 func protoSeverityToString(sev securityv1.Severity) string {

@@ -118,9 +118,13 @@ type ForwardingDlq struct {
 	RequestID     pgtype.UUID        `json:"request_id"`
 	TargetUrl     string             `json:"target_url"`
 	Attempts      int32              `json:"attempts"`
+	MaxRetries    int32              `json:"max_retries"`
 	LastError     pgtype.Text        `json:"last_error"`
 	Payload       pgtype.Text        `json:"payload"`
 	Status        string             `json:"status"`
+	LockedAt      pgtype.Timestamptz `json:"locked_at"`
+	LockedBy      pgtype.Text        `json:"locked_by"`
+	NextRetryAt   pgtype.Timestamptz `json:"next_retry_at"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	LastAttemptAt pgtype.Timestamptz `json:"last_attempt_at"`
 }

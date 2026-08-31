@@ -179,6 +179,44 @@ func (q *Queries) ListAgentScansByProject(ctx context.Context, arg ListAgentScan
 	return items, nil
 }
 
+const getAgentScanByIdempotencyKey = `-- name: GetAgentScanByIdempotencyKey :one
+SELECT id, project_id, agent_id, repository, branch, commit_hash, scan_type, total_findings, action, created_at
+FROM agent_scans
+WHERE project_id = $1 AND repository = $2 AND commit_hash = $3 AND scan_type = $4
+ORDER BY created_at DESC
+LIMIT 1
+`
+
+type GetAgentScanByIdempotencyKeyParams struct {
+	ProjectID  pgtype.UUID `json:"project_id"`
+	Repository string      `json:"repository"`
+	CommitHash string      `json:"commit_hash"`
+	ScanType   string      `json:"scan_type"`
+}
+
+func (q *Queries) GetAgentScanByIdempotencyKey(ctx context.Context, arg GetAgentScanByIdempotencyKeyParams) (AgentScan, error) {
+	row := q.db.QueryRow(ctx, getAgentScanByIdempotencyKey,
+		arg.ProjectID,
+		arg.Repository,
+		arg.CommitHash,
+		arg.ScanType,
+	)
+	var i AgentScan
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.AgentID,
+		&i.Repository,
+		&i.Branch,
+		&i.CommitHash,
+		&i.ScanType,
+		&i.TotalFindings,
+		&i.Action,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getFindingStats = `-- name: GetFindingStats :one
 SELECT
     COUNT(*) FILTER (WHERE sf.severity = 'CRITICAL')::bigint as critical_count,

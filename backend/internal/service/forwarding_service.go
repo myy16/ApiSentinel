@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
+	"time"
 
 	"github.com/apisentinel/apisentinel/internal/database"
 	"github.com/apisentinel/apisentinel/internal/forwarding"
@@ -18,14 +20,30 @@ type ForwardingService struct {
 	queries    *database.Queries
 	forwarder  *forwarding.Forwarder
 	workerPool *worker.Pool
+	workerID   string
 }
 
 func NewForwardingService(queries *database.Queries, workerPool *worker.Pool) *ForwardingService {
-	return &ForwardingService{
+	workerID := fmt.Sprintf("worker-%s", uuid.New().String()[:8])
+	svc := &ForwardingService{
 		queries:    queries,
 		forwarder:  forwarding.NewForwarder(),
 		workerPool: workerPool,
+		workerID:   workerID,
 	}
+
+	// Recover any stale jobs left in PROCESSING on startup (#2.2, #9)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := queries.RecoverStaleOutboxJobs(ctx); err != nil {
+			log.Warn().Err(err).Msg("Failed to recover stale outbox jobs on startup")
+		} else {
+			log.Info().Msg("Outbox recovery checked and stale jobs unlocked")
+		}
+	}()
+
+	return svc
 }
 
 type SaveForwardingConfigInput struct {
@@ -81,91 +99,128 @@ func (s *ForwardingService) GetConfig(ctx context.Context, endpointID string) (*
 	return &cfg, nil
 }
 
-// ForwardCleanWebhook handles async upstream forwarding and records DLQ on failure
+// ForwardCleanWebhook persists job to durable outbox and submits execution to worker pool
 func (s *ForwardingService) ForwardCleanWebhook(ctx context.Context, endpointID string, reqID string, method string, headers map[string]string, body []byte) {
+	epUUID, err := uuid.Parse(endpointID)
+	if err != nil {
+		return
+	}
+	reqUUID, err := uuid.Parse(reqID)
+	if err != nil {
+		return
+	}
+
+	// 1. Resolve forwarding target and config
+	cfg, err := s.queries.GetForwardingConfigByEndpoint(ctx, pgtype.UUID{Bytes: epUUID, Valid: true})
+	targetURL := ""
+	maxRetries := int32(3)
+	if err == nil && cfg.IsEnabled && cfg.TargetUrl != "" {
+		targetURL = cfg.TargetUrl
+		maxRetries = cfg.MaxRetries
+	} else {
+		// Fallback to endpoint's upstream_url
+		endpoint, epErr := s.queries.GetEndpointByIDOnly(ctx, pgtype.UUID{Bytes: epUUID, Valid: true})
+		if epErr == nil && endpoint.UpstreamUrl.Valid && endpoint.UpstreamUrl.String != "" {
+			targetURL = endpoint.UpstreamUrl.String
+		}
+	}
+
+	if targetURL == "" {
+		return
+	}
+
+	// 2. Redact payload by default (#8: REDACTED is strict default)
+	maskedPayload, _ := redaction.Payload(body)
+
+	// 3. Create durable Outbox job in database (#2.1, #9: PENDING state)
+	outboxJob, err := s.queries.CreateOutboxJob(ctx, database.CreateOutboxJobParams{
+		EndpointID: pgtype.UUID{Bytes: epUUID, Valid: true},
+		RequestID:  pgtype.UUID{Bytes: reqUUID, Valid: true},
+		TargetUrl:  targetURL,
+		Payload:    pgtype.Text{String: maskedPayload, Valid: maskedPayload != ""},
+		MaxRetries: maxRetries,
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to persist outbox job in database")
+		return
+	}
+
+	// 4. Dispatch job to worker pool
 	task := func(taskCtx context.Context) {
 		bgCtx := taskCtx
 		if bgCtx == nil {
 			bgCtx = context.Background()
 		}
 
-		epUUID, err := uuid.Parse(endpointID)
-		if err != nil {
-			return
-		}
-
-		cfg, err := s.queries.GetForwardingConfigByEndpoint(bgCtx, pgtype.UUID{Bytes: epUUID, Valid: true})
-		if err != nil || !cfg.IsEnabled || cfg.TargetUrl == "" {
-			// Fallback: check the endpoint's own upstream_url (#1)
-			endpoint, epErr := s.queries.GetEndpointByIDOnly(bgCtx, pgtype.UUID{Bytes: epUUID, Valid: true})
-			if epErr != nil || !endpoint.UpstreamUrl.Valid || endpoint.UpstreamUrl.String == "" {
-				return
-			}
-			cfg = database.ForwardingConfig{
-				TargetUrl:  endpoint.UpstreamUrl.String,
-				MaxRetries: 3,
-				TimeoutMs:  5000,
-				IsEnabled:  true,
-			}
-		}
-
-		var customHeaders map[string]string
-		_ = json.Unmarshal(cfg.CustomHeaders, &customHeaders)
-
-		fwdConfig := forwarding.Config{
-			EndpointID: endpointID,
-			TargetURL:  cfg.TargetUrl,
-			MaxRetries: int(cfg.MaxRetries),
-			TimeoutMs:  int(cfg.TimeoutMs),
-			Headers:    customHeaders,
-			Enabled:    cfg.IsEnabled,
-		}
-
-		result, err := s.forwarder.ForwardRequest(bgCtx, fwdConfig, method, headers, body)
-		reqUUID, _ := uuid.Parse(reqID)
-
-		if err != nil || (result != nil && result.SavedToDLQ) {
-			errMsg := ""
-			if result != nil {
-				errMsg = result.ErrorMessage
-			} else if err != nil {
-				errMsg = err.Error()
-			}
-
-			maskedPayload, _ := redaction.Payload(body)
-			_, dlqErr := s.queries.CreateDLQRecord(bgCtx, database.CreateDLQRecordParams{
-				EndpointID: pgtype.UUID{Bytes: epUUID, Valid: true},
-				RequestID:  pgtype.UUID{Bytes: reqUUID, Valid: true},
-				TargetUrl:  cfg.TargetUrl,
-				Attempts:   int32(fwdConfig.MaxRetries),
-				LastError:  pgtype.Text{String: errMsg, Valid: true},
-				Payload:    pgtype.Text{String: maskedPayload, Valid: maskedPayload != ""},
-				Status:     "FAILED",
-			})
-			if dlqErr != nil {
-				log.Error().Err(dlqErr).Msg("Failed to record forwarding failure into DLQ")
-			}
-
-			// Update processing status to DLQ_FAILED
-			_ = s.queries.UpdateRequestProcessingStatus(bgCtx, database.UpdateRequestProcessingStatusParams{
-				ID:               pgtype.UUID{Bytes: reqUUID, Valid: true},
-				ProcessingStatus: "DLQ_FAILED",
-			})
-		} else {
-			// Forwarding succeeded!
-			_ = s.queries.UpdateRequestProcessingStatus(bgCtx, database.UpdateRequestProcessingStatusParams{
-				ID:               pgtype.UUID{Bytes: reqUUID, Valid: true},
-				ProcessingStatus: "FORWARDED",
-			})
-		}
+		s.executeOutboxJob(bgCtx, outboxJob, method, headers, []byte(maskedPayload))
 	}
 
 	if s.workerPool != nil {
 		if err := s.workerPool.Submit(task); err != nil {
-			log.Warn().Err(err).Msg("Worker pool full or closed; webhook forwarding was not scheduled")
+			log.Warn().Err(err).Msg("Worker pool full; outbox job remains PENDING for next queue batch")
 		}
+	}
+}
+
+func (s *ForwardingService) executeOutboxJob(ctx context.Context, job database.ForwardingDlq, method string, headers map[string]string, bodyBytes []byte) {
+	var customHeaders map[string]string
+	cfg, err := s.queries.GetForwardingConfigByEndpoint(ctx, job.EndpointID)
+	if err == nil {
+		_ = json.Unmarshal(cfg.CustomHeaders, &customHeaders)
+	}
+
+	fwdConfig := forwarding.Config{
+		EndpointID: uuid.UUID(job.EndpointID.Bytes).String(),
+		TargetURL:  job.TargetUrl,
+		MaxRetries: 1, // Single direct attempt per outbox lease
+		TimeoutMs:  5000,
+		Headers:    customHeaders,
+		Enabled:    true,
+	}
+
+	result, fwdErr := s.forwarder.ForwardRequest(ctx, fwdConfig, method, headers, bodyBytes)
+	if fwdErr == nil && result != nil && result.Success {
+		// SENT state
+		_, _ = s.queries.CompleteOutboxJob(ctx, job.ID)
+		_ = s.queries.UpdateRequestProcessingStatus(ctx, database.UpdateRequestProcessingStatusParams{
+			ID:               job.RequestID,
+			ProcessingStatus: "FORWARDED",
+		})
+		return
+	}
+
+	// Handle Failure with State Machine: RETRY_WAIT vs DLQ (#9)
+	errMsg := "forwarding failed"
+	if result != nil && result.ErrorMessage != "" {
+		errMsg = result.ErrorMessage
+	} else if fwdErr != nil {
+		errMsg = fwdErr.Error()
+	}
+
+	nextAttempt := job.Attempts + 1
+	if nextAttempt >= job.MaxRetries {
+		// Max retries reached -> DLQ
+		_, _ = s.queries.FailOutboxJob(ctx, database.FailOutboxJobParams{
+			ID:          job.ID,
+			Status:      "DLQ",
+			LastError:   pgtype.Text{String: errMsg, Valid: true},
+			NextRetryAt: pgtype.Timestamptz{Time: time.Now().Add(24 * time.Hour), Valid: true},
+		})
+		_ = s.queries.UpdateRequestProcessingStatus(ctx, database.UpdateRequestProcessingStatusParams{
+			ID:               job.RequestID,
+			ProcessingStatus: "DLQ_FAILED",
+		})
 	} else {
-		log.Warn().Msg("Worker pool unavailable; webhook forwarding was not scheduled")
+		// Calculate exponential backoff: 2^attempt seconds (e.g., 2s, 4s, 8s)
+		backoffSec := math.Pow(2, float64(nextAttempt))
+		nextRetry := time.Now().Add(time.Duration(backoffSec) * time.Second)
+
+		_, _ = s.queries.FailOutboxJob(ctx, database.FailOutboxJobParams{
+			ID:          job.ID,
+			Status:      "RETRY_WAIT",
+			LastError:   pgtype.Text{String: errMsg, Valid: true},
+			NextRetryAt: pgtype.Timestamptz{Time: nextRetry, Valid: true},
+		})
 	}
 }
 
@@ -178,6 +233,7 @@ func (s *ForwardingService) ListDLQ(ctx context.Context, endpointID string) ([]d
 	return s.queries.ListDLQRecordsByEndpoint(ctx, pgtype.UUID{Bytes: epUUID, Valid: true})
 }
 
+// RetryDLQRecord retries a failed DLQ record with atomic lease lock (#2.2, #9)
 func (s *ForwardingService) RetryDLQRecord(ctx context.Context, dlqID string) error {
 	dlqUUID, err := uuid.Parse(dlqID)
 	if err != nil {
@@ -189,31 +245,29 @@ func (s *ForwardingService) RetryDLQRecord(ctx context.Context, dlqID string) er
 		return fmt.Errorf("DLQ record not found: %w", err)
 	}
 
-	cfg, err := s.queries.GetForwardingConfigByEndpoint(ctx, record.EndpointID)
-	if err != nil {
-		return fmt.Errorf("forwarding config not found: %w", err)
-	}
-
-	// Retrieve the original HTTP method from the captured request
-	httpMethod := "POST" // fallback
+	// Retrieve original HTTP method
+	httpMethod := "POST"
 	origReq, origErr := s.queries.GetCapturedRequestByID(ctx, record.RequestID)
 	if origErr == nil {
 		httpMethod = origReq.HttpMethod
 	}
 
 	var customHeaders map[string]string
-	_ = json.Unmarshal(cfg.CustomHeaders, &customHeaders)
+	cfg, err := s.queries.GetForwardingConfigByEndpoint(ctx, record.EndpointID)
+	if err == nil {
+		_ = json.Unmarshal(cfg.CustomHeaders, &customHeaders)
+	}
 
-	targetURL := cfg.TargetUrl
-	if targetURL == "" {
-		targetURL = record.TargetUrl
+	targetURL := record.TargetUrl
+	if cfg.TargetUrl != "" {
+		targetURL = cfg.TargetUrl
 	}
 
 	fwdConfig := forwarding.Config{
 		EndpointID: uuid.UUID(record.EndpointID.Bytes).String(),
 		TargetURL:  targetURL,
 		MaxRetries: 1,
-		TimeoutMs:  int(cfg.TimeoutMs),
+		TimeoutMs:  5000,
 		Headers:    customHeaders,
 		Enabled:    true,
 	}
@@ -222,11 +276,7 @@ func (s *ForwardingService) RetryDLQRecord(ctx context.Context, dlqID string) er
 	result, fwdErr := s.forwarder.ForwardRequest(ctx, fwdConfig, httpMethod, customHeaders, bodyBytes)
 
 	if fwdErr == nil && result != nil && result.Success {
-		// Mark as RESOLVED
-		_, _ = s.queries.UpdateDLQStatus(ctx, database.UpdateDLQStatusParams{
-			ID:     record.ID,
-			Status: "RESOLVED",
-		})
+		_, _ = s.queries.CompleteOutboxJob(ctx, record.ID)
 		_ = s.queries.UpdateRequestProcessingStatus(ctx, database.UpdateRequestProcessingStatusParams{
 			ID:               record.RequestID,
 			ProcessingStatus: "FORWARDED",
@@ -234,18 +284,22 @@ func (s *ForwardingService) RetryDLQRecord(ctx context.Context, dlqID string) er
 		return nil
 	}
 
-	// Still failed
-	_, _ = s.queries.UpdateDLQStatus(ctx, database.UpdateDLQStatusParams{
-		ID:     record.ID,
-		Status: "FAILED",
-	})
+	// Still failed -> keep in DLQ
+	errMsg := "retry failed"
 	if result != nil && result.ErrorMessage != "" {
-		return fmt.Errorf("retry failed: %s", result.ErrorMessage)
+		errMsg = result.ErrorMessage
+	} else if fwdErr != nil {
+		errMsg = fwdErr.Error()
 	}
-	if fwdErr != nil {
-		return fmt.Errorf("retry failed: %w", fwdErr)
-	}
-	return fmt.Errorf("retry failed with status code %d", result.StatusCode)
+
+	_, _ = s.queries.FailOutboxJob(ctx, database.FailOutboxJobParams{
+		ID:          record.ID,
+		Status:      "DLQ",
+		LastError:   pgtype.Text{String: errMsg, Valid: true},
+		NextRetryAt: pgtype.Timestamptz{Time: time.Now().Add(24 * time.Hour), Valid: true},
+	})
+
+	return fmt.Errorf("retry failed: %s", errMsg)
 }
 
 func (s *ForwardingService) PurgeDLQ(ctx context.Context, endpointID string) error {

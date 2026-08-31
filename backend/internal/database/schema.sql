@@ -202,12 +202,19 @@ CREATE TABLE IF NOT EXISTS forwarding_dlq (
     request_id UUID NOT NULL REFERENCES captured_requests(id) ON DELETE CASCADE,
     target_url TEXT NOT NULL,
     attempts INT NOT NULL DEFAULT 0,
+    max_retries INT NOT NULL DEFAULT 3,
     last_error TEXT,
     payload TEXT,
-    status VARCHAR(30) NOT NULL DEFAULT 'FAILED',
+    status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    locked_at TIMESTAMPTZ,
+    locked_by TEXT,
+    next_retry_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_forwarding_dlq_status_retry ON forwarding_dlq(status, next_retry_at) WHERE status IN ('PENDING', 'RETRY_WAIT');
+CREATE INDEX IF NOT EXISTS idx_forwarding_dlq_locked ON forwarding_dlq(locked_at) WHERE locked_at IS NOT NULL;
 
 -- 16. Endpoint Schemas (Contracts for JSON Schema validation)
 CREATE TABLE IF NOT EXISTS endpoint_schemas (

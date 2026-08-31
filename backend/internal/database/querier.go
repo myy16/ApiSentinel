@@ -12,6 +12,8 @@ import (
 
 type Querier interface {
 	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (CreateAPIKeyRow, error)
+	ClaimPendingOutboxJobs(ctx context.Context, arg ClaimPendingOutboxJobsParams) ([]ForwardingDlq, error)
+	CompleteOutboxJob(ctx context.Context, id pgtype.UUID) (ForwardingDlq, error)
 	CreateAgentScan(ctx context.Context, arg CreateAgentScanParams) (AgentScan, error)
 	CreateAlertChannel(ctx context.Context, arg CreateAlertChannelParams) (AlertChannel, error)
 	CreateCapturedRequest(ctx context.Context, arg CreateCapturedRequestParams) (CapturedRequest, error)
@@ -20,6 +22,7 @@ type Querier interface {
 	CreateMembership(ctx context.Context, arg CreateMembershipParams) (Membership, error)
 	CreateMockRule(ctx context.Context, arg CreateMockRuleParams) (MockRule, error)
 	CreateOrganization(ctx context.Context, name string) (Organization, error)
+	CreateOutboxJob(ctx context.Context, arg CreateOutboxJobParams) (ForwardingDlq, error)
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
 	CreateReplayJob(ctx context.Context, arg CreateReplayJobParams) (ReplayJob, error)
 	CreateSecurityFinding(ctx context.Context, arg CreateSecurityFindingParams) (SecurityFinding, error)
@@ -32,10 +35,13 @@ type Querier interface {
 	DeleteEndpointWebhookSecurity(ctx context.Context, endpointID pgtype.UUID) error
 	DeleteMockRule(ctx context.Context, arg DeleteMockRuleParams) error
 	DeleteProject(ctx context.Context, arg DeleteProjectParams) error
+	FailOutboxJob(ctx context.Context, arg FailOutboxJobParams) (ForwardingDlq, error)
 	GetAPIKeyByPrefixAndHash(ctx context.Context, arg GetAPIKeyByPrefixAndHashParams) (ApiKey, error)
+	GetAgentScanByIdempotencyKey(ctx context.Context, arg GetAgentScanByIdempotencyKeyParams) (AgentScan, error)
 	GetAlertChannelByID(ctx context.Context, id pgtype.UUID) (AlertChannel, error)
 	GetCapturedRequestByID(ctx context.Context, id pgtype.UUID) (GetCapturedRequestByIDRow, error)
 	GetDLQRecordByID(ctx context.Context, id pgtype.UUID) (ForwardingDlq, error)
+	RecoverStaleOutboxJobs(ctx context.Context) error
 	GetEndpointByID(ctx context.Context, arg GetEndpointByIDParams) (Endpoint, error)
 	GetEndpointByIDOnly(ctx context.Context, id pgtype.UUID) (Endpoint, error)
 	GetEndpointBySlug(ctx context.Context, slug string) (Endpoint, error)

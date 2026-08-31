@@ -35,4 +35,6 @@ message SecurityFinding {
   string evidence_masked = 10;
   double confidence = 11;
   string created_at = 12;
+  string file_path = 13;
+  int32 line_number = 14;
 }
