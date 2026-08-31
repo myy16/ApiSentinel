@@ -192,6 +192,7 @@ CREATE TABLE IF NOT EXISTS forwarding_configs (
     timeout_ms INT NOT NULL DEFAULT 5000,
     custom_headers JSONB NOT NULL DEFAULT '{}'::jsonb,
     is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    payload_mode VARCHAR(20) NOT NULL DEFAULT 'REDACTED',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -205,6 +206,7 @@ CREATE TABLE IF NOT EXISTS forwarding_dlq (
     max_retries INT NOT NULL DEFAULT 3,
     last_error TEXT,
     payload TEXT,
+    payload_mode VARCHAR(20) NOT NULL DEFAULT 'REDACTED',
     status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
     locked_at TIMESTAMPTZ,
     locked_by TEXT,

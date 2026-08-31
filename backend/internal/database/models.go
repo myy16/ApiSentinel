@@ -109,6 +109,7 @@ type ForwardingConfig struct {
 	TimeoutMs     int32              `json:"timeout_ms"`
 	CustomHeaders []byte             `json:"custom_headers"`
 	IsEnabled     bool               `json:"is_enabled"`
+	PayloadMode   string             `json:"payload_mode"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 }
 
@@ -121,6 +122,7 @@ type ForwardingDlq struct {
 	MaxRetries    int32              `json:"max_retries"`
 	LastError     pgtype.Text        `json:"last_error"`
 	Payload       pgtype.Text        `json:"payload"`
+	PayloadMode   string             `json:"payload_mode"`
 	Status        string             `json:"status"`
 	LockedAt      pgtype.Timestamptz `json:"locked_at"`
 	LockedBy      pgtype.Text        `json:"locked_by"`

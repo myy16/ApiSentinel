@@ -20,7 +20,7 @@ WHERE id IN (
     LIMIT $2
     FOR UPDATE SKIP LOCKED
 )
-RETURNING id, endpoint_id, request_id, target_url, attempts, max_retries, last_error, payload, status, locked_at, locked_by, next_retry_at, created_at, last_attempt_at
+RETURNING id, endpoint_id, request_id, target_url, attempts, max_retries, last_error, payload, payload_mode, status, locked_at, locked_by, next_retry_at, created_at, last_attempt_at
 `
 
 type ClaimPendingOutboxJobsParams struct {
@@ -46,6 +46,7 @@ func (q *Queries) ClaimPendingOutboxJobs(ctx context.Context, arg ClaimPendingOu
 			&i.MaxRetries,
 			&i.LastError,
 			&i.Payload,
+			&i.PayloadMode,
 			&i.Status,
 			&i.LockedAt,
 			&i.LockedBy,
@@ -70,7 +71,7 @@ SET status = 'SENT',
     locked_by = NULL,
     last_attempt_at = NOW()
 WHERE id = $1
-RETURNING id, endpoint_id, request_id, target_url, attempts, max_retries, last_error, payload, status, locked_at, locked_by, next_retry_at, created_at, last_attempt_at
+RETURNING id, endpoint_id, request_id, target_url, attempts, max_retries, last_error, payload, payload_mode, status, locked_at, locked_by, next_retry_at, created_at, last_attempt_at
 `
 
 func (q *Queries) CompleteOutboxJob(ctx context.Context, id pgtype.UUID) (ForwardingDlq, error) {
@@ -85,6 +86,7 @@ func (q *Queries) CompleteOutboxJob(ctx context.Context, id pgtype.UUID) (Forwar
 		&i.MaxRetries,
 		&i.LastError,
 		&i.Payload,
+		&i.PayloadMode,
 		&i.Status,
 		&i.LockedAt,
 		&i.LockedBy,
@@ -107,7 +109,7 @@ INSERT INTO forwarding_dlq (
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7
 )
-RETURNING id, endpoint_id, request_id, target_url, attempts, max_retries, last_error, payload, status, locked_at, locked_by, next_retry_at, created_at, last_attempt_at
+RETURNING id, endpoint_id, request_id, target_url, attempts, max_retries, last_error, payload, payload_mode, status, locked_at, locked_by, next_retry_at, created_at, last_attempt_at
 `
 
 type CreateDLQRecordParams struct {
@@ -140,6 +142,7 @@ func (q *Queries) CreateDLQRecord(ctx context.Context, arg CreateDLQRecordParams
 		&i.MaxRetries,
 		&i.LastError,
 		&i.Payload,
+		&i.PayloadMode,
 		&i.Status,
 		&i.LockedAt,
 		&i.LockedBy,
@@ -156,21 +159,23 @@ INSERT INTO forwarding_dlq (
     request_id,
     target_url,
     payload,
+    payload_mode,
     status,
     max_retries,
     next_retry_at
 ) VALUES (
-    $1, $2, $3, $4, 'PENDING', $5, NOW()
+    $1, $2, $3, $4, $5, 'PENDING', $6, NOW()
 )
-RETURNING id, endpoint_id, request_id, target_url, attempts, max_retries, last_error, payload, status, locked_at, locked_by, next_retry_at, created_at, last_attempt_at
+RETURNING id, endpoint_id, request_id, target_url, attempts, max_retries, last_error, payload, payload_mode, status, locked_at, locked_by, next_retry_at, created_at, last_attempt_at
 `
 
 type CreateOutboxJobParams struct {
-	EndpointID pgtype.UUID `json:"endpoint_id"`
-	RequestID  pgtype.UUID `json:"request_id"`
-	TargetUrl  string      `json:"target_url"`
-	Payload    pgtype.Text `json:"payload"`
-	MaxRetries int32       `json:"max_retries"`
+	EndpointID  pgtype.UUID `json:"endpoint_id"`
+	RequestID   pgtype.UUID `json:"request_id"`
+	TargetUrl   string      `json:"target_url"`
+	Payload     pgtype.Text `json:"payload"`
+	PayloadMode string      `json:"payload_mode"`
+	MaxRetries  int32       `json:"max_retries"`
 }
 
 func (q *Queries) CreateOutboxJob(ctx context.Context, arg CreateOutboxJobParams) (ForwardingDlq, error) {
@@ -179,6 +184,7 @@ func (q *Queries) CreateOutboxJob(ctx context.Context, arg CreateOutboxJobParams
 		arg.RequestID,
 		arg.TargetUrl,
 		arg.Payload,
+		arg.PayloadMode,
 		arg.MaxRetries,
 	)
 	var i ForwardingDlq
@@ -191,6 +197,7 @@ func (q *Queries) CreateOutboxJob(ctx context.Context, arg CreateOutboxJobParams
 		&i.MaxRetries,
 		&i.LastError,
 		&i.Payload,
+		&i.PayloadMode,
 		&i.Status,
 		&i.LockedAt,
 		&i.LockedBy,
@@ -221,7 +228,7 @@ SET status = $2,
     next_retry_at = $4,
     last_attempt_at = NOW()
 WHERE id = $1
-RETURNING id, endpoint_id, request_id, target_url, attempts, max_retries, last_error, payload, status, locked_at, locked_by, next_retry_at, created_at, last_attempt_at
+RETURNING id, endpoint_id, request_id, target_url, attempts, max_retries, last_error, payload, payload_mode, status, locked_at, locked_by, next_retry_at, created_at, last_attempt_at
 `
 
 type FailOutboxJobParams struct {
@@ -248,6 +255,7 @@ func (q *Queries) FailOutboxJob(ctx context.Context, arg FailOutboxJobParams) (F
 		&i.MaxRetries,
 		&i.LastError,
 		&i.Payload,
+		&i.PayloadMode,
 		&i.Status,
 		&i.LockedAt,
 		&i.LockedBy,
@@ -259,7 +267,7 @@ func (q *Queries) FailOutboxJob(ctx context.Context, arg FailOutboxJobParams) (F
 }
 
 const getDLQRecordByID = `-- name: GetDLQRecordByID :one
-SELECT id, endpoint_id, request_id, target_url, attempts, max_retries, last_error, payload, status, locked_at, locked_by, next_retry_at, created_at, last_attempt_at FROM forwarding_dlq
+SELECT id, endpoint_id, request_id, target_url, attempts, max_retries, last_error, payload, payload_mode, status, locked_at, locked_by, next_retry_at, created_at, last_attempt_at FROM forwarding_dlq
 WHERE id = $1
 `
 
@@ -275,6 +283,7 @@ func (q *Queries) GetDLQRecordByID(ctx context.Context, id pgtype.UUID) (Forward
 		&i.MaxRetries,
 		&i.LastError,
 		&i.Payload,
+		&i.PayloadMode,
 		&i.Status,
 		&i.LockedAt,
 		&i.LockedBy,
@@ -286,7 +295,7 @@ func (q *Queries) GetDLQRecordByID(ctx context.Context, id pgtype.UUID) (Forward
 }
 
 const getForwardingConfigByEndpoint = `-- name: GetForwardingConfigByEndpoint :one
-SELECT id, endpoint_id, target_url, max_retries, timeout_ms, custom_headers, is_enabled, created_at FROM forwarding_configs
+SELECT id, endpoint_id, target_url, max_retries, timeout_ms, custom_headers, is_enabled, payload_mode, created_at FROM forwarding_configs
 WHERE endpoint_id = $1
 `
 
@@ -301,13 +310,14 @@ func (q *Queries) GetForwardingConfigByEndpoint(ctx context.Context, endpointID 
 		&i.TimeoutMs,
 		&i.CustomHeaders,
 		&i.IsEnabled,
+		&i.PayloadMode,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const listDLQRecordsByEndpoint = `-- name: ListDLQRecordsByEndpoint :many
-SELECT id, endpoint_id, request_id, target_url, attempts, max_retries, last_error, payload, status, locked_at, locked_by, next_retry_at, created_at, last_attempt_at FROM forwarding_dlq
+SELECT id, endpoint_id, request_id, target_url, attempts, max_retries, last_error, payload, payload_mode, status, locked_at, locked_by, next_retry_at, created_at, last_attempt_at FROM forwarding_dlq
 WHERE endpoint_id = $1
 ORDER BY created_at DESC
 LIMIT 100
@@ -331,6 +341,7 @@ func (q *Queries) ListDLQRecordsByEndpoint(ctx context.Context, endpointID pgtyp
 			&i.MaxRetries,
 			&i.LastError,
 			&i.Payload,
+			&i.PayloadMode,
 			&i.Status,
 			&i.LockedAt,
 			&i.LockedBy,
@@ -369,7 +380,7 @@ SET status = $2,
     attempts = attempts + 1,
     last_attempt_at = NOW()
 WHERE id = $1
-RETURNING id, endpoint_id, request_id, target_url, attempts, max_retries, last_error, payload, status, locked_at, locked_by, next_retry_at, created_at, last_attempt_at
+RETURNING id, endpoint_id, request_id, target_url, attempts, max_retries, last_error, payload, payload_mode, status, locked_at, locked_by, next_retry_at, created_at, last_attempt_at
 `
 
 type UpdateDLQStatusParams struct {
@@ -389,6 +400,7 @@ func (q *Queries) UpdateDLQStatus(ctx context.Context, arg UpdateDLQStatusParams
 		&i.MaxRetries,
 		&i.LastError,
 		&i.Payload,
+		&i.PayloadMode,
 		&i.Status,
 		&i.LockedAt,
 		&i.LockedBy,
@@ -406,17 +418,19 @@ INSERT INTO forwarding_configs (
     max_retries,
     timeout_ms,
     custom_headers,
-    is_enabled
+    is_enabled,
+    payload_mode
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    $1, $2, $3, $4, $5, $6, $7
 )
 ON CONFLICT (endpoint_id) DO UPDATE SET
     target_url = EXCLUDED.target_url,
     max_retries = EXCLUDED.max_retries,
     timeout_ms = EXCLUDED.timeout_ms,
     custom_headers = EXCLUDED.custom_headers,
-    is_enabled = EXCLUDED.is_enabled
-RETURNING id, endpoint_id, target_url, max_retries, timeout_ms, custom_headers, is_enabled, created_at
+    is_enabled = EXCLUDED.is_enabled,
+    payload_mode = EXCLUDED.payload_mode
+RETURNING id, endpoint_id, target_url, max_retries, timeout_ms, custom_headers, is_enabled, payload_mode, created_at
 `
 
 type UpsertForwardingConfigParams struct {
@@ -426,6 +440,7 @@ type UpsertForwardingConfigParams struct {
 	TimeoutMs     int32       `json:"timeout_ms"`
 	CustomHeaders []byte      `json:"custom_headers"`
 	IsEnabled     bool        `json:"is_enabled"`
+	PayloadMode   string      `json:"payload_mode"`
 }
 
 func (q *Queries) UpsertForwardingConfig(ctx context.Context, arg UpsertForwardingConfigParams) (ForwardingConfig, error) {
@@ -436,6 +451,7 @@ func (q *Queries) UpsertForwardingConfig(ctx context.Context, arg UpsertForwardi
 		arg.TimeoutMs,
 		arg.CustomHeaders,
 		arg.IsEnabled,
+		arg.PayloadMode,
 	)
 	var i ForwardingConfig
 	err := row.Scan(
@@ -446,6 +462,7 @@ func (q *Queries) UpsertForwardingConfig(ctx context.Context, arg UpsertForwardi
 		&i.TimeoutMs,
 		&i.CustomHeaders,
 		&i.IsEnabled,
+		&i.PayloadMode,
 		&i.CreatedAt,
 	)
 	return i, err

@@ -32,6 +32,14 @@ interface AgentSession {
   lastSeen: string;
 }
 
+interface APIKeyItem {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  createdAt: string;
+  isRevoked: boolean;
+}
+
 interface AgentScan {
   id: string;
   projectId: string;
@@ -50,7 +58,7 @@ export default function AgentsPage() {
   const { activeProjectId, activeProject } = useActiveProject();
   const queryClient = useQueryClient();
   const [copiedCommand, setCopiedCommand] = useState(false);
-  const [keyName, setKeyName] = useState("Local Development Agent");
+  const [keyName, setKeyName] = useState("");
   const [isLiveKey, setIsLiveKey] = useState(false);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
 
@@ -70,7 +78,7 @@ export default function AgentsPage() {
 
   const { data: keysData } = useQuery({
     queryKey: ["api-keys", activeProjectId],
-    queryFn: () => apiFetch<{ keys: Array<{ id: string; name: string; keyPrefix: string; isRevoked: boolean; createdAt: string }> }>(`/api/projects/${activeProjectId}/keys`, {
+    queryFn: () => apiFetch<{ keys: APIKeyItem[] }>(`/api/projects/${activeProjectId}/keys`, {
       token: accessToken,
       organizationId: organization?.id,
     }),
@@ -93,7 +101,7 @@ export default function AgentsPage() {
       method: "POST",
       token: accessToken,
       organizationId: organization?.id,
-      body: JSON.stringify({ name: keyName || "Local Development Agent", isLive: isLiveKey }),
+      body: JSON.stringify({ name: keyName.trim(), isLive: isLiveKey }),
     }),
     onSuccess: (data) => {
       setCreatedKey(data.apiKey.secretKey);
@@ -187,12 +195,15 @@ export default function AgentsPage() {
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
-          <input value={keyName} onChange={(e) => setKeyName(e.target.value)} placeholder="Anahtar adı" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+          <div className="flex flex-1 flex-col gap-1">
+            <label htmlFor="agent-key-name" className="text-[11px] font-semibold text-muted-foreground">Anahtar adı (zorunlu)</label>
+            <input id="agent-key-name" value={keyName} onChange={(e) => setKeyName(e.target.value)} placeholder="Örn. Beautrics Development Agent" maxLength={100} className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+          </div>
           <select value={isLiveKey ? "live" : "test"} onChange={(e) => setIsLiveKey(e.target.value === "live")} className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
             <option value="test">Test anahtarı</option>
             <option value="live">Live anahtarı</option>
           </select>
-          <button onClick={() => createKey.mutate()} disabled={!activeProjectId || createKey.isPending} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">
+          <button onClick={() => createKey.mutate()} disabled={!activeProjectId || !keyName.trim() || createKey.isPending} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">
             {createKey.isPending ? "Oluşturuluyor..." : "Yeni anahtar oluştur"}
           </button>
         </div>
@@ -205,7 +216,14 @@ export default function AgentsPage() {
         <div className="space-y-2">
           {(keysData?.keys || []).filter((key) => !key.isRevoked).map((key) => (
             <div key={key.id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-xs">
-              <span><strong>{key.name}</strong> <span className="font-mono text-muted-foreground">{key.keyPrefix}••••</span></span>
+              <span>
+                <strong>{key.name}</strong>{" "}
+                <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-semibold">
+                  {key.keyPrefix.includes("live") ? "LIVE" : "TEST"}
+                </span>{" "}
+                <span className="font-mono text-muted-foreground">{key.keyPrefix}••••</span>{" "}
+                <span className="text-muted-foreground">• {new Date(key.createdAt).toLocaleDateString("tr-TR")}</span>
+              </span>
               <button onClick={() => revokeKey.mutate(key.id)} className="text-red-400 hover:underline">İptal et</button>
             </div>
           ))}

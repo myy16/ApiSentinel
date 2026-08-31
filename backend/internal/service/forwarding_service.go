@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/apisentinel/apisentinel/internal/database"
@@ -53,6 +54,7 @@ type SaveForwardingConfigInput struct {
 	TimeoutMs     int               `json:"timeoutMs"`
 	CustomHeaders map[string]string `json:"customHeaders"`
 	IsEnabled     bool              `json:"isEnabled"`
+	PayloadMode   string            `json:"payloadMode"` // "REDACTED" (default) or "RAW"
 }
 
 func (s *ForwardingService) SaveConfig(ctx context.Context, input SaveForwardingConfigInput) (*database.ForwardingConfig, error) {
@@ -71,6 +73,11 @@ func (s *ForwardingService) SaveConfig(ctx context.Context, input SaveForwarding
 		timeoutMs = 5000
 	}
 
+	payloadMode := strings.ToUpper(strings.TrimSpace(input.PayloadMode))
+	if payloadMode != "RAW" {
+		payloadMode = "REDACTED"
+	}
+
 	cfg, err := s.queries.UpsertForwardingConfig(ctx, database.UpsertForwardingConfigParams{
 		EndpointID:    pgtype.UUID{Bytes: epUUID, Valid: true},
 		TargetUrl:     input.TargetURL,
@@ -78,6 +85,7 @@ func (s *ForwardingService) SaveConfig(ctx context.Context, input SaveForwarding
 		TimeoutMs:     int32(timeoutMs),
 		CustomHeaders: headersJSON,
 		IsEnabled:     input.IsEnabled,
+		PayloadMode:   payloadMode,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to save forwarding config: %w", err)
@@ -114,9 +122,14 @@ func (s *ForwardingService) ForwardCleanWebhook(ctx context.Context, endpointID 
 	cfg, err := s.queries.GetForwardingConfigByEndpoint(ctx, pgtype.UUID{Bytes: epUUID, Valid: true})
 	targetURL := ""
 	maxRetries := int32(3)
+	payloadMode := "REDACTED"
+
 	if err == nil && cfg.IsEnabled && cfg.TargetUrl != "" {
 		targetURL = cfg.TargetUrl
 		maxRetries = cfg.MaxRetries
+		if cfg.PayloadMode != "" {
+			payloadMode = cfg.PayloadMode
+		}
 	} else {
 		// Fallback to endpoint's upstream_url
 		endpoint, epErr := s.queries.GetEndpointByIDOnly(ctx, pgtype.UUID{Bytes: epUUID, Valid: true})
@@ -129,16 +142,27 @@ func (s *ForwardingService) ForwardCleanWebhook(ctx context.Context, endpointID 
 		return
 	}
 
-	// 2. Redact payload by default (#8: REDACTED is strict default)
-	maskedPayload, _ := redaction.Payload(body)
+	// 2. Prepare payload based on payloadMode (#8: REDACTED is strict default)
+	var finalPayload string
+	if payloadMode == "RAW" {
+		log.Warn().
+			Str("endpointId", endpointID).
+			Str("requestId", reqID).
+			Msg("AUDIT: Webhook forwarded in RAW unredacted mode")
+		finalPayload = string(body)
+	} else {
+		maskedPayload, _ := redaction.Payload(body)
+		finalPayload = maskedPayload
+	}
 
 	// 3. Create durable Outbox job in database (#2.1, #9: PENDING state)
 	outboxJob, err := s.queries.CreateOutboxJob(ctx, database.CreateOutboxJobParams{
-		EndpointID: pgtype.UUID{Bytes: epUUID, Valid: true},
-		RequestID:  pgtype.UUID{Bytes: reqUUID, Valid: true},
-		TargetUrl:  targetURL,
-		Payload:    pgtype.Text{String: maskedPayload, Valid: maskedPayload != ""},
-		MaxRetries: maxRetries,
+		EndpointID:  pgtype.UUID{Bytes: epUUID, Valid: true},
+		RequestID:   pgtype.UUID{Bytes: reqUUID, Valid: true},
+		TargetUrl:   targetURL,
+		Payload:     pgtype.Text{String: finalPayload, Valid: finalPayload != ""},
+		PayloadMode: payloadMode,
+		MaxRetries:  maxRetries,
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to persist outbox job in database")
@@ -152,7 +176,7 @@ func (s *ForwardingService) ForwardCleanWebhook(ctx context.Context, endpointID 
 			bgCtx = context.Background()
 		}
 
-		s.executeOutboxJob(bgCtx, outboxJob, method, headers, []byte(maskedPayload))
+		s.executeOutboxJob(bgCtx, outboxJob, method, headers, []byte(finalPayload))
 	}
 
 	if s.workerPool != nil {

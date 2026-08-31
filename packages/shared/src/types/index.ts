@@ -142,3 +142,36 @@ export interface Agent {
   lastSeenAt?: Date | null;
   createdAt: Date;
 }
+
+export type PayloadMode = "REDACTED" | "RAW";
+
+export interface ForwardingConfig {
+  id: string;
+  endpointId: string;
+  targetUrl: string;
+  maxRetries: number;
+  timeoutMs: number;
+  customHeaders: Record<string, string>;
+  isEnabled: boolean;
+  payloadMode: PayloadMode;
+  createdAt: Date;
+}
+
+export interface ForwardingDlq {
+  id: string;
+  endpointId: string;
+  requestId: string;
+  targetUrl: string;
+  attempts: number;
+  maxRetries: number;
+  lastError?: string | null;
+  payload?: string | null;
+  payloadMode: PayloadMode;
+  status: "PENDING" | "PROCESSING" | "RETRY_WAIT" | "SENT" | "DLQ";
+  lockedAt?: Date | null;
+  lockedBy?: string | null;
+  nextRetryAt: Date;
+  createdAt: Date;
+  lastAttemptAt: Date;
+}
+

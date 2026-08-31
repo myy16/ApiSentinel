@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/apisentinel/apisentinel/internal/middleware"
@@ -37,8 +38,14 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
-		req.Name = "Default API Key"
+		writeError(w, http.StatusBadRequest, "KEY_NAME_REQUIRED", "API key name is required")
+		return
+	}
+	if len([]rune(req.Name)) > 100 {
+		writeError(w, http.StatusBadRequest, "KEY_NAME_TOO_LONG", "API key name must be 100 characters or fewer")
+		return
 	}
 
 	userID, _ := r.Context().Value(middleware.UserIDKey).(string)

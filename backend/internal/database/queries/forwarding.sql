@@ -5,16 +5,18 @@ INSERT INTO forwarding_configs (
     max_retries,
     timeout_ms,
     custom_headers,
-    is_enabled
+    is_enabled,
+    payload_mode
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    $1, $2, $3, $4, $5, $6, $7
 )
 ON CONFLICT (endpoint_id) DO UPDATE SET
     target_url = EXCLUDED.target_url,
     max_retries = EXCLUDED.max_retries,
     timeout_ms = EXCLUDED.timeout_ms,
     custom_headers = EXCLUDED.custom_headers,
-    is_enabled = EXCLUDED.is_enabled
+    is_enabled = EXCLUDED.is_enabled,
+    payload_mode = EXCLUDED.payload_mode
 RETURNING *;
 
 -- name: GetForwardingConfigByEndpoint :one
@@ -41,11 +43,12 @@ INSERT INTO forwarding_dlq (
     request_id,
     target_url,
     payload,
+    payload_mode,
     status,
     max_retries,
     next_retry_at
 ) VALUES (
-    $1, $2, $3, $4, 'PENDING', $5, NOW()
+    $1, $2, $3, $4, $5, 'PENDING', $6, NOW()
 )
 RETURNING *;
 
