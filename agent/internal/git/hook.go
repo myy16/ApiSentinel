@@ -6,7 +6,25 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+const preCommitScript = `#!/bin/sh
+# ApiSentinel Security Scanner Pre-Commit Hook
+echo "🔍 [ApiSentinel] Scanning staged files for secrets and sensitive data..."
+
+apisentinel scan --staged
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -ne 0 ]; then
+    echo "❌ [ApiSentinel] Git commit BLOCKED! Critical secrets or sensitive data detected."
+    echo "💡 Fix the leaks or review with 'apisentinel scan --staged'."
+    exit 1
+fi
+
+echo "✅ [ApiSentinel] Security scan passed cleanly. Proceeding with commit."
+exit 0
+`
 
 const prePushScript = `#!/bin/sh
 # ApiSentinel Security Scanner Pre-Push Hook
@@ -34,6 +52,15 @@ func FindGitRoot() (string, error) {
 }
 
 func InstallHook() error {
+	return InstallHookWithType("pre-push")
+}
+
+func InstallHookWithType(hookType string) error {
+	hookType = strings.ToLower(strings.TrimSpace(hookType))
+	if hookType != "pre-commit" && hookType != "pre-push" {
+		return fmt.Errorf("invalid hook type: %s (must be 'pre-commit' or 'pre-push')", hookType)
+	}
+
 	gitRoot, err := FindGitRoot()
 	if err != nil {
 		return err
@@ -44,17 +71,25 @@ func InstallHook() error {
 		return fmt.Errorf("failed to create hooks directory: %w", err)
 	}
 
-	hookPath := filepath.Join(hooksDir, "pre-push")
+	hookPath := filepath.Join(hooksDir, hookType)
 
-	// If existing hook file exists, check if it's already ApiSentinel. If not, back it up (#24)
+	// If existing hook file exists, check if it's already ApiSentinel. If not, back it up (#11)
 	if existingContent, err := os.ReadFile(hookPath); err == nil {
 		if !strings.Contains(string(existingContent), "ApiSentinel") {
-			backupPath := filepath.Join(hooksDir, "pre-push.bak")
-			_ = os.WriteFile(backupPath, existingContent, 0755)
+			timestamp := time.Now().Format("20060102150405")
+			backupTimestampPath := filepath.Join(hooksDir, fmt.Sprintf("%s.bak.%s", hookType, timestamp))
+			backupDefaultPath := filepath.Join(hooksDir, fmt.Sprintf("%s.bak", hookType))
+			_ = os.WriteFile(backupTimestampPath, existingContent, 0755)
+			_ = os.WriteFile(backupDefaultPath, existingContent, 0755)
 		}
 	}
 
-	if err := os.WriteFile(hookPath, []byte(prePushScript), 0755); err != nil {
+	scriptContent := prePushScript
+	if hookType == "pre-commit" {
+		scriptContent = preCommitScript
+	}
+
+	if err := os.WriteFile(hookPath, []byte(scriptContent), 0755); err != nil {
 		return fmt.Errorf("failed to write git hook: %w", err)
 	}
 
@@ -62,21 +97,38 @@ func InstallHook() error {
 }
 
 func UninstallHook() error {
+	return UninstallHookWithType("pre-push")
+}
+
+func UninstallHookWithType(hookType string) error {
+	hookType = strings.ToLower(strings.TrimSpace(hookType))
+	if hookType != "pre-commit" && hookType != "pre-push" {
+		return fmt.Errorf("invalid hook type: %s (must be 'pre-commit' or 'pre-push')", hookType)
+	}
+
 	gitRoot, err := FindGitRoot()
 	if err != nil {
 		return err
 	}
 
-	hookPath := filepath.Join(gitRoot, ".git", "hooks", "pre-push")
+	hooksDir := filepath.Join(gitRoot, ".git", "hooks")
+	hookPath := filepath.Join(hooksDir, hookType)
+
 	if err := os.Remove(hookPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to remove git hook: %w", err)
+	}
+
+	// If a backup exists, restore it (#11)
+	backupDefaultPath := filepath.Join(hooksDir, fmt.Sprintf("%s.bak", hookType))
+	if backupContent, err := os.ReadFile(backupDefaultPath); err == nil {
+		_ = os.WriteFile(hookPath, backupContent, 0755)
+		_ = os.Remove(backupDefaultPath)
 	}
 
 	return nil
 }
 
 func GetStagedDiff() (string, error) {
-	// Scan all staged files across the repository without exclusions
 	out, err := exec.Command("git", "diff", "--cached").Output()
 	if err != nil {
 		return "", err

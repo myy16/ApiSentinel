@@ -45,29 +45,33 @@ func main() {
 	scanCmd.Flags().StringVarP(&agentToken, "token", "t", "", "Agent Authentication Token (or set APISENTINEL_TOKEN env var)")
 	scanCmd.Flags().StringVarP(&agentID, "agent-id", "a", "", "Custom Agent ID")
 
+	var hookType string
+
 	var installHookCmd = &cobra.Command{
 		Use:   "install-hook",
-		Short: "Install ApiSentinel pre-push git hook into current repository",
+		Short: "Install ApiSentinel git hook (pre-commit or pre-push) into current repository",
 		Run: func(cmd *cobra.Command, args []string) {
-			if err := git.InstallHook(); err != nil {
+			if err := git.InstallHookWithType(hookType); err != nil {
 				color.Red("❌ Failed to install git hook: %v", err)
 				os.Exit(1)
 			}
-			color.Green("✅ ApiSentinel pre-push git hook successfully installed in .git/hooks/pre-push")
+			color.Green("✅ ApiSentinel %s git hook successfully installed in .git/hooks/%s", hookType, hookType)
 		},
 	}
+	installHookCmd.Flags().StringVarP(&hookType, "type", "T", "pre-push", "Hook type: 'pre-push' (default) or 'pre-commit'")
 
 	var uninstallHookCmd = &cobra.Command{
 		Use:   "uninstall-hook",
 		Short: "Uninstall ApiSentinel git hook",
 		Run: func(cmd *cobra.Command, args []string) {
-			if err := git.UninstallHook(); err != nil {
+			if err := git.UninstallHookWithType(hookType); err != nil {
 				color.Red("❌ Failed to uninstall git hook: %v", err)
 				os.Exit(1)
 			}
-			color.Green("✅ ApiSentinel git hook removed.")
+			color.Green("✅ ApiSentinel %s git hook removed.", hookType)
 		},
 	}
+	uninstallHookCmd.Flags().StringVarP(&hookType, "type", "T", "pre-push", "Hook type: 'pre-push' (default) or 'pre-commit'")
 
 	var connectCmd = &cobra.Command{
 		Use:   "connect",
@@ -103,11 +107,19 @@ func main() {
 				return
 			}
 			color.Green("📂 Git Root: %s", gitRoot)
-			hookPath := filepath.Join(gitRoot, ".git", "hooks", "pre-push")
-			if _, err := os.Stat(hookPath); err == nil {
+
+			prePushPath := filepath.Join(gitRoot, ".git", "hooks", "pre-push")
+			if _, err := os.Stat(prePushPath); err == nil {
 				color.Green("🔒 Pre-push hook: ACTIVE")
 			} else {
-				color.Yellow("🔓 Pre-push hook: NOT INSTALLED (Run 'apisentinel install-hook' to protect commits)")
+				color.Yellow("🔓 Pre-push hook: NOT INSTALLED (Run 'apisentinel install-hook --type=pre-push')")
+			}
+
+			preCommitPath := filepath.Join(gitRoot, ".git", "hooks", "pre-commit")
+			if _, err := os.Stat(preCommitPath); err == nil {
+				color.Green("🔒 Pre-commit hook: ACTIVE")
+			} else {
+				color.Yellow("🔓 Pre-commit hook: NOT INSTALLED (Run 'apisentinel install-hook --type=pre-commit')")
 			}
 		},
 	}
