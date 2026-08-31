@@ -29,6 +29,11 @@ func TestSecretEncryption_AlertWebhookURL(t *testing.T) {
 	}
 	defer pool.Close()
 
+	if err := pool.Ping(ctx); err != nil {
+		t.Skip("Skipping secret encryption test: PostgreSQL ping failed")
+		return
+	}
+
 	_ = database.RunMigrations(ctx, pool)
 	queries := database.New(pool)
 
@@ -39,8 +44,14 @@ func TestSecretEncryption_AlertWebhookURL(t *testing.T) {
 
 	// Setup Project
 	email := fmt.Sprintf("alert_enc_%d@apisentinel.dev", time.Now().UnixNano())
-	authResp, _ := authService.Register(ctx, email, "Password123!", "Alert Enc Org")
-	proj, _ := projectService.CreateProject(ctx, authResp.Organization.ID, "Alert Enc Project")
+	authResp, err := authService.Register(ctx, email, "Password123!", "Alert Enc Org")
+	if err != nil {
+		t.Fatalf("Failed to register user: %v", err)
+	}
+	proj, err := projectService.CreateProject(ctx, authResp.Organization.ID, "Alert Enc Project")
+	if err != nil {
+		t.Fatalf("Failed to create project: %v", err)
+	}
 
 	// 1. Create Alert Channel with real Discord webhook URL
 	rawDiscordURL := "https://discord.com/api/webhooks/1234567890/token_secret_abcdef123456"
@@ -100,6 +111,11 @@ func TestSecretEncryption_ForwardingCustomHeaders(t *testing.T) {
 	}
 	defer pool.Close()
 
+	if err := pool.Ping(ctx); err != nil {
+		t.Skip("Skipping secret encryption test: PostgreSQL ping failed")
+		return
+	}
+
 	_ = database.RunMigrations(ctx, pool)
 	queries := database.New(pool)
 
@@ -111,9 +127,18 @@ func TestSecretEncryption_ForwardingCustomHeaders(t *testing.T) {
 
 	// Setup Endpoint
 	email := fmt.Sprintf("fwd_enc_%d@apisentinel.dev", time.Now().UnixNano())
-	authResp, _ := authService.Register(ctx, email, "Password123!", "Fwd Enc Org")
-	proj, _ := projectService.CreateProject(ctx, authResp.Organization.ID, "Fwd Enc Project")
-	ep, _ := endpointService.CreateEndpoint(ctx, proj.ID, "Payment Ingestion", fmt.Sprintf("pay-%d", time.Now().UnixNano()), "DEVELOPMENT", nil)
+	authResp, err := authService.Register(ctx, email, "Password123!", "Fwd Enc Org")
+	if err != nil {
+		t.Fatalf("Failed to register user: %v", err)
+	}
+	proj, err := projectService.CreateProject(ctx, authResp.Organization.ID, "Fwd Enc Project")
+	if err != nil {
+		t.Fatalf("Failed to create project: %v", err)
+	}
+	ep, err := endpointService.CreateEndpoint(ctx, proj.ID, "Payment Ingestion", fmt.Sprintf("pay-%d", time.Now().UnixNano()), "DEVELOPMENT", nil)
+	if err != nil {
+		t.Fatalf("Failed to create endpoint: %v", err)
+	}
 
 	// Mock Upstream Server to capture incoming decrypted headers
 	var capturedAuthHeader string

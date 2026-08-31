@@ -161,6 +161,11 @@ func TestForwarding_PayloadModes_RedactedVsRaw(t *testing.T) {
 	}
 	defer pool.Close()
 
+	if err := pool.Ping(ctx); err != nil {
+		t.Skip("Skipping payload mode test: PostgreSQL ping failed")
+		return
+	}
+
 	_ = database.RunMigrations(ctx, pool)
 	queries := database.New(pool)
 
@@ -265,6 +270,11 @@ func TestForwardingOutbox_ConcurrentWorkerLease(t *testing.T) {
 	}
 	defer pool.Close()
 
+	if err := pool.Ping(ctx); err != nil {
+		t.Skip("Skipping concurrent worker lease test: PostgreSQL ping failed")
+		return
+	}
+
 	_ = database.RunMigrations(ctx, pool)
 	queries := database.New(pool)
 
@@ -273,9 +283,18 @@ func TestForwardingOutbox_ConcurrentWorkerLease(t *testing.T) {
 	endpointService := NewEndpointService(queries)
 
 	email := fmt.Sprintf("concur_%d@apisentinel.dev", time.Now().UnixNano())
-	authResp, _ := authService.Register(ctx, email, "Password123!", "Concur Org")
-	proj, _ := projectService.CreateProject(ctx, authResp.Organization.ID, "Concur Proj")
-	ep, _ := endpointService.CreateEndpoint(ctx, proj.ID, "Concur Ep", fmt.Sprintf("concur-%d", time.Now().UnixNano()), "DEVELOPMENT", nil)
+	authResp, err := authService.Register(ctx, email, "Password123!", "Concur Org")
+	if err != nil {
+		t.Fatalf("Failed to register: %v", err)
+	}
+	proj, err := projectService.CreateProject(ctx, authResp.Organization.ID, "Concur Proj")
+	if err != nil {
+		t.Fatalf("Failed to create project: %v", err)
+	}
+	ep, err := endpointService.CreateEndpoint(ctx, proj.ID, "Concur Ep", fmt.Sprintf("concur-%d", time.Now().UnixNano()), "DEVELOPMENT", nil)
+	if err != nil {
+		t.Fatalf("Failed to create endpoint: %v", err)
+	}
 	epUUID, _ := uuid.Parse(ep.ID)
 
 	// Create 5 pending outbox jobs
