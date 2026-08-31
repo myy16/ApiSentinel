@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -26,8 +27,15 @@ func main() {
 	// Logger Setup
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339})
-	if err := config.LoadDotEnv(".env", "../.env"); err != nil {
-		log.Warn().Err(err).Msg("Unable to load local .env file")
+	// Only load .env in development environments. In production, secrets must be provided via platform/container environment variables (#240).
+	env := strings.ToLower(os.Getenv("APP_ENV"))
+	if env == "" {
+		env = strings.ToLower(os.Getenv("NODE_ENV"))
+	}
+	if env != "production" {
+		if err := config.LoadDotEnv(".env", "../.env"); err != nil {
+			log.Warn().Err(err).Msg("Unable to load local .env file")
+		}
 	}
 
 	cfg := config.Load()

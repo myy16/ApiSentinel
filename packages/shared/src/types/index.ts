@@ -8,7 +8,7 @@ import {
   ReplayStatus,
   ReplayTargetType,
   AgentStatus,
-} from "../constants/index.js";
+} from "../constants";
 
 export interface User {
   id: string;

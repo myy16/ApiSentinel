@@ -6,7 +6,7 @@ import {
   PolicyAction,
   FindingCategory,
   ReplayTargetType,
-} from "../constants/index.js";
+} from "../constants";
 
 // Auth Schemas
 export const registerSchema = z.object({
