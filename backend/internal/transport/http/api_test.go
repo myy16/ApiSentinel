@@ -34,6 +34,8 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 		return
 	}
 
+	_ = database.RunMigrations(ctx, pool)
+
 	queries := database.New(pool)
 	authService := service.NewAuthService(queries, cfg.JWTSecret)
 	projectService := service.NewProjectService(queries)

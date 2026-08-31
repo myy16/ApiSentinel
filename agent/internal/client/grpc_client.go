@@ -13,6 +13,7 @@ import (
 
 	agentv1 "github.com/apisentinel/apisentinel/pkg/genproto/proto/agent/v1"
 	replayv1 "github.com/apisentinel/apisentinel/pkg/genproto/proto/replay/v1"
+	securityv1 "github.com/apisentinel/apisentinel/pkg/genproto/proto/security/v1"
 	"github.com/fatih/color"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -185,3 +186,36 @@ func (c *AgentClient) executeLocalReplay(stream agentv1.AgentService_ConnectSess
 		},
 	})
 }
+
+// SyncScanResults sends scan findings to the ApiSentinel Cloud backend via unary gRPC call (#2.1, #2.5)
+func (c *AgentClient) SyncScanResults(ctx context.Context, repository, branch, commitHash string, findings []*securityv1.SecurityFinding) (*agentv1.SyncScanResponse, error) {
+	transportCredentials := credentials.TransportCredentials(insecure.NewCredentials())
+	if os.Getenv("APISENTINEL_GRPC_TLS") == "true" {
+		transportCredentials = credentials.NewTLS(&tls.Config{
+			MinVersion: tls.VersionTLS12,
+			ServerName: os.Getenv("APISENTINEL_GRPC_SERVER_NAME"),
+		})
+	}
+
+	conn, err := grpc.DialContext(ctx, c.serverAddr, grpc.WithTransportCredentials(transportCredentials), grpc.WithBlock())
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to gRPC server at %s: %w", c.serverAddr, err)
+	}
+	defer conn.Close()
+
+	client := agentv1.NewAgentServiceClient(conn)
+
+	rpcCtx := ctx
+	if c.token != "" {
+		rpcCtx = metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+c.token, "x-agent-token", c.token)
+	}
+
+	return client.SyncScanResults(rpcCtx, &agentv1.SyncScanRequest{
+		AgentId:    c.agentID,
+		Repository: repository,
+		Branch:     branch,
+		CommitHash: commitHash,
+		Findings:   findings,
+	})
+}
+

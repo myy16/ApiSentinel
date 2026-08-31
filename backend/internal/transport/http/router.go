@@ -134,10 +134,11 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 			protected.With(tenantGuard, requestGuard).Post("/requests/{id}/replay", h.ReplayHandler.Execute)
 			protected.With(tenantGuard, projectGuard).Get("/projects/{projectId}/replays", h.ReplayHandler.ListByProject)
 
-			// Security Findings (Real DB & Statistics)
+			// Security Findings (Real DB & Statistics) & Agent Scans
 			if h.FindingHandler != nil {
 				protected.With(tenantGuard, projectGuard).Get("/projects/{projectId}/findings", h.FindingHandler.ListByProject)
 				protected.With(tenantGuard, projectGuard).Get("/projects/{projectId}/findings/stats", h.FindingHandler.GetStats)
+				protected.With(tenantGuard, projectGuard).Get("/projects/{projectId}/scans", h.FindingHandler.ListScansByProject)
 			}
 
 			// AI Finding Explanations

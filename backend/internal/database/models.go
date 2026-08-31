@@ -20,6 +20,19 @@ type Agent struct {
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 }
 
+type AgentScan struct {
+	ID            pgtype.UUID        `json:"id"`
+	ProjectID     pgtype.UUID        `json:"project_id"`
+	AgentID       string             `json:"agent_id"`
+	Repository    string             `json:"repository"`
+	Branch        string             `json:"branch"`
+	CommitHash    string             `json:"commit_hash"`
+	ScanType      string             `json:"scan_type"`
+	TotalFindings int32              `json:"total_findings"`
+	Action        string             `json:"action"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
 type AlertChannel struct {
 	ID          pgtype.UUID        `json:"id"`
 	ProjectID   pgtype.UUID        `json:"project_id"`
@@ -178,12 +191,19 @@ type Rule struct {
 type SecurityFinding struct {
 	ID             pgtype.UUID        `json:"id"`
 	RequestID      pgtype.UUID        `json:"request_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	ScanID         pgtype.UUID        `json:"scan_id"`
+	SourceType     string             `json:"source_type"`
 	RuleID         pgtype.UUID        `json:"rule_id"`
 	Category       string             `json:"category"`
 	Type           string             `json:"type"`
 	Severity       string             `json:"severity"`
 	Action         string             `json:"action"`
 	FieldPath      pgtype.Text        `json:"field_path"`
+	FilePath       pgtype.Text        `json:"file_path"`
+	LineNumber     pgtype.Int4        `json:"line_number"`
+	CommitHash     pgtype.Text        `json:"commit_hash"`
+	Repository     pgtype.Text        `json:"repository"`
 	Message        string             `json:"message"`
 	EvidenceMasked pgtype.Text        `json:"evidence_masked"`
 	Confidence     pgtype.Float8      `json:"confidence"`

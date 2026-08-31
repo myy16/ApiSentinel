@@ -159,7 +159,7 @@ func (s *LocalScanner) ScanGitStaged(ctx context.Context) ([]FileFinding, error)
 			addedContent := strings.TrimPrefix(line, "+")
 			lineFindings := s.engine.Inspect(addedContent)
 			for _, f := range lineFindings {
-				if f.Category == "SECRET" || f.Category == "PII" {
+				if f.Category == "SECRET" || f.Category == "PII" || f.Category == "INJECTION" {
 					snippet := addedContent
 					if len(snippet) > 80 {
 						snippet = snippet[:77] + "..."

@@ -66,16 +66,36 @@ export interface CapturedRequest {
 
 export interface SecurityFinding {
   id: string;
-  requestId: string;
+  requestId?: string | null;
+  projectId?: string | null;
+  scanId?: string | null;
+  sourceType?: string | null; // "WEBHOOK" | "AGENT_GIT"
   ruleId?: string | null;
   category: FindingCategory;
   type: FindingType | string;
   severity: Severity;
   action: PolicyAction;
   fieldPath?: string | null;
+  filePath?: string | null;
+  lineNumber?: number | null;
+  commitHash?: string | null;
+  repository?: string | null;
   message: string;
   evidenceMasked?: string | null;
   confidence?: number | null;
+  createdAt: Date;
+}
+
+export interface AgentScan {
+  id: string;
+  projectId: string;
+  agentId: string;
+  repository: string;
+  branch: string;
+  commitHash: string;
+  scanType: string;
+  totalFindings: number;
+  action: string;
   createdAt: Date;
 }
 

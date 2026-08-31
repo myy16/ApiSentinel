@@ -12,6 +12,7 @@ import (
 
 type Querier interface {
 	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (CreateAPIKeyRow, error)
+	CreateAgentScan(ctx context.Context, arg CreateAgentScanParams) (AgentScan, error)
 	CreateAlertChannel(ctx context.Context, arg CreateAlertChannelParams) (AlertChannel, error)
 	CreateCapturedRequest(ctx context.Context, arg CreateCapturedRequestParams) (CapturedRequest, error)
 	CreateDLQRecord(ctx context.Context, arg CreateDLQRecordParams) (ForwardingDlq, error)
@@ -51,6 +52,7 @@ type Querier interface {
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error)
 	ListAPIKeysByProject(ctx context.Context, projectID pgtype.UUID) ([]ListAPIKeysByProjectRow, error)
+	ListAgentScansByProject(ctx context.Context, arg ListAgentScansByProjectParams) ([]AgentScan, error)
 	ListAlertChannelsByProject(ctx context.Context, projectID pgtype.UUID) ([]AlertChannel, error)
 	ListDLQRecordsByEndpoint(ctx context.Context, endpointID pgtype.UUID) ([]ForwardingDlq, error)
 	ListEndpointsByProject(ctx context.Context, projectID pgtype.UUID) ([]ListEndpointsByProjectRow, error)

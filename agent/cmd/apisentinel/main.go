@@ -4,14 +4,17 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/apisentinel/apisentinel/agent/internal/client"
 	"github.com/apisentinel/apisentinel/agent/internal/git"
 	"github.com/apisentinel/apisentinel/internal/security"
+	securityv1 "github.com/apisentinel/apisentinel/pkg/genproto/proto/security/v1"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
@@ -19,7 +22,7 @@ import (
 var (
 	stagedOnly bool
 	targetPath string
-	serverAddr string
+	serverAddr string = "localhost:50051"
 	agentID    string
 	agentToken string
 )
@@ -38,6 +41,9 @@ func main() {
 	}
 	scanCmd.Flags().BoolVarP(&stagedOnly, "staged", "s", false, "Scan only staged git changes")
 	scanCmd.Flags().StringVarP(&targetPath, "path", "p", ".", "Directory or file path to scan")
+	scanCmd.Flags().StringVarP(&serverAddr, "server", "S", "localhost:50051", "ApiSentinel Cloud gRPC server address")
+	scanCmd.Flags().StringVarP(&agentToken, "token", "t", "", "Agent Authentication Token (or set APISENTINEL_TOKEN env var)")
+	scanCmd.Flags().StringVarP(&agentID, "agent-id", "a", "", "Custom Agent ID")
 
 	var installHookCmd = &cobra.Command{
 		Use:   "install-hook",
@@ -144,6 +150,7 @@ func runScan(cmd *cobra.Command, args []string) {
 	color.Cyan("🔍 ApiSentinel scanning in progress...")
 
 	var criticalCount int
+	var allProtoFindings []*securityv1.SecurityFinding
 
 	if stagedOnly {
 		diff, err := git.GetStagedDiff()
@@ -162,6 +169,7 @@ func runScan(cmd *cobra.Command, args []string) {
 				criticalCount++
 			}
 		}
+		allProtoFindings = append(allProtoFindings, convertFindingsToProto("Git Staged Changes", findings)...)
 		printFindings("Git Staged Changes", findings)
 	} else {
 		err := filepath.Walk(targetPath, func(path string, info os.FileInfo, err error) error {
@@ -192,6 +200,7 @@ func runScan(cmd *cobra.Command, args []string) {
 						criticalCount++
 					}
 				}
+				allProtoFindings = append(allProtoFindings, convertFindingsToProto(path, findings)...)
 				printFindings(path, findings)
 			}
 			return nil
@@ -203,12 +212,76 @@ func runScan(cmd *cobra.Command, args []string) {
 		}
 	}
 
+	// Sync findings to ApiSentinel Cloud Dashboard if token is configured (#2.1, #2.5)
+	tok := agentToken
+	if tok == "" {
+		tok = os.Getenv("APISENTINEL_TOKEN")
+	}
+	if tok != "" {
+		repo, branch, commit := getGitRepoInfo()
+		if repo == "" {
+			repo = "local-repo"
+		}
+		c := client.NewAgentClient(serverAddr, agentID, tok)
+		syncCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, err := c.SyncScanResults(syncCtx, repo, branch, commit, allProtoFindings); err == nil {
+			color.Cyan("☁️  Scan results synced to ApiSentinel Cloud Dashboard")
+		}
+	}
+
 	if criticalCount > 0 {
 		color.Red("\n🚨 Scan finished: %d CRITICAL / HIGH security finding(s) detected!", criticalCount)
 		os.Exit(1)
 	} else {
 		color.Green("\n✅ Clean! No secrets or critical sensitive data detected.")
 	}
+}
+
+func getGitRepoInfo() (repo, branch, commit string) {
+	root, err := git.FindGitRoot()
+	if err == nil && root != "" {
+		repo = filepath.Base(root)
+	}
+	out, err := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").Output()
+	if err == nil {
+		branch = strings.TrimSpace(string(out))
+	}
+	commitOut, err := exec.Command("git", "rev-parse", "HEAD").Output()
+	if err == nil {
+		commit = strings.TrimSpace(string(commitOut))
+	}
+	return
+}
+
+func convertFindingsToProto(source string, findings []security.Finding) []*securityv1.SecurityFinding {
+	var protoList []*securityv1.SecurityFinding
+	for _, f := range findings {
+		var sev securityv1.Severity
+		switch f.Severity {
+		case "CRITICAL":
+			sev = securityv1.Severity_SEVERITY_CRITICAL
+		case "HIGH":
+			sev = securityv1.Severity_SEVERITY_HIGH
+		case "MEDIUM":
+			sev = securityv1.Severity_SEVERITY_MEDIUM
+		case "LOW":
+			sev = securityv1.Severity_SEVERITY_LOW
+		default:
+			sev = securityv1.Severity_SEVERITY_INFO
+		}
+
+		protoList = append(protoList, &securityv1.SecurityFinding{
+			Category:       f.Category,
+			Type:           f.Type,
+			Severity:       sev,
+			FieldPath:      source,
+			Message:        f.Message,
+			EvidenceMasked: f.EvidenceMasked,
+			Confidence:     f.Confidence,
+		})
+	}
+	return protoList
 }
 
 func printFindings(source string, findings []security.Finding) {

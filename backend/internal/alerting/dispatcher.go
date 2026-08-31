@@ -45,7 +45,13 @@ func NewDispatcher() *Dispatcher {
 	}
 }
 
-// Dispatch sends security alerts asynchronously to the target channel
+func NewDispatcherWithClient(httpClient *http.Client) *Dispatcher {
+	return &Dispatcher{
+		httpClient: httpClient,
+	}
+}
+
+// Dispatch sends security alerts asynchronously to the target channel with exponential backoff (#3.2)
 func (d *Dispatcher) Dispatch(ctx context.Context, channelType ChannelType, webhookURL string, payload AlertPayload) error {
 	var body []byte
 	var err error
@@ -65,30 +71,56 @@ func (d *Dispatcher) Dispatch(ctx context.Context, channelType ChannelType, webh
 		return fmt.Errorf("failed to format alert payload: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewReader(body))
-	if err != nil {
-		return err
+	maxAttempts := 3
+	var lastErr error
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(100*(1<<attempt)) * time.Millisecond
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(backoff):
+			}
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewReader(body))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("User-Agent", "ApiSentinel-Security-Alerts/0.1.0")
+
+		resp, err := d.httpClient.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("alert delivery failed to %s: %w", channelType, err)
+			log.Warn().Err(err).Int("attempt", attempt+1).Str("channel", string(channelType)).Msg("Retrying alert webhook delivery")
+			continue
+		}
+
+		statusCode := resp.StatusCode
+		resp.Body.Close()
+
+		if statusCode >= 500 {
+			lastErr = fmt.Errorf("alert endpoint returned server error HTTP %d", statusCode)
+			log.Warn().Int("status", statusCode).Int("attempt", attempt+1).Str("channel", string(channelType)).Msg("Retrying alert webhook delivery after 5xx")
+			continue
+		}
+
+		if statusCode >= 400 {
+			return fmt.Errorf("alert endpoint returned client error HTTP %d", statusCode)
+		}
+
+		log.Info().
+			Str("channel", string(channelType)).
+			Str("severity", payload.Severity).
+			Str("type", payload.FindingType).
+			Msg("Security alert successfully dispatched")
+
+		return nil
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "ApiSentinel-Security-Alerts/0.1.0")
 
-	resp, err := d.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("alert delivery failed to %s: %w", channelType, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("alert endpoint returned HTTP %d", resp.StatusCode)
-	}
-
-	log.Info().
-		Str("channel", string(channelType)).
-		Str("severity", payload.Severity).
-		Str("type", payload.FindingType).
-		Msg("Security alert successfully dispatched")
-
-	return nil
+	return fmt.Errorf("alert delivery failed after %d attempts: %w", maxAttempts, lastErr)
 }
 
 // formatSlackBlock formats rich Slack Block Kit layout

@@ -626,6 +626,8 @@ func (s *IngestionService) persistFindingsAndAlerts(
 		// Use the actual policy decision instead of hardcoded "LOG" (#6)
 		createdFinding, fErr := s.queries.CreateSecurityFinding(ctx, database.CreateSecurityFindingParams{
 			RequestID:      captured.ID,
+			ProjectID:      endpoint.ProjectID,
+			SourceType:     "WEBHOOK",
 			Category:       f.Category,
 			Type:           f.Type,
 			Severity:       f.Severity,

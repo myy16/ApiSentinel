@@ -24,13 +24,22 @@ import {
   ChevronDown,
   ChevronUp,
   X,
+  GitBranch,
+  FileCode,
+  Globe,
+  Terminal,
 } from "lucide-react";
 
 interface Finding {
   id: string;
-  requestId: string;
-  reqDisplayId: string;
-  endpointName: string;
+  requestId?: string;
+  reqDisplayId?: string;
+  endpointName?: string;
+  sourceType?: string;
+  repository?: string;
+  filePath?: string;
+  lineNumber?: number;
+  commitHash?: string;
   category: string;
   type: string;
   severity: "CRITICAL" | "HIGH" | "MEDIUM" | "INFO";
@@ -68,6 +77,7 @@ export default function SecurityFindingsPage() {
 
   const [activeFinding, setActiveFinding] = useState<Finding | null>(null);
   const [severityFilter, setSeverityFilter] = useState<"ALL" | "CRITICAL" | "HIGH" | "MEDIUM">("ALL");
+  const [sourceFilter, setSourceFilter] = useState<"ALL" | "WEBHOOK" | "AGENT_GIT">("ALL");
   const [copiedCode, setCopiedCode] = useState(false);
 
   // 1. Fetch Real Security Findings from DB
@@ -148,8 +158,12 @@ export default function SecurityFindingsPage() {
     setTimeout(() => setCopiedCode(false), 2000);
   };
 
-  // Filter findings based on severity tab
+  // Filter findings based on severity tab and source filter
   const filteredFindings = findings.filter((f) => {
+    if (sourceFilter !== "ALL") {
+      const src = f.sourceType || "WEBHOOK";
+      if (src !== sourceFilter) return false;
+    }
     if (severityFilter === "ALL") return true;
     if (severityFilter === "CRITICAL") return f.severity === "CRITICAL";
     if (severityFilter === "HIGH") return f.severity === "HIGH";
@@ -233,49 +247,87 @@ export default function SecurityFindingsPage() {
         </div>
       </div>
 
-      {/* Filter Tabs Bar */}
-      <div className="flex items-center gap-2">
-        <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
-        <div className="flex items-center gap-1.5 text-xs">
+      {/* Filter Tabs Bar (Severity + Source) */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <button
+              onClick={() => setSeverityFilter("ALL")}
+              className={`rounded-lg px-3 py-1.5 font-semibold transition ${
+                severityFilter === "ALL"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Tüm Bulgular ({findings.length})
+            </button>
+            <button
+              onClick={() => setSeverityFilter("CRITICAL")}
+              className={`rounded-lg px-3 py-1.5 font-semibold transition ${
+                severityFilter === "CRITICAL"
+                  ? "bg-rose-500 text-white"
+                  : "bg-secondary text-muted-foreground hover:text-rose-400"
+              }`}
+            >
+              Kritik ({stats.criticalCount})
+            </button>
+            <button
+              onClick={() => setSeverityFilter("HIGH")}
+              className={`rounded-lg px-3 py-1.5 font-semibold transition ${
+                severityFilter === "HIGH"
+                  ? "bg-amber-500 text-white"
+                  : "bg-secondary text-muted-foreground hover:text-amber-400"
+              }`}
+            >
+              Yüksek ({stats.highCount})
+            </button>
+            <button
+              onClick={() => setSeverityFilter("MEDIUM")}
+              className={`rounded-lg px-3 py-1.5 font-semibold transition ${
+                severityFilter === "MEDIUM"
+                  ? "bg-blue-500 text-white"
+                  : "bg-secondary text-muted-foreground hover:text-blue-400"
+              }`}
+            >
+              Orta & Bilgi ({stats.mediumCount + stats.infoCount})
+            </button>
+          </div>
+        </div>
+
+        {/* Source Filter (All vs Webhook vs Git/CLI Agent) */}
+        <div className="flex items-center gap-1.5 bg-secondary/50 p-1 rounded-xl border border-border text-xs">
           <button
-            onClick={() => setSeverityFilter("ALL")}
-            className={`rounded-lg px-3 py-1.5 font-semibold transition ${
-              severityFilter === "ALL"
-                ? "bg-primary text-primary-foreground"
-                : "bg-secondary text-muted-foreground hover:text-foreground"
+            onClick={() => setSourceFilter("ALL")}
+            className={`px-3 py-1 rounded-lg font-semibold transition ${
+              sourceFilter === "ALL"
+                ? "bg-card text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            Tüm Bulgular ({findings.length})
+            Tüm Kaynaklar
           </button>
           <button
-            onClick={() => setSeverityFilter("CRITICAL")}
-            className={`rounded-lg px-3 py-1.5 font-semibold transition ${
-              severityFilter === "CRITICAL"
-                ? "bg-rose-500 text-white"
-                : "bg-secondary text-muted-foreground hover:text-rose-400"
+            onClick={() => setSourceFilter("WEBHOOK")}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-lg font-semibold transition ${
+              sourceFilter === "WEBHOOK"
+                ? "bg-card text-emerald-400 shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            Kritik ({stats.criticalCount})
+            <Globe className="h-3 w-3" />
+            <span>Webhook</span>
           </button>
           <button
-            onClick={() => setSeverityFilter("HIGH")}
-            className={`rounded-lg px-3 py-1.5 font-semibold transition ${
-              severityFilter === "HIGH"
-                ? "bg-amber-500 text-white"
-                : "bg-secondary text-muted-foreground hover:text-amber-400"
+            onClick={() => setSourceFilter("AGENT_GIT")}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-lg font-semibold transition ${
+              sourceFilter === "AGENT_GIT"
+                ? "bg-card text-purple-400 shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            Yüksek ({stats.highCount})
-          </button>
-          <button
-            onClick={() => setSeverityFilter("MEDIUM")}
-            className={`rounded-lg px-3 py-1.5 font-semibold transition ${
-              severityFilter === "MEDIUM"
-                ? "bg-blue-500 text-white"
-                : "bg-secondary text-muted-foreground hover:text-blue-400"
-            }`}
-          >
-            Orta & Bilgi ({stats.mediumCount + stats.infoCount})
+            <Terminal className="h-3 w-3" />
+            <span>Git / CLI Ajanı</span>
           </button>
         </div>
       </div>
@@ -292,12 +344,13 @@ export default function SecurityFindingsPage() {
             <ShieldCheck className="h-12 w-12 text-emerald-400 mb-3" />
             <p className="text-base font-bold text-foreground">Tertemiz! Güvenlik İhlali Yok</p>
             <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-              Seçili filtre veya projede engellenen bir tehdit bulunmuyor. Webhook gönderildiğinde bulgular anlık burada listelenecektir.
+              Seçili filtre veya projede engellenen bir tehdit bulunmuyor. Webhook gönderildiğinde veya git taraması yapıldığında bulgular anlık burada listelenecektir.
             </p>
           </div>
         ) : (
           filteredFindings.map((f) => {
             const isExpanded = activeFinding?.id === f.id;
+            const isGitFinding = f.sourceType === "AGENT_GIT" || !!f.filePath || !!f.repository;
 
             return (
               <div
@@ -310,7 +363,7 @@ export default function SecurityFindingsPage() {
               >
                 {/* Header Row */}
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex flex-wrap items-center gap-2.5">
                     <span
                       className={`rounded-lg px-2.5 py-1 text-xs font-bold ${
                         f.severity === "CRITICAL"
@@ -323,7 +376,21 @@ export default function SecurityFindingsPage() {
                       {f.severity}
                     </span>
                     <h3 className="text-sm font-bold text-foreground">{f.type}</h3>
-                    <span className="text-xs text-muted-foreground">• {f.endpointName}</span>
+
+                    {/* Source Tag (Git vs Webhook) */}
+                    {isGitFinding ? (
+                      <span className="flex items-center gap-1 text-xs font-medium text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md border border-purple-500/20">
+                        <GitBranch className="h-3 w-3" />
+                        <span>{f.repository || "Git Tarama"}</span>
+                      </span>
+                    ) : (
+                      f.endpointName && (
+                        <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground bg-secondary px-2 py-0.5 rounded-md">
+                          <Globe className="h-3 w-3 text-emerald-400" />
+                          <span>{f.endpointName}</span>
+                        </span>
+                      )
+                    )}
                   </div>
 
                   <span
@@ -340,6 +407,21 @@ export default function SecurityFindingsPage() {
                 {/* Finding Details */}
                 <div className="space-y-2 text-xs">
                   <p className="text-foreground leading-relaxed">{f.message}</p>
+
+                  {/* File Path & Line Info for Git findings */}
+                  {f.filePath && (
+                    <div className="flex items-center gap-2 font-mono text-muted-foreground">
+                      <span className="flex items-center gap-1 text-purple-400">
+                        <FileCode className="h-3.5 w-3.5" />
+                        <span>Dosya / Konum:</span>
+                      </span>
+                      <span className="rounded-lg bg-background px-2.5 py-1 text-foreground border border-border">
+                        {f.filePath}
+                        {f.lineNumber ? `:${f.lineNumber}` : ""}
+                      </span>
+                    </div>
+                  )}
+
                   {f.evidenceMasked && (
                     <div className="flex items-center gap-2 font-mono text-muted-foreground">
                       <span>Maskeli Kanıt:</span>

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -13,10 +14,12 @@ import (
 	"time"
 
 	"github.com/apisentinel/apisentinel/internal/database"
+	"github.com/apisentinel/apisentinel/internal/valkey"
 	agentv1 "github.com/apisentinel/apisentinel/pkg/genproto/proto/agent/v1"
 	replayv1 "github.com/apisentinel/apisentinel/pkg/genproto/proto/replay/v1"
 	securityv1 "github.com/apisentinel/apisentinel/pkg/genproto/proto/security/v1"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -44,18 +47,20 @@ type agentScope struct {
 
 type Server struct {
 	agentv1.UnimplementedAgentServiceServer
-	queries   *database.Queries
-	grpcSrv   *grpc.Server
-	sessions  sync.Map // map[string]*AgentSession
-	port      int
-	jwtSecret string
+	queries      *database.Queries
+	valkeyClient *valkey.Client
+	grpcSrv      *grpc.Server
+	sessions     sync.Map // map[string]*AgentSession
+	port         int
+	jwtSecret    string
 }
 
-func NewServer(queries *database.Queries, port int, jwtSecret string, tlsCertFile, tlsKeyFile string) *Server {
+func NewServer(queries *database.Queries, port int, jwtSecret string, tlsCertFile, tlsKeyFile string, valkeyClient *valkey.Client) *Server {
 	s := &Server{
-		queries:   queries,
-		port:      port,
-		jwtSecret: jwtSecret,
+		queries:      queries,
+		valkeyClient: valkeyClient,
+		port:         port,
+		jwtSecret:    jwtSecret,
 	}
 
 	var serverOpts []grpc.ServerOption
@@ -315,6 +320,26 @@ func (s *Server) ConnectSession(stream agentv1.AgentService_ConnectSessionServer
 				Int("findings", len(payload.ScanEvent.Findings)).
 				Msg("Received live scan event from Agent")
 
+			scanAction := "ALLOW"
+			for _, f := range payload.ScanEvent.Findings {
+				if f.Severity == securityv1.Severity_SEVERITY_CRITICAL || f.Severity == securityv1.Severity_SEVERITY_HIGH {
+					scanAction = "BLOCK"
+					break
+				}
+			}
+
+			s.persistScanAndFindings(
+				stream.Context(),
+				session.ProjectID,
+				currentAgentID,
+				payload.ScanEvent.Repository,
+				"",
+				"",
+				payload.ScanEvent.ScanType,
+				scanAction,
+				payload.ScanEvent.Findings,
+			)
+
 		case *agentv1.AgentMessage_ReplayResult:
 			log.Info().
 				Str("jobId", payload.ReplayResult.JobId).
@@ -334,14 +359,37 @@ func (s *Server) SyncScanResults(ctx context.Context, req *agentv1.SyncScanReque
 		Msg("Batch scan results synced from CLI")
 
 	action := "ALLOW"
-	msg := "Clean! No critical security findings detected."
+	msg := "Temiz! Kritik bir güvenlik bulgusu tespit edilmedi."
 
 	for _, f := range req.Findings {
 		if f.Severity == securityv1.Severity_SEVERITY_CRITICAL || f.Severity == securityv1.Severity_SEVERITY_HIGH {
 			action = "BLOCK"
-			msg = fmt.Sprintf("Git Push Blocked: %s (%s)", f.Type, f.Message)
+			msg = fmt.Sprintf("Git İşlemi Engellendi: %s (%s)", f.Type, f.Message)
 			break
 		}
+	}
+
+	// Resolve project context from metadata (#2.1, #2.5)
+	var projectID string
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if scope, err := s.resolveAgentScope(md); err == nil {
+			projectID = scope.projectID
+		}
+	}
+
+	// Persist scan and findings into PostgreSQL
+	if projectID != "" && len(req.Findings) > 0 {
+		s.persistScanAndFindings(
+			ctx,
+			projectID,
+			req.AgentId,
+			req.Repository,
+			req.Branch,
+			req.CommitHash,
+			"CLI_SCAN",
+			action,
+			req.Findings,
+		)
 	}
 
 	return &agentv1.SyncScanResponse{
@@ -349,6 +397,117 @@ func (s *Server) SyncScanResults(ctx context.Context, req *agentv1.SyncScanReque
 		Action:   action,
 		Message:  msg,
 	}, nil
+}
+
+func (s *Server) persistScanAndFindings(
+	ctx context.Context,
+	projectIDStr string,
+	agentID string,
+	repository string,
+	branch string,
+	commitHash string,
+	scanType string,
+	action string,
+	findings []*securityv1.SecurityFinding,
+) {
+	if projectIDStr == "" {
+		return
+	}
+	projUUID, err := uuid.Parse(projectIDStr)
+	if err != nil {
+		return
+	}
+	pgProjID := pgtype.UUID{Bytes: projUUID, Valid: true}
+
+	scan, err := s.queries.CreateAgentScan(ctx, database.CreateAgentScanParams{
+		ProjectID:     pgProjID,
+		AgentID:       agentID,
+		Repository:    repository,
+		Branch:        branch,
+		CommitHash:    commitHash,
+		ScanType:      scanType,
+		TotalFindings: int32(len(findings)),
+		Action:        action,
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to persist agent_scan record")
+		return
+	}
+
+	for _, f := range findings {
+		sevStr := protoSeverityToString(f.Severity)
+		findingRecord, fErr := s.queries.CreateSecurityFinding(ctx, database.CreateSecurityFindingParams{
+			ProjectID:      pgProjID,
+			ScanID:         scan.ID,
+			SourceType:     "AGENT_GIT",
+			Category:       f.Category,
+			Type:           f.Type,
+			Severity:       sevStr,
+			Action:         action,
+			FieldPath:      pgtype.Text{String: f.FieldPath, Valid: f.FieldPath != ""},
+			FilePath:       pgtype.Text{String: f.FieldPath, Valid: f.FieldPath != ""},
+			Repository:     pgtype.Text{String: repository, Valid: repository != ""},
+			CommitHash:     pgtype.Text{String: commitHash, Valid: commitHash != ""},
+			Message:        f.Message,
+			EvidenceMasked: pgtype.Text{String: f.EvidenceMasked, Valid: f.EvidenceMasked != ""},
+			Confidence:     pgtype.Float8{Float64: f.Confidence, Valid: true},
+		})
+		if fErr != nil {
+			log.Error().Err(fErr).Msg("Failed to persist agent security_finding")
+			continue
+		}
+
+		// Publish finding.created SSE event (#2.2)
+		if s.valkeyClient != nil {
+			eventPayload, _ := json.Marshal(map[string]interface{}{
+				"event":      "finding.created",
+				"id":         uuid.UUID(findingRecord.ID.Bytes).String(),
+				"scanId":     uuid.UUID(scan.ID.Bytes).String(),
+				"sourceType": "AGENT_GIT",
+				"category":   findingRecord.Category,
+				"type":       findingRecord.Type,
+				"severity":   findingRecord.Severity,
+				"action":     findingRecord.Action,
+				"message":    findingRecord.Message,
+				"repository": repository,
+				"filePath":   f.FieldPath,
+				"createdAt":  time.Now().Format(time.RFC3339),
+			})
+			s.valkeyClient.PublishEvent(ctx, "channel:events:"+projectIDStr, string(eventPayload))
+		}
+	}
+
+	// Publish scan.completed SSE event
+	if s.valkeyClient != nil {
+		scanPayload, _ := json.Marshal(map[string]interface{}{
+			"event":         "scan.completed",
+			"id":            uuid.UUID(scan.ID.Bytes).String(),
+			"agentId":       agentID,
+			"repository":    repository,
+			"branch":        branch,
+			"commitHash":    commitHash,
+			"scanType":      scanType,
+			"totalFindings": len(findings),
+			"action":        action,
+			"createdAt":     time.Now().Format(time.RFC3339),
+		})
+		s.valkeyClient.PublishEvent(ctx, "channel:events:"+projectIDStr, string(scanPayload))
+	}
+}
+
+func protoSeverityToString(sev securityv1.Severity) string {
+	switch sev {
+	case securityv1.Severity_SEVERITY_CRITICAL:
+		return "CRITICAL"
+	case securityv1.Severity_SEVERITY_HIGH:
+		return "HIGH"
+	case securityv1.Severity_SEVERITY_MEDIUM:
+		return "MEDIUM"
+	case securityv1.Severity_SEVERITY_LOW:
+		return "LOW"
+	default:
+		return "INFO"
+	}
 }
 
 // DispatchReplayToAgent sends a Replay command over the active bidirectional stream to the agent

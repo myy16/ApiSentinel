@@ -13,22 +13,30 @@ import (
 
 const createSecurityFinding = `-- name: CreateSecurityFinding :one
 INSERT INTO security_findings (
-    request_id, rule_id, category, type, severity,
-    action, field_path, message, evidence_masked, confidence
+    request_id, project_id, scan_id, source_type, rule_id, category, type, severity,
+    action, field_path, file_path, line_number, commit_hash, repository,
+    message, evidence_masked, confidence
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
 )
-RETURNING id, request_id, rule_id, category, type, severity, action, field_path, message, evidence_masked, confidence, created_at
+RETURNING id, request_id, project_id, scan_id, source_type, rule_id, category, type, severity, action, field_path, file_path, line_number, commit_hash, repository, message, evidence_masked, confidence, created_at
 `
 
 type CreateSecurityFindingParams struct {
 	RequestID      pgtype.UUID   `json:"request_id"`
+	ProjectID      pgtype.UUID   `json:"project_id"`
+	ScanID         pgtype.UUID   `json:"scan_id"`
+	SourceType     string        `json:"source_type"`
 	RuleID         pgtype.UUID   `json:"rule_id"`
 	Category       string        `json:"category"`
 	Type           string        `json:"type"`
 	Severity       string        `json:"severity"`
 	Action         string        `json:"action"`
 	FieldPath      pgtype.Text   `json:"field_path"`
+	FilePath       pgtype.Text   `json:"file_path"`
+	LineNumber     pgtype.Int4   `json:"line_number"`
+	CommitHash     pgtype.Text   `json:"commit_hash"`
+	Repository     pgtype.Text   `json:"repository"`
 	Message        string        `json:"message"`
 	EvidenceMasked pgtype.Text   `json:"evidence_masked"`
 	Confidence     pgtype.Float8 `json:"confidence"`
@@ -37,12 +45,19 @@ type CreateSecurityFindingParams struct {
 func (q *Queries) CreateSecurityFinding(ctx context.Context, arg CreateSecurityFindingParams) (SecurityFinding, error) {
 	row := q.db.QueryRow(ctx, createSecurityFinding,
 		arg.RequestID,
+		arg.ProjectID,
+		arg.ScanID,
+		arg.SourceType,
 		arg.RuleID,
 		arg.Category,
 		arg.Type,
 		arg.Severity,
 		arg.Action,
 		arg.FieldPath,
+		arg.FilePath,
+		arg.LineNumber,
+		arg.CommitHash,
+		arg.Repository,
 		arg.Message,
 		arg.EvidenceMasked,
 		arg.Confidence,
@@ -51,18 +66,117 @@ func (q *Queries) CreateSecurityFinding(ctx context.Context, arg CreateSecurityF
 	err := row.Scan(
 		&i.ID,
 		&i.RequestID,
+		&i.ProjectID,
+		&i.ScanID,
+		&i.SourceType,
 		&i.RuleID,
 		&i.Category,
 		&i.Type,
 		&i.Severity,
 		&i.Action,
 		&i.FieldPath,
+		&i.FilePath,
+		&i.LineNumber,
+		&i.CommitHash,
+		&i.Repository,
 		&i.Message,
 		&i.EvidenceMasked,
 		&i.Confidence,
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const createAgentScan = `-- name: CreateAgentScan :one
+INSERT INTO agent_scans (
+    project_id, agent_id, repository, branch, commit_hash, scan_type, total_findings, action
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8
+)
+RETURNING id, project_id, agent_id, repository, branch, commit_hash, scan_type, total_findings, action, created_at
+`
+
+type CreateAgentScanParams struct {
+	ProjectID     pgtype.UUID `json:"project_id"`
+	AgentID       string      `json:"agent_id"`
+	Repository    string      `json:"repository"`
+	Branch        string      `json:"branch"`
+	CommitHash    string      `json:"commit_hash"`
+	ScanType      string      `json:"scan_type"`
+	TotalFindings int32       `json:"total_findings"`
+	Action        string      `json:"action"`
+}
+
+func (q *Queries) CreateAgentScan(ctx context.Context, arg CreateAgentScanParams) (AgentScan, error) {
+	row := q.db.QueryRow(ctx, createAgentScan,
+		arg.ProjectID,
+		arg.AgentID,
+		arg.Repository,
+		arg.Branch,
+		arg.CommitHash,
+		arg.ScanType,
+		arg.TotalFindings,
+		arg.Action,
+	)
+	var i AgentScan
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.AgentID,
+		&i.Repository,
+		&i.Branch,
+		&i.CommitHash,
+		&i.ScanType,
+		&i.TotalFindings,
+		&i.Action,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const listAgentScansByProject = `-- name: ListAgentScansByProject :many
+SELECT id, project_id, agent_id, repository, branch, commit_hash, scan_type, total_findings, action, created_at
+FROM agent_scans
+WHERE project_id = $1
+ORDER BY created_at DESC
+LIMIT $2 OFFSET $3
+`
+
+type ListAgentScansByProjectParams struct {
+	ProjectID pgtype.UUID `json:"project_id"`
+	Limit     int32       `json:"limit"`
+	Offset    int32       `json:"offset"`
+}
+
+func (q *Queries) ListAgentScansByProject(ctx context.Context, arg ListAgentScansByProjectParams) ([]AgentScan, error) {
+	rows, err := q.db.Query(ctx, listAgentScansByProject, arg.ProjectID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AgentScan
+	for rows.Next() {
+		var i AgentScan
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.AgentID,
+			&i.Repository,
+			&i.Branch,
+			&i.CommitHash,
+			&i.ScanType,
+			&i.TotalFindings,
+			&i.Action,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getFindingStats = `-- name: GetFindingStats :one
@@ -73,9 +187,10 @@ SELECT
     COUNT(*) FILTER (WHERE sf.severity = 'INFO')::bigint as info_count,
     COUNT(*)::bigint as total_count
 FROM security_findings sf
-JOIN captured_requests cr ON sf.request_id = cr.id
-JOIN endpoints e ON cr.endpoint_id = e.id
-WHERE e.project_id = $1
+LEFT JOIN captured_requests cr ON sf.request_id = cr.id
+LEFT JOIN endpoints e ON cr.endpoint_id = e.id
+LEFT JOIN agent_scans ag ON sf.scan_id = ag.id
+WHERE (e.project_id = $1 OR sf.project_id = $1 OR ag.project_id = $1)
 `
 
 type GetFindingStatsRow struct {
@@ -100,13 +215,16 @@ func (q *Queries) GetFindingStats(ctx context.Context, projectID pgtype.UUID) (G
 }
 
 const listFindingsByProject = `-- name: ListFindingsByProject :many
-SELECT sf.id, sf.request_id, sf.rule_id, sf.category, sf.type, sf.severity,
-       sf.action, sf.field_path, sf.message, sf.evidence_masked, sf.confidence, sf.created_at,
-       cr.request_id as req_display_id, e.name as endpoint_name
+SELECT sf.id, sf.request_id, sf.project_id, sf.scan_id, sf.source_type, sf.rule_id, sf.category, sf.type, sf.severity,
+       sf.action, sf.field_path, sf.file_path, sf.line_number, sf.commit_hash, sf.repository,
+       sf.message, sf.evidence_masked, sf.confidence, sf.created_at,
+       COALESCE(cr.request_id, '') as req_display_id,
+       COALESCE(e.name, '') as endpoint_name
 FROM security_findings sf
-JOIN captured_requests cr ON sf.request_id = cr.id
-JOIN endpoints e ON cr.endpoint_id = e.id
-WHERE e.project_id = $1
+LEFT JOIN captured_requests cr ON sf.request_id = cr.id
+LEFT JOIN endpoints e ON cr.endpoint_id = e.id
+LEFT JOIN agent_scans ag ON sf.scan_id = ag.id
+WHERE (e.project_id = $1 OR sf.project_id = $1 OR ag.project_id = $1)
 ORDER BY sf.created_at DESC
 LIMIT $2 OFFSET $3
 `
@@ -120,12 +238,19 @@ type ListFindingsByProjectParams struct {
 type ListFindingsByProjectRow struct {
 	ID             pgtype.UUID        `json:"id"`
 	RequestID      pgtype.UUID        `json:"request_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	ScanID         pgtype.UUID        `json:"scan_id"`
+	SourceType     string             `json:"source_type"`
 	RuleID         pgtype.UUID        `json:"rule_id"`
 	Category       string             `json:"category"`
 	Type           string             `json:"type"`
 	Severity       string             `json:"severity"`
 	Action         string             `json:"action"`
 	FieldPath      pgtype.Text        `json:"field_path"`
+	FilePath       pgtype.Text        `json:"file_path"`
+	LineNumber     pgtype.Int4        `json:"line_number"`
+	CommitHash     pgtype.Text        `json:"commit_hash"`
+	Repository     pgtype.Text        `json:"repository"`
 	Message        string             `json:"message"`
 	EvidenceMasked pgtype.Text        `json:"evidence_masked"`
 	Confidence     pgtype.Float8      `json:"confidence"`
@@ -146,12 +271,19 @@ func (q *Queries) ListFindingsByProject(ctx context.Context, arg ListFindingsByP
 		if err := rows.Scan(
 			&i.ID,
 			&i.RequestID,
+			&i.ProjectID,
+			&i.ScanID,
+			&i.SourceType,
 			&i.RuleID,
 			&i.Category,
 			&i.Type,
 			&i.Severity,
 			&i.Action,
 			&i.FieldPath,
+			&i.FilePath,
+			&i.LineNumber,
+			&i.CommitHash,
+			&i.Repository,
 			&i.Message,
 			&i.EvidenceMasked,
 			&i.Confidence,

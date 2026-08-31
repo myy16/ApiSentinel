@@ -79,16 +79,39 @@ CREATE TABLE IF NOT EXISTS rules (
     configuration JSONB
 );
 
+-- 7b. Agent Scans
+CREATE TABLE IF NOT EXISTS agent_scans (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    agent_id TEXT NOT NULL,
+    repository TEXT NOT NULL,
+    branch TEXT NOT NULL DEFAULT '',
+    commit_hash TEXT NOT NULL DEFAULT '',
+    scan_type TEXT NOT NULL DEFAULT 'STAGED',
+    total_findings INT NOT NULL DEFAULT 0,
+    action TEXT NOT NULL DEFAULT 'ALLOW',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_scans_project_id ON agent_scans(project_id, created_at DESC);
+
 -- 8. Security Findings
 CREATE TABLE IF NOT EXISTS security_findings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    request_id UUID NOT NULL REFERENCES captured_requests(id) ON DELETE CASCADE,
+    request_id UUID REFERENCES captured_requests(id) ON DELETE CASCADE,
+    project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+    scan_id UUID REFERENCES agent_scans(id) ON DELETE CASCADE,
+    source_type VARCHAR(30) NOT NULL DEFAULT 'WEBHOOK',
     rule_id UUID REFERENCES rules(id) ON DELETE SET NULL,
     category VARCHAR(50) NOT NULL,
     type VARCHAR(100) NOT NULL,
     severity VARCHAR(20) NOT NULL,
     action VARCHAR(20) NOT NULL,
     field_path TEXT,
+    file_path TEXT,
+    line_number INT,
+    commit_hash TEXT,
+    repository TEXT,
     message TEXT NOT NULL,
     evidence_masked TEXT,
     confidence DOUBLE PRECISION DEFAULT 1.0,
@@ -96,6 +119,9 @@ CREATE TABLE IF NOT EXISTS security_findings (
 );
 
 CREATE INDEX IF NOT EXISTS idx_security_findings_request_id ON security_findings(request_id);
+CREATE INDEX IF NOT EXISTS idx_security_findings_scan_id ON security_findings(scan_id);
+CREATE INDEX IF NOT EXISTS idx_security_findings_project_id ON security_findings(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_security_findings_source_type ON security_findings(source_type);
 
 -- 9. Policies
 CREATE TABLE IF NOT EXISTS policies (

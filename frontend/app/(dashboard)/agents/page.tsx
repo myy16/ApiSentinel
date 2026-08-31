@@ -18,6 +18,9 @@ import {
   Zap,
   WifiOff,
   Loader2,
+  GitBranch,
+  GitCommit,
+  AlertOctagon,
 } from "lucide-react";
 
 interface AgentSession {
@@ -27,6 +30,19 @@ interface AgentSession {
   version: string;
   status: "ONLINE" | "STALE";
   lastSeen: string;
+}
+
+interface AgentScan {
+  id: string;
+  projectId: string;
+  agentId: string;
+  repository: string;
+  branch: string;
+  commitHash: string;
+  scanType: string;
+  totalFindings: number;
+  action: "ALLOW" | "BLOCK" | "WARN";
+  createdAt: string;
 }
 
 export default function AgentsPage() {
@@ -60,6 +76,17 @@ export default function AgentsPage() {
     }),
     enabled: !!accessToken && !!organization?.id && !!activeProjectId,
   });
+
+  const { data: scansData, isLoading: isScansLoading } = useQuery({
+    queryKey: ["agent-scans", activeProjectId],
+    queryFn: () => apiFetch<{ scans: AgentScan[] }>(`/api/projects/${activeProjectId}/scans`, {
+      token: accessToken,
+      organizationId: organization?.id,
+    }),
+    enabled: !!accessToken && !!organization?.id && !!activeProjectId,
+  });
+
+  const scans = scansData?.scans || [];
 
   const createKey = useMutation({
     mutationFn: () => apiFetch<{ apiKey: { secretKey: string } }>(`/api/projects/${activeProjectId}/keys`, {
@@ -254,6 +281,81 @@ export default function AgentsPage() {
           ))}
         </div>
       )}
+
+      {/* Recent Agent Scans History (#2.1, #2.5) */}
+      <div className="rounded-xl border border-border bg-card p-6 shadow-sm space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-500/10 text-purple-400">
+              <GitBranch className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-foreground">Son Git & CLI Güvenlik Taramaları</h3>
+              <p className="text-xs text-muted-foreground">
+                Geliştiricilerin 'apisentinel scan' veya git pre-push hook ile gerçekleştirdiği tarama geçmişi
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {isScansLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          </div>
+        ) : scans.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border bg-background p-8 text-center text-xs text-muted-foreground">
+            Henüz kaydedilmiş bir CLI veya Git taraması bulunmuyor. Terminalde 'apisentinel scan' çalıştırarak tarama yapabilirsiniz.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="border-b border-border text-muted-foreground font-semibold">
+                <tr>
+                  <th className="pb-2">Depo (Repository)</th>
+                  <th className="pb-2">Dal / Commit</th>
+                  <th className="pb-2">Tarama Tipi</th>
+                  <th className="pb-2">Bulgu Sayısı</th>
+                  <th className="pb-2">Sonuç Kararı</th>
+                  <th className="pb-2 text-right">Tarih</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border font-mono">
+                {scans.map((sc) => (
+                  <tr key={sc.id} className="hover:bg-secondary/30 transition">
+                    <td className="py-2.5 font-bold text-foreground flex items-center gap-1.5">
+                      <GitBranch className="h-3.5 w-3.5 text-purple-400" />
+                      <span>{sc.repository}</span>
+                    </td>
+                    <td className="py-2.5 text-muted-foreground">
+                      {sc.branch || "HEAD"} {sc.commitHash ? `(${sc.commitHash.slice(0, 7)})` : ""}
+                    </td>
+                    <td className="py-2.5 text-muted-foreground">{sc.scanType}</td>
+                    <td className="py-2.5">
+                      <span className={`font-bold ${sc.totalFindings > 0 ? "text-rose-400" : "text-emerald-400"}`}>
+                        {sc.totalFindings} Tehdit
+                      </span>
+                    </td>
+                    <td className="py-2.5">
+                      <span
+                        className={`rounded px-2 py-0.5 text-[10px] font-bold ${
+                          sc.action === "BLOCK"
+                            ? "bg-rose-500/20 text-rose-400 border border-rose-500/30"
+                            : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                        }`}
+                      >
+                        {sc.action}
+                      </span>
+                    </td>
+                    <td className="py-2.5 text-right text-muted-foreground">
+                      {new Date(sc.createdAt).toLocaleString("tr-TR")}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
