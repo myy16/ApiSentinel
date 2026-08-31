@@ -161,6 +161,11 @@ func TestForwarding_PayloadModes_RedactedVsRaw(t *testing.T) {
 	}
 	defer pool.Close()
 
+	if err := pool.Ping(ctx); err != nil {
+		t.Skip("Skipping payload mode test: PostgreSQL ping failed")
+		return
+	}
+
 	_ = database.RunMigrations(ctx, pool)
 	queries := database.New(pool)
 
