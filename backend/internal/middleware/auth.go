@@ -210,3 +210,38 @@ func requireResourceOwnership(param string, check ownershipCheck) func(http.Hand
 func uuidToPG(id uuid.UUID) pgtype.UUID {
 	return pgtype.UUID{Bytes: id, Valid: true}
 }
+
+func roleRank(role string) int {
+	switch strings.ToUpper(role) {
+	case "OWNER", "ADMIN":
+		return 3
+	case "DEVELOPER", "MEMBER":
+		return 2
+	case "VIEWER":
+		return 1
+	default:
+		return 0
+	}
+}
+
+// RequireRole verifies that the tenant-authenticated user has at least minRole rank (#4.1)
+func RequireRole(minRole string) func(http.Handler) http.Handler {
+	requiredRank := roleRank(minRole)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			userRoleRaw := r.Context().Value(UserRoleKey)
+			if userRoleRaw == nil {
+				http.Error(w, `{"error":{"code":"FORBIDDEN","message":"User role not resolved in tenant context"}}`, http.StatusForbidden)
+				return
+			}
+
+			userRole, ok := userRoleRaw.(string)
+			if !ok || roleRank(userRole) < requiredRank {
+				http.Error(w, `{"error":{"code":"FORBIDDEN","message":"Insufficient permissions: requires role `+strings.ToUpper(minRole)+` or higher"}}`, http.StatusForbidden)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
