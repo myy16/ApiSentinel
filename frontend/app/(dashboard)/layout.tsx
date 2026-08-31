@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "../../hooks/useAuth";
 import { ProjectProvider, useActiveProject } from "../../contexts/ProjectContext";
+import { ThemeToggle } from "../../components/ThemeToggle";
 import {
   Shield,
   LayoutDashboard,
@@ -261,6 +262,9 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
               </span>
               <span className="font-mono">Gateway Active</span>
             </div>
+
+            {/* Theme Toggle (Light / Dark / System) */}
+            <ThemeToggle />
 
             {/* User Quick Badge */}
             <Link

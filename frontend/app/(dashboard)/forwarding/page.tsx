@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../../hooks/useAuth";
 import { apiFetch } from "../../../lib/api";
-import { Project, Endpoint } from "@apisentinel/shared";
+import { Project, Endpoint, PayloadMode } from "@apisentinel/shared";
 import {
   Share2,
   Save,
@@ -23,7 +23,11 @@ import {
   ChevronDown,
   ChevronUp,
   FileJson,
+  Key,
+  ShieldAlert,
+  Lock,
 } from "lucide-react";
+import { useActiveProject } from "../../../contexts/ProjectContext";
 
 interface ForwardingConfig {
   id?: string;
@@ -33,6 +37,7 @@ interface ForwardingConfig {
   timeout_ms?: number;
   custom_headers?: Record<string, string>;
   is_enabled?: boolean;
+  payload_mode?: PayloadMode;
 }
 
 interface DLQRecord {
@@ -41,19 +46,22 @@ interface DLQRecord {
   request_id: string;
   target_url: string;
   attempts: number;
+  max_retries: number;
   last_error: { String: string; Valid: boolean } | string;
   payload: { String: string; Valid: boolean } | string;
+  payload_mode?: PayloadMode;
   status: string;
   created_at: string;
   last_attempt_at: string;
 }
 
-import { useActiveProject } from "../../../contexts/ProjectContext";
-
 export default function ForwardingPage() {
   const queryClient = useQueryClient();
   const { accessToken, organization } = useAuth();
   const { projects, activeProjectId, setActiveProjectId } = useActiveProject();
+
+  const isOwner = organization?.role === "OWNER" || organization?.role === "ADMIN";
+  const isViewer = organization?.role === "VIEWER";
 
   const [selectedEndpointId, setSelectedEndpointId] = useState<string>("");
 
@@ -61,6 +69,8 @@ export default function ForwardingPage() {
   const [maxRetries, setMaxRetries] = useState(3);
   const [timeoutMs, setTimeoutMs] = useState(5000);
   const [isEnabled, setIsEnabled] = useState(true);
+  const [payloadMode, setPayloadMode] = useState<PayloadMode>("REDACTED");
+  const [customHeaders, setCustomHeaders] = useState<{ key: string; value: string }[]>([]);
   const [expandedDlqId, setExpandedDlqId] = useState<string | null>(null);
 
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -101,11 +111,24 @@ export default function ForwardingPage() {
       setMaxRetries(configData.max_retries || 3);
       setTimeoutMs(configData.timeout_ms || 5000);
       setIsEnabled(configData.is_enabled ?? true);
+      setPayloadMode(configData.payload_mode || "REDACTED");
+
+      if (configData.custom_headers && typeof configData.custom_headers === "object") {
+        const headerPairs = Object.entries(configData.custom_headers).map(([k, v]) => ({
+          key: k,
+          value: v,
+        }));
+        setCustomHeaders(headerPairs);
+      } else {
+        setCustomHeaders([]);
+      }
     } else {
       setTargetUrl("");
       setMaxRetries(3);
       setTimeoutMs(5000);
       setIsEnabled(true);
+      setPayloadMode("REDACTED");
+      setCustomHeaders([]);
     }
   }, [configData, activeEndpointId]);
 
@@ -128,7 +151,14 @@ export default function ForwardingPage() {
 
   // 5. Save Config Mutation
   const saveMutation = useMutation({
-    mutationFn: (data: { targetUrl: string; maxRetries: number; timeoutMs: number; isEnabled: boolean }) =>
+    mutationFn: (data: {
+      targetUrl: string;
+      maxRetries: number;
+      timeoutMs: number;
+      isEnabled: boolean;
+      payloadMode: PayloadMode;
+      customHeaders: Record<string, string>;
+    }) =>
       apiFetch(`/api/endpoints/${activeEndpointId}/forwarding`, {
         method: "POST",
         token: accessToken,
@@ -138,7 +168,8 @@ export default function ForwardingPage() {
           maxRetries: data.maxRetries,
           timeoutMs: data.timeoutMs,
           isEnabled: data.isEnabled,
-          customHeaders: {},
+          payloadMode: data.payloadMode,
+          customHeaders: data.customHeaders,
         }),
       }),
     onSuccess: () => {
@@ -184,14 +215,38 @@ export default function ForwardingPage() {
     },
   });
 
+  const handleAddHeader = () => {
+    setCustomHeaders([...customHeaders, { key: "", value: "" }]);
+  };
+
+  const handleRemoveHeader = (index: number) => {
+    setCustomHeaders(customHeaders.filter((_, i) => i !== index));
+  };
+
+  const handleHeaderChange = (index: number, field: "key" | "value", val: string) => {
+    const updated = [...customHeaders];
+    updated[index][field] = val;
+    setCustomHeaders(updated);
+  };
+
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeEndpointId || !targetUrl.trim()) return;
+
+    const headersMap: Record<string, string> = {};
+    customHeaders.forEach((h) => {
+      if (h.key.trim() && h.value.trim()) {
+        headersMap[h.key.trim()] = h.value.trim();
+      }
+    });
+
     saveMutation.mutate({
       targetUrl: targetUrl.trim(),
       maxRetries: Number(maxRetries),
       timeoutMs: Number(timeoutMs),
       isEnabled,
+      payloadMode,
+      customHeaders: headersMap,
     });
   };
 
@@ -226,11 +281,11 @@ export default function ForwardingPage() {
           <div className="flex items-center gap-2.5">
             <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
               <Share2 className="h-6 w-6 text-primary" />
-              Upstream Forwarding & DLQ (Reverse Ingestion)
+              Upstream Forwarding & Durable Outbox / DLQ
             </h1>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
-            Temiz webhook isteklerini asıl sunucunuza iletin; başarısız iletimleri otomatik üstel geri çekilme (retry) ve Dead Letter Queue ile güvenceye alın.
+            Temiz webhook isteklerini asıl sunucunuza iletin; hassas verileri AES-256-GCM ile şifreleyin ve başarısız iletimleri Outbox/DLQ ile güvenceye alın.
           </p>
         </div>
 
@@ -295,7 +350,7 @@ export default function ForwardingPage() {
                 <h2 className="text-base font-bold text-foreground">
                   {activeEndpoint ? activeEndpoint.name : "Endpoint"} İletim Ayarları
                 </h2>
-                <p className="text-xs text-muted-foreground">Upstream hedef yapılandırması</p>
+                <p className="text-xs text-muted-foreground">Upstream hedef ve güvenlik yapılandırması</p>
               </div>
             </div>
 
@@ -309,12 +364,123 @@ export default function ForwardingPage() {
                   required
                   placeholder="https://api.mycompany.com/webhooks/stripe"
                   value={targetUrl}
+                  disabled={isViewer}
                   onChange={(e) => setTargetUrl(e.target.value)}
-                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
                 />
                 <p className="text-[11px] text-muted-foreground mt-1">
                   Temizlenen webhook yükünün POST edileceği asıl sunucu adresi.
                 </p>
+              </div>
+
+              {/* Payload Mode Selection (#8) */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
+                  İletim Yükü Modu (Payload Mode)
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    disabled={isViewer}
+                    onClick={() => setPayloadMode("REDACTED")}
+                    className={`flex flex-col items-start p-3 rounded-xl border text-left transition ${
+                      payloadMode === "REDACTED"
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border bg-background text-muted-foreground hover:border-border/80"
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-bold text-xs">
+                      <ShieldCheck className="h-4 w-4 text-emerald-400" />
+                      <span>REDACTED (Önerilen)</span>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground mt-1">
+                      Hassas verileri (PII/Secret) maskeleyerek iletir.
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isViewer}
+                    onClick={() => setPayloadMode("RAW")}
+                    className={`flex flex-col items-start p-3 rounded-xl border text-left transition ${
+                      payloadMode === "RAW"
+                        ? "border-amber-500/50 bg-amber-500/10 text-amber-400"
+                        : "border-border bg-background text-muted-foreground hover:border-border/80"
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-bold text-xs">
+                      <ShieldAlert className="h-4 w-4 text-amber-400" />
+                      <span>RAW (Ham Yük)</span>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground mt-1">
+                      Orijinal gövdeyi doğrudan iletir, audit log tutar.
+                    </span>
+                  </button>
+                </div>
+
+                {payloadMode === "RAW" && (
+                  <div className="mt-2 flex items-center gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-2.5 text-[11px] text-amber-400">
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                    <span>Dikkat: RAW modu seçildiğinde yük maskelenmeden iletilir ve denetim logu üretilir.</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Custom Headers with AES-256-GCM Encryption (#3.1, #3.2) */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                    <Lock className="h-3 w-3 text-primary" />
+                    <span>Özel HTTP Başlıkları (AES-256 Şifrelenir)</span>
+                  </label>
+                  {!isViewer && (
+                    <button
+                      type="button"
+                      onClick={handleAddHeader}
+                      className="text-[11px] text-primary hover:underline font-bold"
+                    >
+                      + Başlık Ekle
+                    </button>
+                  )}
+                </div>
+
+                {customHeaders.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-border bg-background/50 p-3 text-center text-[11px] text-muted-foreground">
+                    Özel başlık tanımlanmadı (Örn: Authorization: Bearer ...)
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {customHeaders.map((h, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          placeholder="Header Adı (örn. Authorization)"
+                          value={h.key}
+                          disabled={isViewer}
+                          onChange={(e) => handleHeaderChange(idx, "key", e.target.value)}
+                          className="w-1/2 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Değer (örn. Bearer ****)"
+                          value={h.value}
+                          disabled={isViewer}
+                          onChange={(e) => handleHeaderChange(idx, "value", e.target.value)}
+                          className="w-1/2 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+                        />
+                        {!isViewer && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveHeader(idx)}
+                            className="text-muted-foreground hover:text-destructive p-1"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -327,8 +493,9 @@ export default function ForwardingPage() {
                     min="1"
                     max="10"
                     value={maxRetries}
+                    disabled={isViewer}
                     onChange={(e) => setMaxRetries(Number(e.target.value))}
-                    className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
                   />
                 </div>
 
@@ -342,8 +509,9 @@ export default function ForwardingPage() {
                     max="30000"
                     step="500"
                     value={timeoutMs}
+                    disabled={isViewer}
                     onChange={(e) => setTimeoutMs(Number(e.target.value))}
-                    className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
                   />
                 </div>
               </div>
@@ -353,8 +521,9 @@ export default function ForwardingPage() {
                   type="checkbox"
                   id="isEnabled"
                   checked={isEnabled}
+                  disabled={isViewer}
                   onChange={(e) => setIsEnabled(e.target.checked)}
-                  className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+                  className="h-4 w-4 rounded border-border text-primary focus:ring-primary disabled:opacity-50"
                 />
                 <label htmlFor="isEnabled" className="text-xs font-semibold text-foreground cursor-pointer">
                   Upstream İletimini Aktif Et
@@ -364,7 +533,7 @@ export default function ForwardingPage() {
               <div className="pt-2">
                 <button
                   type="submit"
-                  disabled={saveMutation.isPending || !activeEndpointId}
+                  disabled={saveMutation.isPending || !activeEndpointId || isViewer}
                   className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-xs font-bold text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:opacity-50"
                 >
                   {saveMutation.isPending ? (
@@ -372,7 +541,7 @@ export default function ForwardingPage() {
                   ) : (
                     <Save className="h-4 w-4" />
                   )}
-                  <span>İletim Ayarlarını Kaydet</span>
+                  <span>{isViewer ? "Salt Okunur (Görüntüleme)" : "İletim Ayarlarını Kaydet"}</span>
                 </button>
               </div>
             </form>
@@ -385,7 +554,7 @@ export default function ForwardingPage() {
             <div className="flex items-center gap-2">
               <AlertOctagon className="h-5 w-5 text-rose-400" />
               <h2 className="text-base font-bold text-foreground">
-                Dead Letter Queue ({dlqRecords.length})
+                Outbox & Dead Letter Queue ({dlqRecords.length})
               </h2>
             </div>
 
@@ -398,7 +567,7 @@ export default function ForwardingPage() {
                 <span>Yenile</span>
               </button>
 
-              {dlqRecords.length > 0 && (
+              {dlqRecords.length > 0 && isOwner && (
                 <button
                   onClick={() => {
                     if (confirm("Bu endpoint'e ait tüm DLQ kayıtlarını silmek istediğinize emin misiniz?")) {
@@ -424,13 +593,15 @@ export default function ForwardingPage() {
               <ShieldCheck className="h-10 w-10 text-emerald-400 mb-3" />
               <p className="text-sm font-semibold text-foreground">Kuyruk Tertemiz!</p>
               <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-                Başarısız olan veya iletilemeyen hiçbir webhook bulunmuyor. Tüm temiz istekler upstream hedefine ulaştırıldı.
+                Başarısız olan veya bekleyen hiçbir webhook bulunmuyor. Tüm temiz istekler upstream hedefine ulaştırıldı.
               </p>
             </div>
           ) : (
             <div className="space-y-3">
               {dlqRecords.map((record) => {
-                const isResolved = record.status === "RESOLVED";
+                const isSent = record.status === "SENT" || record.status === "RESOLVED";
+                const isProcessing = record.status === "PROCESSING";
+                const isRetryWait = record.status === "RETRY_WAIT" || record.status === "PENDING";
                 const errorText = getErrorMessage(record);
                 const isExpanded = expandedDlqId === record.id;
 
@@ -438,8 +609,10 @@ export default function ForwardingPage() {
                   <div
                     key={record.id}
                     className={`rounded-2xl border p-4 shadow-sm transition space-y-3 ${
-                      isResolved
+                      isSent
                         ? "border-emerald-500/20 bg-emerald-500/5"
+                        : isProcessing
+                        ? "border-primary/20 bg-primary/5"
                         : "border-border bg-card hover:border-border/80"
                     }`}
                   >
@@ -447,15 +620,26 @@ export default function ForwardingPage() {
                       <div className="flex items-center gap-2">
                         <span
                           className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
-                            isResolved
+                            isSent
                               ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                              : isProcessing
+                              ? "bg-primary/20 text-primary border border-primary/30"
+                              : isRetryWait
+                              ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
                               : "bg-rose-500/20 text-rose-400 border border-rose-500/30"
                           }`}
                         >
                           {record.status}
                         </span>
+
+                        {record.payload_mode && (
+                          <span className="rounded px-2 py-0.5 text-[10px] font-mono bg-secondary text-muted-foreground border border-border">
+                            {record.payload_mode}
+                          </span>
+                        )}
+
                         <span className="text-xs font-mono text-muted-foreground">
-                          Deneme: {record.attempts}
+                          Deneme: {record.attempts}/{record.max_retries || 3}
                         </span>
                       </div>
 
@@ -465,10 +649,12 @@ export default function ForwardingPage() {
                     </div>
 
                     <div className="space-y-1 text-xs">
-                      <p className="font-mono text-rose-400 truncate">
-                        <span className="text-muted-foreground">Hata: </span>
-                        {errorText}
-                      </p>
+                      {errorText && errorText !== "Bilinmeyen İletim Hatası" && (
+                        <p className="font-mono text-rose-400 truncate">
+                          <span className="text-muted-foreground">Hata: </span>
+                          {errorText}
+                        </p>
+                      )}
                       <p className="font-mono text-muted-foreground truncate">
                         <span>Hedef: </span>
                         {record.target_url}
@@ -486,7 +672,7 @@ export default function ForwardingPage() {
                         {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                       </button>
 
-                      {!isResolved && (
+                      {!isSent && !isViewer && (
                         <button
                           onClick={() => retryMutation.mutate(record.id)}
                           disabled={retryMutation.isPending}

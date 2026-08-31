@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useAuth } from "../../../hooks/useAuth";
+import { useTheme } from "../../../contexts/ThemeContext";
 import {
   Settings,
   User,
@@ -17,10 +18,15 @@ import {
   Terminal,
   Cpu,
   RefreshCw,
+  Sun,
+  Moon,
+  Laptop,
+  Palette,
 } from "lucide-react";
 
 export default function SettingsPage() {
   const { user, organization, accessToken } = useAuth();
+  const { theme, setTheme } = useTheme();
   const [copiedToken, setCopiedToken] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -246,6 +252,63 @@ export default function SettingsPage() {
             </button>
           </div>
         </form>
+      </div>
+
+      {/* Appearance & Theme Settings Card */}
+      <div className="rounded-2xl border border-border bg-card p-6 shadow-sm space-y-4">
+        <div className="flex items-center gap-3 border-b border-border pb-4">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
+            <Palette className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="text-base font-bold text-foreground">Görünüm & Tema Tercihi</h2>
+            <p className="text-xs text-muted-foreground">Karanlık, Aydınlık veya Sistem tema modu</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <button
+            type="button"
+            onClick={() => setTheme("light")}
+            className={`flex flex-col items-center justify-center p-4 rounded-xl border transition ${
+              theme === "light"
+                ? "border-primary bg-primary/10 text-primary shadow-sm"
+                : "border-border bg-secondary/30 text-muted-foreground hover:text-foreground hover:border-border/80"
+            }`}
+          >
+            <Sun className="h-6 w-6 text-amber-500 mb-2" />
+            <span className="text-xs font-bold">Aydınlık Mod</span>
+            <span className="text-[10px] text-muted-foreground mt-0.5">Yüksek kontrastlı beyaz arayüz</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTheme("dark")}
+            className={`flex flex-col items-center justify-center p-4 rounded-xl border transition ${
+              theme === "dark"
+                ? "border-primary bg-primary/10 text-primary shadow-sm"
+                : "border-border bg-secondary/30 text-muted-foreground hover:text-foreground hover:border-border/80"
+            }`}
+          >
+            <Moon className="h-6 w-6 text-sky-400 mb-2" />
+            <span className="text-xs font-bold">Karanlık Mod</span>
+            <span className="text-[10px] text-muted-foreground mt-0.5">Koyu gri & mavi gece teması</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTheme("system")}
+            className={`flex flex-col items-center justify-center p-4 rounded-xl border transition ${
+              theme === "system"
+                ? "border-primary bg-primary/10 text-primary shadow-sm"
+                : "border-border bg-secondary/30 text-muted-foreground hover:text-foreground hover:border-border/80"
+            }`}
+          >
+            <Laptop className="h-6 w-6 text-emerald-400 mb-2" />
+            <span className="text-xs font-bold">Sistem Varsayılanı</span>
+            <span className="text-[10px] text-muted-foreground mt-0.5">İşletim sistemi temasına otomatik uyar</span>
+          </button>
+        </div>
       </div>
 
       {/* Engine & Runtime Specs */}

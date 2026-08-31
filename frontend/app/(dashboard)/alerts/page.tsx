@@ -16,8 +16,8 @@ import {
   Radio,
   ExternalLink,
   ShieldAlert,
+  Lock,
 } from "lucide-react";
-
 import { useActiveProject } from "../../../contexts/ProjectContext";
 
 interface AlertChannel {
@@ -35,6 +35,8 @@ export default function AlertsPage() {
   const queryClient = useQueryClient();
   const { accessToken, organization } = useAuth();
   const { projects, activeProjectId, setActiveProjectId } = useActiveProject();
+
+  const isViewer = organization?.role === "VIEWER";
 
   const [isCreating, setIsCreating] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
@@ -105,14 +107,13 @@ export default function AlertsPage() {
         organizationId: organization?.id,
       }),
     onSuccess: () => {
-      setMessage({ type: "success", text: "Test bildirimi kanala başarıyla iletildi!" });
+      setTestingId(null);
+      setMessage({ type: "success", text: "Test güvenlik bildirimi başarıyla gönderildi!" });
       setTimeout(() => setMessage(null), 4000);
     },
     onError: (err: any) => {
-      setMessage({ type: "error", text: "Test uyarısı gönderilemedi: " + err.message });
-    },
-    onSettled: () => {
       setTestingId(null);
+      setMessage({ type: "error", text: "Test bildirimi gönderilemedi: " + (err.message || "Bilinmeyen hata") });
     },
   });
 
@@ -142,7 +143,7 @@ export default function AlertsPage() {
             Çok Kanallı Güvenlik Alarmları
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Kritik PII sızıntıları veya yetkisiz erişimlerde Slack, Discord, Telegram veya Webhook ile anında haberdar olun.
+            Kritik PII sızıntıları veya yetkisiz erişimlerde Slack, Discord, Telegram veya Webhook ile anında haberdar olun. Webhook URL'leri AES-256-GCM ile şifrelenir.
           </p>
         </div>
 
@@ -161,14 +162,16 @@ export default function AlertsPage() {
             </select>
           )}
 
-          <button
-            onClick={() => setIsCreating(true)}
-            disabled={!activeProjectId}
-            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:opacity-50"
-          >
-            <Plus className="h-4 w-4" />
-            <span>Kanal Ekle</span>
-          </button>
+          {!isViewer && (
+            <button
+              onClick={() => setIsCreating(true)}
+              disabled={!activeProjectId}
+              className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:opacity-50"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Kanal Ekle</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -226,44 +229,52 @@ export default function AlertsPage() {
                   <option value="SLACK">Slack Webhook</option>
                   <option value="DISCORD">Discord Webhook</option>
                   <option value="TELEGRAM">Telegram Bot</option>
-                  <option value="WEBHOOK">Özel HTTP Webhook</option>
+                  <option value="WEBHOOK">Genel HTTP Webhook</option>
                 </select>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
-                  Webhook / Hedef URL
-                </label>
-                <input
-                  type="url"
-                  required
-                  value={webhookUrl}
-                  onChange={(e) => setWebhookUrl(e.target.value)}
-                  placeholder="https://hooks.slack.com/services/..."
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
-                  Minimum Tetikleme Seviyesi
-                </label>
-                <select
-                  value={minSeverity}
-                  onChange={(e) => setMinSeverity(e.target.value)}
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                >
-                  <option value="LOW">Düşük (LOW ve üzeri)</option>
-                  <option value="MEDIUM">Orta (MEDIUM ve üzeri)</option>
-                  <option value="HIGH">Yüksek (HIGH ve üzeri - Önerilen)</option>
-                  <option value="CRITICAL">Sadece Kritik (CRITICAL)</option>
-                </select>
-              </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                Webhook URL (AES-256-GCM ile Şifrelenir)
+              </label>
+              <input
+                type="url"
+                required
+                value={webhookUrl}
+                onChange={(e) => setWebhookUrl(e.target.value)}
+                placeholder="https://hooks.slack.com/services/... veya https://discord.com/api/webhooks/..."
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Webhook anahtarı veritabanına yazılmadan önce şifrelenir ve arayüzde asla açıkça gösterilmez.
+              </p>
             </div>
 
-            <div className="flex justify-end pt-2">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                Minimum Bildirim Seviyesi (Severity)
+              </label>
+              <select
+                value={minSeverity}
+                onChange={(e) => setMinSeverity(e.target.value)}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              >
+                <option value="LOW">Tüm Seviyeler (LOW, MEDIUM, HIGH, CRITICAL)</option>
+                <option value="MEDIUM">MEDIUM ve Üzeri</option>
+                <option value="HIGH">HIGH ve CRITICAL (Önerilen)</option>
+                <option value="CRITICAL">Yalnızca CRITICAL Tehditler</option>
+              </select>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsCreating(false)}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-secondary transition"
+              >
+                İptal
+              </button>
               <button
                 type="submit"
                 disabled={createMutation.isPending}
@@ -291,13 +302,15 @@ export default function AlertsPage() {
           <p className="mt-1 text-sm text-muted-foreground max-w-sm">
             Kritik güvenlik açıklarında ekibinize anlık bildirim gitmesi için Slack veya Discord webhook'u bağlayın.
           </p>
-          <button
-            onClick={() => setIsCreating(true)}
-            className="mt-6 flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90"
-          >
-            <Plus className="h-4 w-4" />
-            <span>İlk Bildirim Kanalını Ekle</span>
-          </button>
+          {!isViewer && (
+            <button
+              onClick={() => setIsCreating(true)}
+              className="mt-6 flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90"
+            >
+              <Plus className="h-4 w-4" />
+              <span>İlk Bildirim Kanalını Ekle</span>
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -311,9 +324,15 @@ export default function AlertsPage() {
                   <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-bold text-primary">
                     {channel.channel_type}
                   </span>
-                  <span className="text-[11px] font-mono text-muted-foreground">
-                    Min: {channel.min_severity}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-mono bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                      <Lock className="h-2.5 w-2.5" />
+                      <span>AES-256</span>
+                    </span>
+                    <span className="text-[11px] font-mono text-muted-foreground">
+                      Min: {channel.min_severity}
+                    </span>
+                  </div>
                 </div>
                 <h3 className="font-bold text-foreground text-base">{channel.name}</h3>
                 <p className="text-xs text-muted-foreground truncate font-mono">{channel.webhook_url}</p>
@@ -322,7 +341,7 @@ export default function AlertsPage() {
               <div className="flex items-center justify-between pt-3 border-t border-border">
                 <button
                   onClick={() => handleTest(channel.id)}
-                  disabled={testingId === channel.id}
+                  disabled={testingId === channel.id || isViewer}
                   className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-secondary transition disabled:opacity-50"
                 >
                   {testingId === channel.id ? (
@@ -330,20 +349,22 @@ export default function AlertsPage() {
                   ) : (
                     <Send className="h-3.5 w-3.5 text-primary" />
                   )}
-                  <span>Test Bildirimi Gönder</span>
+                  <span>Test Bildirimi</span>
                 </button>
 
-                <button
-                  onClick={() => {
-                    if (confirm(`"${channel.name}" kanalını silmek istediğinize emin misiniz?`)) {
-                      deleteMutation.mutate(channel.id);
-                    }
-                  }}
-                  className="flex items-center gap-1 rounded-lg border border-destructive/30 px-2.5 py-1.5 text-xs font-semibold text-destructive hover:bg-destructive/10 transition"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  <span>Sil</span>
-                </button>
+                {!isViewer && (
+                  <button
+                    onClick={() => {
+                      if (confirm(`"${channel.name}" kanalını silmek istediğinize emin misiniz?`)) {
+                        deleteMutation.mutate(channel.id);
+                      }
+                    }}
+                    className="flex items-center gap-1 rounded-lg border border-destructive/30 px-2.5 py-1.5 text-xs font-semibold text-destructive hover:bg-destructive/10 transition"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>Sil</span>
+                  </button>
+                )}
               </div>
             </div>
           ))}
