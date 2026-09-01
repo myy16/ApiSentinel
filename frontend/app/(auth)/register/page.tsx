@@ -44,8 +44,7 @@ export default function RegisterPage() {
         {/* Header */}
         <div className="flex flex-col items-center text-center">
           <Link href="/" className="group flex flex-col items-center gap-3">
-            <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-100 via-purple-100 to-violet-100 dark:from-indigo-950/70 dark:via-purple-950/60 dark:to-violet-950/70 border-2 border-indigo-200/90 dark:border-purple-500/40 p-2.5 shadow-md shadow-indigo-500/15 ring-1 ring-indigo-500/20 transition-all duration-300">
-              <div className="absolute inset-0 rounded-2xl bg-purple-500/15 blur-lg -z-10" />
+            <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-secondary/60 border border-border/80 p-2.5 shadow-md shadow-primary/5 ring-1 ring-border/50 group-hover:border-primary/50 group-hover:bg-secondary/90 transition-all duration-300">
               <Image
                 src="/logo-emblem.png"
                 alt="ApiSentinel Emblem"

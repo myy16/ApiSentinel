@@ -133,7 +133,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-100 via-purple-100 to-violet-100 dark:from-indigo-950/70 dark:via-purple-950/60 dark:to-violet-950/70 border-2 border-indigo-200/90 dark:border-purple-500/40 p-2.5 shadow-md shadow-indigo-500/15">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-secondary/60 border border-border/80 p-2.5 shadow-sm">
             <Image
               src="/logo-emblem.png"
               alt="ApiSentinel Emblem"
@@ -178,7 +178,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
             <div className="flex w-full items-center justify-center">
               <Link
                 href="/overview"
-                className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-100 via-purple-100 to-violet-100 dark:from-indigo-950/70 dark:via-purple-950/60 dark:to-violet-950/70 border border-indigo-200/90 dark:border-purple-500/40 p-1.5 shadow-sm hover:border-indigo-400 dark:hover:border-purple-400 transition shrink-0"
+                className="flex h-9 w-9 items-center justify-center rounded-xl bg-secondary/60 border border-border/80 p-1.5 shadow-sm hover:border-primary/50 hover:bg-secondary/90 transition shrink-0"
                 title="ApiSentinel — Genel Bakış"
               >
                 <Image
@@ -197,7 +197,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
                 className="flex items-center gap-2.5 min-w-0"
                 title="ApiSentinel Security Gateway"
               >
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-100 via-purple-100 to-violet-100 dark:from-indigo-950/70 dark:via-purple-950/60 dark:to-violet-950/70 border border-indigo-200/90 dark:border-purple-500/40 p-1.5 shadow-sm hover:border-indigo-400 dark:hover:border-purple-400 transition">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-secondary/60 border border-border/80 p-1.5 shadow-sm hover:border-primary/50 hover:bg-secondary/90 transition">
                   <Image
                     src="/logo-emblem.png"
                     alt="ApiSentinel Emblem"

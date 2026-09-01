@@ -24,7 +24,7 @@ export default function Home() {
       {/* Header */}
       <header className="sticky top-0 z-50 flex h-16 w-full items-center justify-between border-b border-border bg-background/80 px-6 md:px-12 backdrop-blur-md">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-100 via-purple-100 to-violet-100 dark:from-indigo-950/70 dark:via-purple-950/60 dark:to-violet-950/70 border border-indigo-200/90 dark:border-purple-500/40 shadow-sm p-1.5">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary/60 border border-border/80 shadow-sm p-1.5 hover:border-primary/50 hover:bg-secondary/90 transition">
             <Image
               src="/logo-emblem.png"
               alt="ApiSentinel Emblem"
