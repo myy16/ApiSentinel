@@ -11,13 +11,17 @@ import (
 )
 
 type Querier interface {
-	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (CreateAPIKeyRow, error)
+	ClaimPendingDeliveryJobs(ctx context.Context, arg ClaimPendingDeliveryJobsParams) ([]DeliveryJob, error)
 	ClaimPendingOutboxJobs(ctx context.Context, arg ClaimPendingOutboxJobsParams) ([]ForwardingDlq, error)
+	CompleteDeliveryJob(ctx context.Context, id pgtype.UUID) (DeliveryJob, error)
 	CompleteOutboxJob(ctx context.Context, id pgtype.UUID) (ForwardingDlq, error)
+	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (CreateAPIKeyRow, error)
 	CreateAgentScan(ctx context.Context, arg CreateAgentScanParams) (AgentScan, error)
 	CreateAlertChannel(ctx context.Context, arg CreateAlertChannelParams) (AlertChannel, error)
+	CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) (AuditLog, error)
 	CreateCapturedRequest(ctx context.Context, arg CreateCapturedRequestParams) (CapturedRequest, error)
 	CreateDLQRecord(ctx context.Context, arg CreateDLQRecordParams) (ForwardingDlq, error)
+	CreateDeliveryJob(ctx context.Context, arg CreateDeliveryJobParams) (DeliveryJob, error)
 	CreateEndpoint(ctx context.Context, arg CreateEndpointParams) (Endpoint, error)
 	CreateMembership(ctx context.Context, arg CreateMembershipParams) (Membership, error)
 	CreateMockRule(ctx context.Context, arg CreateMockRuleParams) (MockRule, error)
@@ -35,13 +39,15 @@ type Querier interface {
 	DeleteEndpointWebhookSecurity(ctx context.Context, endpointID pgtype.UUID) error
 	DeleteMockRule(ctx context.Context, arg DeleteMockRuleParams) error
 	DeleteProject(ctx context.Context, arg DeleteProjectParams) error
+	FailDeliveryJob(ctx context.Context, arg FailDeliveryJobParams) (DeliveryJob, error)
 	FailOutboxJob(ctx context.Context, arg FailOutboxJobParams) (ForwardingDlq, error)
 	GetAPIKeyByPrefixAndHash(ctx context.Context, arg GetAPIKeyByPrefixAndHashParams) (ApiKey, error)
 	GetAgentScanByIdempotencyKey(ctx context.Context, arg GetAgentScanByIdempotencyKeyParams) (AgentScan, error)
 	GetAlertChannelByID(ctx context.Context, id pgtype.UUID) (AlertChannel, error)
 	GetCapturedRequestByID(ctx context.Context, id pgtype.UUID) (GetCapturedRequestByIDRow, error)
 	GetDLQRecordByID(ctx context.Context, id pgtype.UUID) (ForwardingDlq, error)
-	RecoverStaleOutboxJobs(ctx context.Context) error
+	GetDeliveryJobByID(ctx context.Context, id pgtype.UUID) (DeliveryJob, error)
+	GetDeliveryJobByRequestID(ctx context.Context, requestID pgtype.UUID) (DeliveryJob, error)
 	GetEndpointByID(ctx context.Context, arg GetEndpointByIDParams) (Endpoint, error)
 	GetEndpointByIDOnly(ctx context.Context, id pgtype.UUID) (Endpoint, error)
 	GetEndpointBySlug(ctx context.Context, slug string) (Endpoint, error)
@@ -60,7 +66,11 @@ type Querier interface {
 	ListAPIKeysByProject(ctx context.Context, projectID pgtype.UUID) ([]ListAPIKeysByProjectRow, error)
 	ListAgentScansByProject(ctx context.Context, arg ListAgentScansByProjectParams) ([]AgentScan, error)
 	ListAlertChannelsByProject(ctx context.Context, projectID pgtype.UUID) ([]AlertChannel, error)
+	ListAuditLogsByOrganization(ctx context.Context, arg ListAuditLogsByOrganizationParams) ([]AuditLog, error)
+	ListAuditLogsByProject(ctx context.Context, arg ListAuditLogsByProjectParams) ([]AuditLog, error)
 	ListDLQRecordsByEndpoint(ctx context.Context, endpointID pgtype.UUID) ([]ForwardingDlq, error)
+	ListDeliveryAttemptsByJobID(ctx context.Context, jobID pgtype.UUID) ([]DeliveryAttempt, error)
+	ListDeliveryJobsByEndpoint(ctx context.Context, arg ListDeliveryJobsByEndpointParams) ([]DeliveryJob, error)
 	ListEndpointsByProject(ctx context.Context, projectID pgtype.UUID) ([]ListEndpointsByProjectRow, error)
 	ListFindingsByProject(ctx context.Context, arg ListFindingsByProjectParams) ([]ListFindingsByProjectRow, error)
 	ListMockRulesByEndpoint(ctx context.Context, endpointID pgtype.UUID) ([]MockRule, error)
@@ -69,6 +79,10 @@ type Querier interface {
 	ListRequestsByEndpoint(ctx context.Context, arg ListRequestsByEndpointParams) ([]CapturedRequest, error)
 	ListRequestsByProject(ctx context.Context, arg ListRequestsByProjectParams) ([]ListRequestsByProjectRow, error)
 	ListUserMemberships(ctx context.Context, userID pgtype.UUID) ([]ListUserMembershipsRow, error)
+	RecordDeliveryAttempt(ctx context.Context, arg RecordDeliveryAttemptParams) (DeliveryAttempt, error)
+	RecoverStaleDeliveryJobs(ctx context.Context) error
+	RecoverStaleOutboxJobs(ctx context.Context) error
+	RequeueDeliveryJob(ctx context.Context, id pgtype.UUID) (DeliveryJob, error)
 	RevokeAPIKey(ctx context.Context, arg RevokeAPIKeyParams) (RevokeAPIKeyRow, error)
 	ToggleAlertChannel(ctx context.Context, arg ToggleAlertChannelParams) (AlertChannel, error)
 	UpdateAPIKeyLastUsed(ctx context.Context, id pgtype.UUID) error
@@ -82,6 +96,7 @@ type Querier interface {
 	UpsertForwardingConfig(ctx context.Context, arg UpsertForwardingConfigParams) (ForwardingConfig, error)
 	VerifyAlertChannelOwnership(ctx context.Context, arg VerifyAlertChannelOwnershipParams) (pgtype.UUID, error)
 	VerifyDLQRecordOwnership(ctx context.Context, arg VerifyDLQRecordOwnershipParams) (pgtype.UUID, error)
+	VerifyDeliveryJobOwnership(ctx context.Context, arg VerifyDeliveryJobOwnershipParams) (pgtype.UUID, error)
 	VerifyProjectOwnership(ctx context.Context, arg VerifyProjectOwnershipParams) (pgtype.UUID, error)
 	VerifyRequestOwnership(ctx context.Context, arg VerifyRequestOwnershipParams) (pgtype.UUID, error)
 }

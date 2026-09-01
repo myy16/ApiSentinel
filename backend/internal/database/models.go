@@ -57,6 +57,20 @@ type ApiKey struct {
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 }
 
+type AuditLog struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	Action         string             `json:"action"`
+	ResourceType   string             `json:"resource_type"`
+	ResourceID     string             `json:"resource_id"`
+	Justification  pgtype.Text        `json:"justification"`
+	IpAddress      pgtype.Text        `json:"ip_address"`
+	Metadata       []byte             `json:"metadata"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
 type CapturedRequest struct {
 	ID               pgtype.UUID        `json:"id"`
 	EndpointID       pgtype.UUID        `json:"endpoint_id"`
@@ -71,6 +85,41 @@ type CapturedRequest struct {
 	ResponseStatus   pgtype.Int4        `json:"response_status"`
 	ProcessingStatus string             `json:"processing_status"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+}
+
+type DeliveryAttempt struct {
+	ID                      pgtype.UUID        `json:"id"`
+	JobID                   pgtype.UUID        `json:"job_id"`
+	AttemptNumber           int32              `json:"attempt_number"`
+	StartedAt               pgtype.Timestamptz `json:"started_at"`
+	FinishedAt              pgtype.Timestamptz `json:"finished_at"`
+	LatencyMs               int32              `json:"latency_ms"`
+	ResponseStatusCode      pgtype.Int4        `json:"response_status_code"`
+	ErrorType               pgtype.Text        `json:"error_type"`
+	ErrorMessage            pgtype.Text        `json:"error_message"`
+	RequestHeadersSent      []byte             `json:"request_headers_sent"`
+	ResponseHeadersReceived []byte             `json:"response_headers_received"`
+	ResponseBodySnippet     pgtype.Text        `json:"response_body_snippet"`
+	CreatedAt               pgtype.Timestamptz `json:"created_at"`
+}
+
+type DeliveryJob struct {
+	ID             pgtype.UUID        `json:"id"`
+	EndpointID     pgtype.UUID        `json:"endpoint_id"`
+	RequestID      pgtype.UUID        `json:"request_id"`
+	TargetUrl      string             `json:"target_url"`
+	Status         string             `json:"status"`
+	Attempts       int32              `json:"attempts"`
+	MaxRetries     int32              `json:"max_retries"`
+	NextRetryAt    pgtype.Timestamptz `json:"next_retry_at"`
+	LockedAt       pgtype.Timestamptz `json:"locked_at"`
+	LockedBy       pgtype.Text        `json:"locked_by"`
+	IdempotencyKey pgtype.Text        `json:"idempotency_key"`
+	LastError      pgtype.Text        `json:"last_error"`
+	PayloadMode    string             `json:"payload_mode"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	CompletedAt    pgtype.Timestamptz `json:"completed_at"`
 }
 
 type Endpoint struct {

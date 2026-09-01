@@ -245,3 +245,32 @@ func RequireRole(minRole string) func(http.Handler) http.Handler {
 		})
 	}
 }
+
+// GetUserID retrieves the authenticated user's UUID from request context.
+func GetUserID(ctx context.Context) pgtype.UUID {
+	if raw, ok := ctx.Value(UserIDKey).(string); ok {
+		if u, err := uuid.Parse(raw); err == nil {
+			return pgtype.UUID{Bytes: u, Valid: true}
+		}
+	}
+	return pgtype.UUID{Valid: false}
+}
+
+// GetOrganizationID retrieves the resolved organization UUID from request context.
+func GetOrganizationID(ctx context.Context) pgtype.UUID {
+	if raw, ok := ctx.Value(OrgIDKey).(string); ok {
+		if u, err := uuid.Parse(raw); err == nil {
+			return pgtype.UUID{Bytes: u, Valid: true}
+		}
+	}
+	return pgtype.UUID{Valid: false}
+}
+
+// GetRole retrieves the tenant user's role (OWNER, DEVELOPER, VIEWER) from context.
+func GetRole(ctx context.Context) string {
+	if raw, ok := ctx.Value(UserRoleKey).(string); ok {
+		return strings.ToUpper(raw)
+	}
+	return ""
+}
+

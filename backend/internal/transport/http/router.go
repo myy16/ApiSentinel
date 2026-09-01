@@ -28,6 +28,7 @@ type Handlers struct {
 	APIKeyHandler          *APIKeyHandler
 	AgentHandler           *AgentHandler
 	WebhookSecurityHandler *WebhookSecurityHandler
+	DeliveryHandler        *DeliveryHandler
 }
 
 func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsOrigin string) *chi.Mux {
@@ -156,6 +157,15 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 
 			// Realtime SSE Stream (Guarded by tenant membership)
 			protected.With(tenantGuard, projectGuard).Get("/projects/{projectId}/events/stream", h.SSEHandler.Stream)
+
+			// Delivery Control Plane (Milestone 3 & Faz 1)
+			if h.DeliveryHandler != nil {
+				protected.With(tenantGuard, endpointGuard).Get("/endpoints/{endpointId}/deliveries", h.DeliveryHandler.ListByEndpoint)
+				protected.With(tenantGuard).Get("/deliveries/{id}/timeline", h.DeliveryHandler.GetTimeline)
+				protected.With(tenantGuard, requireDeveloper).Post("/deliveries/{id}/replay", h.DeliveryHandler.Replay)
+				protected.With(tenantGuard, projectGuard).Get("/projects/{projectId}/delivery-kpis", h.DeliveryHandler.GetKPIs)
+				protected.With(tenantGuard, projectGuard).Get("/projects/{projectId}/audit-logs", h.DeliveryHandler.ListAuditLogs)
+			}
 
 			// Agent Sessions (Real gRPC connected agents)
 			if h.AgentHandler != nil {

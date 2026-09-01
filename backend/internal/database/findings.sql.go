@@ -11,6 +11,53 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createAgentScan = `-- name: CreateAgentScan :one
+INSERT INTO agent_scans (
+    project_id, agent_id, repository, branch, commit_hash, scan_type, total_findings, action
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8
+)
+RETURNING id, project_id, agent_id, repository, branch, commit_hash, scan_type, total_findings, action, created_at
+`
+
+type CreateAgentScanParams struct {
+	ProjectID     pgtype.UUID `json:"project_id"`
+	AgentID       string      `json:"agent_id"`
+	Repository    string      `json:"repository"`
+	Branch        string      `json:"branch"`
+	CommitHash    string      `json:"commit_hash"`
+	ScanType      string      `json:"scan_type"`
+	TotalFindings int32       `json:"total_findings"`
+	Action        string      `json:"action"`
+}
+
+func (q *Queries) CreateAgentScan(ctx context.Context, arg CreateAgentScanParams) (AgentScan, error) {
+	row := q.db.QueryRow(ctx, createAgentScan,
+		arg.ProjectID,
+		arg.AgentID,
+		arg.Repository,
+		arg.Branch,
+		arg.CommitHash,
+		arg.ScanType,
+		arg.TotalFindings,
+		arg.Action,
+	)
+	var i AgentScan
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.AgentID,
+		&i.Repository,
+		&i.Branch,
+		&i.CommitHash,
+		&i.ScanType,
+		&i.TotalFindings,
+		&i.Action,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const createSecurityFinding = `-- name: CreateSecurityFinding :one
 INSERT INTO security_findings (
     request_id, project_id, scan_id, source_type, rule_id, category, type, severity,
@@ -87,98 +134,6 @@ func (q *Queries) CreateSecurityFinding(ctx context.Context, arg CreateSecurityF
 	return i, err
 }
 
-const createAgentScan = `-- name: CreateAgentScan :one
-INSERT INTO agent_scans (
-    project_id, agent_id, repository, branch, commit_hash, scan_type, total_findings, action
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8
-)
-RETURNING id, project_id, agent_id, repository, branch, commit_hash, scan_type, total_findings, action, created_at
-`
-
-type CreateAgentScanParams struct {
-	ProjectID     pgtype.UUID `json:"project_id"`
-	AgentID       string      `json:"agent_id"`
-	Repository    string      `json:"repository"`
-	Branch        string      `json:"branch"`
-	CommitHash    string      `json:"commit_hash"`
-	ScanType      string      `json:"scan_type"`
-	TotalFindings int32       `json:"total_findings"`
-	Action        string      `json:"action"`
-}
-
-func (q *Queries) CreateAgentScan(ctx context.Context, arg CreateAgentScanParams) (AgentScan, error) {
-	row := q.db.QueryRow(ctx, createAgentScan,
-		arg.ProjectID,
-		arg.AgentID,
-		arg.Repository,
-		arg.Branch,
-		arg.CommitHash,
-		arg.ScanType,
-		arg.TotalFindings,
-		arg.Action,
-	)
-	var i AgentScan
-	err := row.Scan(
-		&i.ID,
-		&i.ProjectID,
-		&i.AgentID,
-		&i.Repository,
-		&i.Branch,
-		&i.CommitHash,
-		&i.ScanType,
-		&i.TotalFindings,
-		&i.Action,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
-const listAgentScansByProject = `-- name: ListAgentScansByProject :many
-SELECT id, project_id, agent_id, repository, branch, commit_hash, scan_type, total_findings, action, created_at
-FROM agent_scans
-WHERE project_id = $1
-ORDER BY created_at DESC
-LIMIT $2 OFFSET $3
-`
-
-type ListAgentScansByProjectParams struct {
-	ProjectID pgtype.UUID `json:"project_id"`
-	Limit     int32       `json:"limit"`
-	Offset    int32       `json:"offset"`
-}
-
-func (q *Queries) ListAgentScansByProject(ctx context.Context, arg ListAgentScansByProjectParams) ([]AgentScan, error) {
-	rows, err := q.db.Query(ctx, listAgentScansByProject, arg.ProjectID, arg.Limit, arg.Offset)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []AgentScan
-	for rows.Next() {
-		var i AgentScan
-		if err := rows.Scan(
-			&i.ID,
-			&i.ProjectID,
-			&i.AgentID,
-			&i.Repository,
-			&i.Branch,
-			&i.CommitHash,
-			&i.ScanType,
-			&i.TotalFindings,
-			&i.Action,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const getAgentScanByIdempotencyKey = `-- name: GetAgentScanByIdempotencyKey :one
 SELECT id, project_id, agent_id, repository, branch, commit_hash, scan_type, total_findings, action, created_at
 FROM agent_scans
@@ -250,6 +205,51 @@ func (q *Queries) GetFindingStats(ctx context.Context, projectID pgtype.UUID) (G
 		&i.TotalCount,
 	)
 	return i, err
+}
+
+const listAgentScansByProject = `-- name: ListAgentScansByProject :many
+SELECT id, project_id, agent_id, repository, branch, commit_hash, scan_type, total_findings, action, created_at
+FROM agent_scans
+WHERE project_id = $1
+ORDER BY created_at DESC
+LIMIT $2 OFFSET $3
+`
+
+type ListAgentScansByProjectParams struct {
+	ProjectID pgtype.UUID `json:"project_id"`
+	Limit     int32       `json:"limit"`
+	Offset    int32       `json:"offset"`
+}
+
+func (q *Queries) ListAgentScansByProject(ctx context.Context, arg ListAgentScansByProjectParams) ([]AgentScan, error) {
+	rows, err := q.db.Query(ctx, listAgentScansByProject, arg.ProjectID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AgentScan
+	for rows.Next() {
+		var i AgentScan
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.AgentID,
+			&i.Repository,
+			&i.Branch,
+			&i.CommitHash,
+			&i.ScanType,
+			&i.TotalFindings,
+			&i.Action,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listFindingsByProject = `-- name: ListFindingsByProject :many

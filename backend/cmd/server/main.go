@@ -90,6 +90,7 @@ func main() {
 	findingService := service.NewFindingService(queries)
 	apiKeyService := service.NewAPIKeyService(queries)
 	webhookSecurityService := service.NewWebhookSecurityService(queries, encryptionKey)
+	deliveryService := service.NewDeliveryService(queries, workerPool, encryptionKey)
 	explainer := ai.NewExplainer("")
 
 	// 4. gRPC Server (Port 50051) with Token Auth Interceptor & TLS
@@ -117,6 +118,7 @@ func main() {
 		APIKeyHandler:          transporthttp.NewAPIKeyHandler(apiKeyService),
 		AgentHandler:           transporthttp.NewAgentHandler(grpcServer),
 		WebhookSecurityHandler: transporthttp.NewWebhookSecurityHandler(webhookSecurityService),
+		DeliveryHandler:        transporthttp.NewDeliveryHandler(queries, deliveryService),
 	}
 
 	router := transporthttp.SetupRouter(handlers, cfg.JWTSecret, queries, cfg.CORSOrigin)

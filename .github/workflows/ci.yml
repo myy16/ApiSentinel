@@ -8,8 +8,34 @@ on:
 
 jobs:
   backend:
-    name: Backend (Go) Tests & Vet
+    name: Backend (Go) Tests, Lint & Integration
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgrespassword
+          POSTGRES_DB: apisentinel_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+      valkey:
+        image: valkey/valkey:7.2-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -25,7 +51,13 @@ jobs:
           cd backend
           go vet ./...
 
-      - name: Run Backend Tests
+      - name: Run Backend Tests & Integration
+        env:
+          DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/apisentinel_test?sslmode=disable
+          VALKEY_URL: redis://localhost:6379
+          JWT_SECRET: ci-test-jwt-secret-key-32-chars-long!
+          WEBHOOK_SECRET_ENCRYPTION_KEY: 01234567890123456789012345678901
+          CI: true
         run: |
           cd backend
           go test -v -race ./...
