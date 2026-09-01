@@ -4,7 +4,8 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../../../hooks/useAuth";
-import { Shield, Lock, Mail, Building2, ArrowRight, AlertCircle, Loader2 } from "lucide-react";
+import Image from "next/image";
+import { Lock, Mail, Building2, ArrowRight, AlertCircle, Loader2 } from "lucide-react";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -42,11 +43,24 @@ export default function RegisterPage() {
       <div className="w-full max-w-md space-y-8">
         {/* Header */}
         <div className="flex flex-col items-center text-center">
-          <Link href="/" className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/20 text-primary">
-              <Shield className="h-6 w-6" />
+          <Link href="/" className="group flex flex-col items-center gap-3">
+            <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-100 via-purple-100 to-violet-100 dark:from-indigo-950/70 dark:via-purple-950/60 dark:to-violet-950/70 border-2 border-indigo-200/90 dark:border-purple-500/40 p-2.5 shadow-md shadow-indigo-500/15 ring-1 ring-indigo-500/20 transition-all duration-300">
+              <div className="absolute inset-0 rounded-2xl bg-purple-500/15 blur-lg -z-10" />
+              <Image
+                src="/logo-emblem.png"
+                alt="ApiSentinel Emblem"
+                width={56}
+                height={56}
+                className="h-full w-full object-contain drop-shadow-[0_2px_8px_rgba(37,99,235,0.4)]"
+                priority
+              />
             </div>
-            <span>ApiSentinel</span>
+            <div className="flex flex-col items-center">
+              <span className="text-2xl font-black tracking-tight text-foreground">ApiSentinel</span>
+              <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                Security Gateway
+              </span>
+            </div>
           </Link>
           <h2 className="mt-6 text-2xl font-bold tracking-tight">Yeni Hesap Oluşturun</h2>
           <p className="mt-2 text-sm text-muted-foreground">

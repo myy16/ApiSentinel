@@ -1,6 +1,6 @@
 import Link from "next/link";
+import Image from "next/image";
 import {
-  Shield,
   ArrowRight,
   Terminal,
   Activity,
@@ -24,8 +24,14 @@ export default function Home() {
       {/* Header */}
       <header className="sticky top-0 z-50 flex h-16 w-full items-center justify-between border-b border-border bg-background/80 px-6 md:px-12 backdrop-blur-md">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary/30 to-primary/10 border border-primary/30 text-primary shadow-sm">
-            <Shield className="h-5 w-5" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-100 via-purple-100 to-violet-100 dark:from-indigo-950/70 dark:via-purple-950/60 dark:to-violet-950/70 border border-indigo-200/90 dark:border-purple-500/40 shadow-sm p-1.5">
+            <Image
+              src="/logo-emblem.png"
+              alt="ApiSentinel Emblem"
+              width={28}
+              height={28}
+              className="h-full w-full object-contain drop-shadow-[0_1px_4px_rgba(37,99,235,0.35)]"
+            />
           </div>
           <div className="flex flex-col">
             <span className="text-lg font-extrabold tracking-tight">ApiSentinel</span>
@@ -264,7 +270,13 @@ export default function Home() {
       <footer className="border-t border-border py-8 text-center text-xs text-muted-foreground bg-card/40">
         <div className="flex flex-col items-center gap-2">
           <div className="flex items-center gap-2 font-bold text-foreground">
-            <Shield className="h-4 w-4 text-primary" />
+            <Image
+              src="/logo-emblem.png"
+              alt="ApiSentinel Emblem"
+              width={20}
+              height={20}
+              className="h-5 w-5 object-contain"
+            />
             <span>ApiSentinel Developer Security Console</span>
           </div>
           <p>© 2026 ApiSentinel — Tüm hakları saklıdır.</p>

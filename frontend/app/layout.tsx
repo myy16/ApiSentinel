@@ -5,6 +5,11 @@ import { Providers } from "../components/providers";
 export const metadata: Metadata = {
   title: "ApiSentinel — Developer Security & Integration Platform",
   description: "Detect. Decide. Prevent. Test. Unified runtime webhook and API security platform.",
+  icons: {
+    icon: "/favicon.png",
+    shortcut: "/favicon.png",
+    apple: "/icon.png",
+  },
 };
 
 export default function RootLayout({
