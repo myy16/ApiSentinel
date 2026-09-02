@@ -199,8 +199,8 @@ func (s *IngestionService) ProcessWebhook(
 		}
 	}
 
-	// 8. JSON Schema Contract Validation
-	s.validateSchemaContract(ctx, endpoint.ID, rawBody, &findings)
+	// 8. JSON Schema Contract & Drift Validation
+	activeBaseline, driftReport := s.validateSchemaContract(ctx, endpoint.ID, rawBody, &findings)
 
 	// 9. Deterministic Policy Evaluation
 	decision := policy.Evaluate(findings)
@@ -241,6 +241,19 @@ func (s *IngestionService) ProcessWebhook(
 				},
 			},
 		}, fmt.Errorf("failed to persist captured request: %w", err)
+	}
+
+	// Persist Schema Drift Event if detected
+	if activeBaseline != nil && driftReport != nil {
+		diffJSON, _ := json.Marshal(driftReport)
+		_, _ = s.queries.CreateSchemaDriftEvent(ctx, database.CreateSchemaDriftEventParams{
+			EndpointID:       endpoint.ID,
+			SchemaBaselineID: activeBaseline.ID,
+			RequestID:        captured.ID,
+			DriftType:        driftReport.Severity,
+			DiffJson:         diffJSON,
+			IsAcknowledged:   false,
+		})
 	}
 
 	capturedIdStr := uuid.UUID(captured.ID.Bytes).String()
@@ -558,24 +571,44 @@ func (s *IngestionService) validateSchemaContract(
 	endpointID pgtype.UUID,
 	rawBody []byte,
 	findings *[]security.Finding,
-) {
-	schemaRecord, sErr := s.queries.GetEndpointSchema(ctx, endpointID)
-	if sErr == nil && len(schemaRecord.JsonSchema) > 0 && len(rawBody) > 0 {
-		if validator, vErr := schema.NewValidator(string(schemaRecord.JsonSchema)); vErr == nil {
-			if violations, valErr := validator.Validate(rawBody); valErr == nil {
-				for _, v := range violations {
-					*findings = append(*findings, security.Finding{
-						Category:       "CONTRACT",
-						Type:           "SCHEMA_VIOLATION",
-						Severity:       "HIGH",
-						Message:        fmt.Sprintf("JSON Schema ihlali (Alan: %s): %s", v.FieldPath, v.Message),
-						EvidenceMasked: v.Keyword,
-						Confidence:     1.0,
-					})
-				}
+) (*database.SchemaBaseline, *schema.DriftReport) {
+	var schemaBytes []byte
+	var activeBaseline *database.SchemaBaseline
+
+	if baseline, err := s.queries.GetActiveSchemaBaseline(ctx, endpointID); err == nil && len(baseline.SchemaJson) > 0 {
+		schemaBytes = baseline.SchemaJson
+		activeBaseline = &baseline
+	} else if schemaRecord, sErr := s.queries.GetEndpointSchema(ctx, endpointID); sErr == nil && len(schemaRecord.JsonSchema) > 0 {
+		schemaBytes = schemaRecord.JsonSchema
+	}
+
+	if len(schemaBytes) == 0 || len(rawBody) == 0 {
+		return nil, nil
+	}
+
+	if validator, vErr := schema.NewValidator(string(schemaBytes)); vErr == nil {
+		if violations, valErr := validator.Validate(rawBody); valErr == nil {
+			for _, v := range violations {
+				*findings = append(*findings, security.Finding{
+					Category:       "CONTRACT",
+					Type:           "SCHEMA_VIOLATION",
+					Severity:       "HIGH",
+					Message:        fmt.Sprintf("JSON Schema ihlali (Alan: %s): %s", v.FieldPath, v.Message),
+					EvidenceMasked: v.Keyword,
+					Confidence:     1.0,
+				})
 			}
 		}
 	}
+
+	var driftReport *schema.DriftReport
+	if activeBaseline != nil {
+		if report, err := schema.DetectDrift(schemaBytes, rawBody); err == nil && report.HasDrift {
+			driftReport = &report
+		}
+	}
+
+	return activeBaseline, driftReport
 }
 
 func (s *IngestionService) dispatchAsyncEvents(

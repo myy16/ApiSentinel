@@ -372,6 +372,53 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 	if schemaListRes.Baselines[0].Source != "INFERRED_PAYLOAD" {
 		t.Fatalf("Expected source INFERRED_PAYLOAD, got %s", schemaListRes.Baselines[0].Source)
 	}
+
+	// 15. Test Schema Drift Detection & Accept Flow (Milestone 10)
+	driftWebhookPayload := []byte(`{"event_id":"evt_002","amount":2500,"customer":{"email":"user2@test.com"},"new_loyalty_points":500}`)
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("POST", "/hook/"+slug, bytes.NewBuffer(driftWebhookPayload))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 on webhook with non-breaking drift, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// 16. List Schema Drifts
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", fmt.Sprintf("/api/endpoints/%s/drifts", endpointId), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("x-organization-id", orgId)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 on /drifts, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var driftListRes struct {
+		Drifts []struct {
+			ID        string `json:"id"`
+			DriftType string `json:"driftType"`
+		} `json:"drifts"`
+		Count int `json:"count"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &driftListRes)
+	if driftListRes.Count == 0 || len(driftListRes.Drifts) == 0 {
+		t.Fatalf("Expected at least 1 drift event detected, got 0")
+	}
+
+	driftId := driftListRes.Drifts[0].ID
+
+	// 17. Accept Drift and increment baseline to v2
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("POST", fmt.Sprintf("/api/endpoints/%s/drifts/%s/accept", endpointId, driftId), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("x-organization-id", orgId)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 on /drifts/{id}/accept, got %d: %s", w.Code, w.Body.String())
+	}
 }
 
 func init() {

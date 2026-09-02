@@ -11,6 +11,7 @@ import (
 )
 
 type Querier interface {
+	AcknowledgeSchemaDrift(ctx context.Context, arg AcknowledgeSchemaDriftParams) (SchemaDriftEvent, error)
 	ActivateSchemaBaseline(ctx context.Context, arg ActivateSchemaBaselineParams) (SchemaBaseline, error)
 	ClaimPendingDeliveryJobs(ctx context.Context, arg ClaimPendingDeliveryJobsParams) ([]DeliveryJob, error)
 	ClaimPendingOutboxJobs(ctx context.Context, arg ClaimPendingOutboxJobsParams) ([]ForwardingDlq, error)
@@ -31,6 +32,7 @@ type Querier interface {
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
 	CreateReplayJob(ctx context.Context, arg CreateReplayJobParams) (ReplayJob, error)
 	CreateSchemaBaseline(ctx context.Context, arg CreateSchemaBaselineParams) (SchemaBaseline, error)
+	CreateSchemaDriftEvent(ctx context.Context, arg CreateSchemaDriftEventParams) (SchemaDriftEvent, error)
 	CreateSecurityFinding(ctx context.Context, arg CreateSecurityFindingParams) (SecurityFinding, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error)
 	DeactivateAllSchemaBaselines(ctx context.Context, endpointID pgtype.UUID) error
@@ -85,6 +87,7 @@ type Querier interface {
 	ListRequestsByEndpoint(ctx context.Context, arg ListRequestsByEndpointParams) ([]CapturedRequest, error)
 	ListRequestsByProject(ctx context.Context, arg ListRequestsByProjectParams) ([]ListRequestsByProjectRow, error)
 	ListSchemaBaselinesByEndpoint(ctx context.Context, endpointID pgtype.UUID) ([]SchemaBaseline, error)
+	ListSchemaDriftsByEndpoint(ctx context.Context, endpointID pgtype.UUID) ([]ListSchemaDriftsByEndpointRow, error)
 	ListUserMemberships(ctx context.Context, userID pgtype.UUID) ([]ListUserMembershipsRow, error)
 	RecordDeliveryAttempt(ctx context.Context, arg RecordDeliveryAttemptParams) (DeliveryAttempt, error)
 	RecoverStaleDeliveryJobs(ctx context.Context) error

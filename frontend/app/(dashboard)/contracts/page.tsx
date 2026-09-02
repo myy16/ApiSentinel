@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../../hooks/useAuth";
 import { apiFetch } from "../../../lib/api";
-import { Project, Endpoint, SchemaBaseline } from "@apisentinel/shared";
+import { Project, Endpoint, SchemaBaseline, SchemaDriftEvent, DriftReport } from "@apisentinel/shared";
 import {
   FileCode,
   CheckCircle2,
@@ -30,6 +30,11 @@ import {
   ExternalLink,
   ChevronRight,
   Plus,
+  GitBranch,
+  ArrowRight,
+  Eye,
+  AlertOctagon,
+  RefreshCw,
 } from "lucide-react";
 import { useActiveProject } from "../../../contexts/ProjectContext";
 import { useSearchParams } from "next/navigation";
@@ -114,6 +119,7 @@ export default function ContractsPage() {
   const { accessToken, organization } = useAuth();
   const { projects, activeProjectId, setActiveProjectId } = useActiveProject();
 
+  const [activeTab, setActiveTab] = useState<"EDITOR" | "DRIFTS">("EDITOR");
   const [selectedEndpointId, setSelectedEndpointId] = useState<string>("");
   const [schemaText, setSchemaText] = useState<string>(JSON.stringify(PRESET_STRIPE, null, 2));
   const [syntaxValid, setSyntaxValid] = useState(true);
@@ -149,7 +155,7 @@ export default function ContractsPage() {
 
   const activeEndpointId = selectedEndpointId || (endpoints[0]?.id ?? "");
 
-  // Fetch Schema Baselines for active endpoint
+  // 1. Fetch Schema Baselines for active endpoint
   const { data: baselinesData, isLoading: isBaselinesLoading } = useQuery({
     queryKey: ["schemaBaselines", activeEndpointId],
     queryFn: () =>
@@ -162,6 +168,21 @@ export default function ContractsPage() {
 
   const baselines = baselinesData?.baselines || [];
   const activeBaseline = baselines.find((b) => b.isActive);
+
+  // 2. Fetch Schema Drift Events for active endpoint
+  const { data: driftsData, isLoading: isDriftsLoading } = useQuery({
+    queryKey: ["schemaDrifts", activeEndpointId],
+    queryFn: () =>
+      apiFetch<{ drifts: SchemaDriftEvent[] }>(`/api/endpoints/${activeEndpointId}/drifts`, {
+        token: accessToken,
+        organizationId: organization?.id,
+      }),
+    enabled: !!accessToken && !!activeEndpointId && !!organization?.id,
+    refetchInterval: 5000,
+  });
+
+  const drifts = driftsData?.drifts || [];
+  const unacknowledgedDrifts = drifts.filter((d) => !d.isAcknowledged);
 
   useEffect(() => {
     if (activeBaseline) {
@@ -263,6 +284,43 @@ export default function ContractsPage() {
     },
   });
 
+  // 5. Accept Drift Mutation
+  const acceptDriftMutation = useMutation({
+    mutationFn: (driftId: string) =>
+      apiFetch<{ message: string; baseline: SchemaBaseline }>(`/api/endpoints/${activeEndpointId}/drifts/${driftId}/accept`, {
+        method: "POST",
+        token: accessToken,
+        organizationId: organization?.id,
+      }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["schemaBaselines", activeEndpointId] });
+      queryClient.invalidateQueries({ queryKey: ["schemaDrifts", activeEndpointId] });
+      setStatusMessage({ type: "success", text: data.message });
+      setTimeout(() => setStatusMessage(null), 4000);
+    },
+    onError: (err: any) => {
+      setStatusMessage({ type: "error", text: err.message || "Sapma kabul edilemedi." });
+    },
+  });
+
+  // 6. Dismiss Drift Mutation
+  const dismissDriftMutation = useMutation({
+    mutationFn: (driftId: string) =>
+      apiFetch(`/api/endpoints/${activeEndpointId}/drifts/${driftId}/dismiss`, {
+        method: "POST",
+        token: accessToken,
+        organizationId: organization?.id,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["schemaDrifts", activeEndpointId] });
+      setStatusMessage({ type: "success", text: "Şema sapması uyarısı kapatıldı." });
+      setTimeout(() => setStatusMessage(null), 3000);
+    },
+    onError: (err: any) => {
+      setStatusMessage({ type: "error", text: err.message || "İşlem başarısız." });
+    },
+  });
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       {/* Header */}
@@ -273,11 +331,11 @@ export default function ContractsPage() {
               <FileCode className="h-5 w-5" />
             </div>
             <h1 className="text-xl font-bold tracking-tight text-foreground">
-              Şema Sözleşmeleri & OpenAPI Baseline (Contracts)
+              Şema Sözleşmeleri & Drift Tespiti (Contracts)
             </h1>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Webhook endpoint'leriniz için beklenen JSON veri yapısını (Baseline) tanımlayın, OpenAPI'dan içe aktarın veya otomatik türetin
+            Webhook JSON yapılarını versiyonlayın, OpenAPI baseline'ları yönetin ve canlı trafik sapmalarını tespit edin
           </p>
         </div>
 
@@ -303,7 +361,7 @@ export default function ContractsPage() {
         </div>
       </div>
 
-      {/* Endpoint Selector Bar */}
+      {/* Endpoint Selector Bar & Tab Switcher */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-2xl border border-border bg-card">
         <div className="flex items-center gap-3">
           <Layers className="h-4 w-4 text-muted-foreground" />
@@ -325,15 +383,36 @@ export default function ContractsPage() {
           )}
         </div>
 
-        {activeBaseline && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Aktif Baseline:</span>
-            <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold flex items-center gap-1">
-              <CheckCircle className="h-3 w-3" />
-              <span>v{activeBaseline.version} ({activeBaseline.source})</span>
-            </span>
-          </div>
-        )}
+        {/* View Tabs */}
+        <div className="flex items-center gap-1 bg-muted/40 p-1 rounded-xl">
+          <button
+            onClick={() => setActiveTab("EDITOR")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+              activeTab === "EDITOR"
+                ? "bg-card text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Code className="h-3.5 w-3.5" />
+            <span>Sözleşme & Sürümler</span>
+          </button>
+          <button
+            onClick={() => setActiveTab("DRIFTS")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+              activeTab === "DRIFTS"
+                ? "bg-card text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <GitBranch className="h-3.5 w-3.5" />
+            <span>Şema Sapmaları (Drift)</span>
+            {unacknowledgedDrifts.length > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-black text-[10px] font-extrabold">
+                {unacknowledgedDrifts.length}
+              </span>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Status Message */}
@@ -354,187 +433,326 @@ export default function ContractsPage() {
         </div>
       )}
 
-      {/* Main Grid: Left Editor (7 cols) + Right Version History (5 cols) */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        {/* Left: JSON Schema Editor */}
-        <div className="lg:col-span-7 space-y-4">
-          <div className="rounded-2xl border border-border bg-card p-5 space-y-4 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
-              <div className="flex items-center gap-2">
-                <Code className="h-4 w-4 text-primary" />
-                <span className="text-xs font-bold text-foreground">JSON Schema (Draft 2020-12)</span>
+      {/* TAB 1: Schema Editor & Sürüm Geçmişi */}
+      {activeTab === "EDITOR" && (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 animate-in fade-in duration-200">
+          {/* Left: JSON Schema Editor */}
+          <div className="lg:col-span-7 space-y-4">
+            <div className="rounded-2xl border border-border bg-card p-5 space-y-4 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
+                <div className="flex items-center gap-2">
+                  <Code className="h-4 w-4 text-primary" />
+                  <span className="text-xs font-bold text-foreground">JSON Schema (Draft 2020-12)</span>
+                </div>
+
+                {/* Presets */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] uppercase font-bold text-muted-foreground mr-1">Şablon:</span>
+                  <button
+                    type="button"
+                    onClick={() => handleSchemaChange(JSON.stringify(PRESET_STRIPE, null, 2))}
+                    className="px-2 py-0.5 rounded-md bg-secondary hover:bg-muted text-[11px] font-semibold text-foreground transition"
+                  >
+                    Stripe
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSchemaChange(JSON.stringify(PRESET_IYZICO, null, 2))}
+                    className="px-2 py-0.5 rounded-md bg-secondary hover:bg-muted text-[11px] font-semibold text-foreground transition"
+                  >
+                    iyzico
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSchemaChange(JSON.stringify(PRESET_GITHUB, null, 2))}
+                    className="px-2 py-0.5 rounded-md bg-secondary hover:bg-muted text-[11px] font-semibold text-foreground transition"
+                  >
+                    GitHub
+                  </button>
+                </div>
               </div>
 
-              {/* Presets */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] uppercase font-bold text-muted-foreground mr-1">Şablon:</span>
+              {/* Code Editor Area */}
+              <div className="relative">
+                <textarea
+                  value={schemaText}
+                  onChange={(e) => handleSchemaChange(e.target.value)}
+                  rows={18}
+                  spellCheck={false}
+                  placeholder="JSON Schema definition..."
+                  className="w-full rounded-xl border border-input bg-background/70 p-4 font-mono text-xs leading-relaxed text-foreground placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary select-text"
+                />
+                <div className="absolute right-3 bottom-3">
+                  {syntaxValid ? (
+                    <span className="flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-[10px] font-bold text-emerald-400 border border-emerald-500/20">
+                      <CheckCircle2 className="h-3 w-3" />
+                      <span>Geçerli JSON</span>
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 rounded-md bg-destructive/10 px-2 py-1 text-[10px] font-bold text-destructive border border-destructive/20">
+                      <XCircle className="h-3 w-3" />
+                      <span>Sözdizimi Hatası</span>
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Save Button */}
+              <div className="flex justify-end pt-2">
                 <button
                   type="button"
-                  onClick={() => handleSchemaChange(JSON.stringify(PRESET_STRIPE, null, 2))}
-                  className="px-2 py-0.5 rounded-md bg-secondary hover:bg-muted text-[11px] font-semibold text-foreground transition"
+                  onClick={() => saveManualMutation.mutate(schemaText)}
+                  disabled={!syntaxValid || saveManualMutation.isPending || !activeEndpointId}
+                  className="flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-xs font-bold text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:opacity-50"
                 >
-                  Stripe
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSchemaChange(JSON.stringify(PRESET_IYZICO, null, 2))}
-                  className="px-2 py-0.5 rounded-md bg-secondary hover:bg-muted text-[11px] font-semibold text-foreground transition"
-                >
-                  iyzico
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSchemaChange(JSON.stringify(PRESET_GITHUB, null, 2))}
-                  className="px-2 py-0.5 rounded-md bg-secondary hover:bg-muted text-[11px] font-semibold text-foreground transition"
-                >
-                  GitHub
+                  {saveManualMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Kaydediliyor...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4" />
+                      <span>Yeni Sürüm Olarak Kaydet & Aktifleştir</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>
+          </div>
 
-            {/* Code Editor Area */}
-            <div className="relative">
-              <textarea
-                value={schemaText}
-                onChange={(e) => handleSchemaChange(e.target.value)}
-                rows={18}
-                spellCheck={false}
-                placeholder="JSON Schema definition..."
-                className="w-full rounded-xl border border-input bg-background/70 p-4 font-mono text-xs leading-relaxed text-foreground placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary select-text"
-              />
-              <div className="absolute right-3 bottom-3">
-                {syntaxValid ? (
-                  <span className="flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-[10px] font-bold text-emerald-400 border border-emerald-500/20">
-                    <CheckCircle2 className="h-3 w-3" />
-                    <span>Geçerli JSON</span>
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1 rounded-md bg-destructive/10 px-2 py-1 text-[10px] font-bold text-destructive border border-destructive/20">
-                    <XCircle className="h-3 w-3" />
-                    <span>Sözdizimi Hatası</span>
-                  </span>
-                )}
+          {/* Right: Version History & Active Baseline (5 cols) */}
+          <div className="lg:col-span-5 space-y-4">
+            <div className="rounded-2xl border border-border bg-card p-5 space-y-4 shadow-sm">
+              <div className="flex items-center justify-between border-b border-border pb-3">
+                <div className="flex items-center gap-2">
+                  <History className="h-4 w-4 text-primary" />
+                  <span className="text-xs font-bold text-foreground">Sözleşme Sürüm Geçmişi</span>
+                </div>
+                <span className="text-[11px] text-muted-foreground">{baselines.length} sürüm</span>
               </div>
-            </div>
 
-            {/* Save Button */}
-            <div className="flex justify-end pt-2">
-              <button
-                type="button"
-                onClick={() => saveManualMutation.mutate(schemaText)}
-                disabled={!syntaxValid || saveManualMutation.isPending || !activeEndpointId}
-                className="flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-xs font-bold text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:opacity-50"
-              >
-                {saveManualMutation.isPending ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span>Kaydediliyor...</span>
-                  </>
-                ) : (
-                  <>
-                    <Save className="h-4 w-4" />
-                    <span>Yeni Sürüm Olarak Kaydet & Aktifleştir</span>
-                  </>
-                )}
-              </button>
+              {isBaselinesLoading ? (
+                <div className="py-8 text-center text-muted-foreground flex flex-col items-center gap-2">
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                  <span className="text-xs">Sürümler yükleniyor...</span>
+                </div>
+              ) : baselines.length === 0 ? (
+                <div className="py-8 text-center text-muted-foreground space-y-2">
+                  <FileCode className="h-8 w-8 mx-auto opacity-30 text-muted-foreground" />
+                  <p className="text-xs font-semibold">Henüz kayıtlı şema baseline'ı yok.</p>
+                  <p className="text-[11px] text-muted-foreground max-w-xs mx-auto">
+                    Soldaki editörden kaydedebilir, örnek bir payload yapıştırarak türetebilir veya OpenAPI dosyanızı yükleyebilirsiniz.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {baselines.map((b) => (
+                    <div
+                      key={b.id}
+                      className={`p-3.5 rounded-xl border transition flex items-center justify-between ${
+                        b.isActive
+                          ? "border-emerald-500/40 bg-emerald-500/5 ring-1 ring-emerald-500/30"
+                          : "border-border bg-card/60 hover:bg-muted/30"
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-foreground">Sürüm v{b.version}</span>
+                          <span
+                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                              b.source === "OPENAPI"
+                                ? "bg-blue-500/10 text-blue-400 border border-blue-500/30"
+                                : b.source === "INFERRED_PAYLOAD"
+                                ? "bg-purple-500/10 text-purple-400 border border-purple-500/30"
+                                : "bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            {b.source}
+                          </span>
+                          {b.isActive && (
+                            <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded">
+                              AKTİF
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground mt-1">
+                          {new Date(b.createdAt).toLocaleString()}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const formatted =
+                              typeof b.schemaJson === "string"
+                                ? JSON.stringify(JSON.parse(b.schemaJson), null, 2)
+                                : JSON.stringify(b.schemaJson, null, 2);
+                            setSchemaText(formatted);
+                            setSyntaxValid(true);
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-secondary hover:bg-muted text-xs font-semibold text-foreground transition"
+                        >
+                          Görüntüle
+                        </button>
+
+                        {!b.isActive && (
+                          <button
+                            type="button"
+                            onClick={() => activateMutation.mutate(b.id)}
+                            disabled={activateMutation.isPending}
+                            className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-bold border border-emerald-500/20 transition disabled:opacity-50"
+                          >
+                            Aktif Yap
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
+      )}
 
-        {/* Right: Version History & Active Baseline (5 cols) */}
-        <div className="lg:col-span-5 space-y-4">
+      {/* TAB 2: Şema Sapmaları (Drift Events) */}
+      {activeTab === "DRIFTS" && (
+        <div className="space-y-4 animate-in fade-in duration-200">
           <div className="rounded-2xl border border-border bg-card p-5 space-y-4 shadow-sm">
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div className="flex items-center gap-2">
-                <History className="h-4 w-4 text-primary" />
-                <span className="text-xs font-bold text-foreground">Sözleşme Sürüm Geçmişi</span>
+                <GitBranch className="h-4 w-4 text-primary" />
+                <h2 className="text-sm font-bold text-foreground">Canlı Webhook Trafiğinde Tespit Edilen Şema Sapmaları</h2>
               </div>
-              <span className="text-[11px] text-muted-foreground">{baselines.length} sürüm</span>
+              <span className="text-xs text-muted-foreground">{drifts.length} sapma kaydı</span>
             </div>
 
-            {isBaselinesLoading ? (
-              <div className="py-8 text-center text-muted-foreground flex flex-col items-center gap-2">
-                <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                <span className="text-xs">Sürümler yükleniyor...</span>
+            {isDriftsLoading ? (
+              <div className="py-12 text-center text-muted-foreground flex flex-col items-center gap-2">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                <span className="text-xs">Sapma kayıtları taranıyor...</span>
               </div>
-            ) : baselines.length === 0 ? (
-              <div className="py-8 text-center text-muted-foreground space-y-2">
-                <FileCode className="h-8 w-8 mx-auto opacity-30 text-muted-foreground" />
-                <p className="text-xs font-semibold">Henüz kayıtlı şema baseline'ı yok.</p>
-                <p className="text-[11px] text-muted-foreground max-w-xs mx-auto">
-                  Soldaki editörden kaydedebilir, örnek bir payload yapıştırarak türetebilir veya OpenAPI dosyanızı yükleyebilirsiniz.
+            ) : drifts.length === 0 ? (
+              <div className="py-12 text-center text-muted-foreground space-y-2">
+                <CheckCircle2 className="h-10 w-10 mx-auto text-emerald-400 opacity-60" />
+                <p className="text-xs font-bold text-foreground">Şema sapması bulunamadı!</p>
+                <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                  Gelen tüm canlı webhook'lar aktif baseline sözleşmesiyle tam uyumlu çalışmaktadır.
                 </p>
               </div>
             ) : (
-              <div className="space-y-2.5">
-                {baselines.map((b) => (
-                  <div
-                    key={b.id}
-                    className={`p-3.5 rounded-xl border transition flex items-center justify-between ${
-                      b.isActive
-                        ? "border-emerald-500/40 bg-emerald-500/5 ring-1 ring-emerald-500/30"
-                        : "border-border bg-card/60 hover:bg-muted/30"
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-foreground">Sürüm v{b.version}</span>
-                        <span
-                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                            b.source === "OPENAPI"
-                              ? "bg-blue-500/10 text-blue-400 border border-blue-500/30"
-                              : b.source === "INFERRED_PAYLOAD"
-                              ? "bg-purple-500/10 text-purple-400 border border-purple-500/30"
-                              : "bg-muted text-muted-foreground"
-                          }`}
-                        >
-                          {b.source}
-                        </span>
-                        {b.isActive && (
-                          <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded">
-                            AKTİF
+              <div className="space-y-4">
+                {drifts.map((d) => {
+                  const report: DriftReport =
+                    typeof d.diffJson === "string" ? JSON.parse(d.diffJson) : d.diffJson;
+
+                  return (
+                    <div
+                      key={d.id}
+                      className={`rounded-2xl border p-4 space-y-3 transition ${
+                        d.isAcknowledged
+                          ? "border-border bg-card/40 opacity-70"
+                          : d.driftType === "BREAKING"
+                          ? "border-rose-500/40 bg-rose-500/5 ring-1 ring-rose-500/20"
+                          : "border-amber-500/40 bg-amber-500/5 ring-1 ring-amber-500/20"
+                      }`}
+                    >
+                      {/* Header */}
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                              d.driftType === "BREAKING"
+                                ? "bg-rose-500/20 text-rose-300 border-rose-500/40"
+                                : "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                            }`}
+                          >
+                            {d.driftType === "BREAKING" ? "🔴 KIRICI DEĞİŞİKLİK (BREAKING)" : "🟡 GERİYE UYUMLU EKLEME"}
                           </span>
-                        )}
-                      </div>
-                      <div className="text-[11px] text-muted-foreground mt-1">
-                        {new Date(b.createdAt).toLocaleString()}
-                      </div>
-                    </div>
+                          <span className="text-xs font-mono text-muted-foreground">
+                            İstek: #{d.monotonicRequestId || "webhook"}
+                          </span>
+                        </div>
 
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const formatted =
-                            typeof b.schemaJson === "string"
-                              ? JSON.stringify(JSON.parse(b.schemaJson), null, 2)
-                              : JSON.stringify(b.schemaJson, null, 2);
-                          setSchemaText(formatted);
-                          setSyntaxValid(true);
-                        }}
-                        className="px-2.5 py-1 rounded-lg bg-secondary hover:bg-muted text-xs font-semibold text-foreground transition"
-                      >
-                        Görüntüle
-                      </button>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] text-muted-foreground">
+                            {new Date(d.createdAt).toLocaleTimeString()}
+                          </span>
 
-                      {!b.isActive && (
-                        <button
-                          type="button"
-                          onClick={() => activateMutation.mutate(b.id)}
-                          disabled={activateMutation.isPending}
-                          className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-bold border border-emerald-500/20 transition disabled:opacity-50"
-                        >
-                          Aktif Yap
-                        </button>
+                          {!d.isAcknowledged && (
+                            <>
+                              <button
+                                onClick={() => dismissDriftMutation.mutate(d.id)}
+                                disabled={dismissDriftMutation.isPending}
+                                className="px-2.5 py-1 rounded-lg bg-secondary hover:bg-muted text-xs font-semibold text-muted-foreground hover:text-foreground transition disabled:opacity-50"
+                              >
+                                Yok Say
+                              </button>
+                              <button
+                                onClick={() => acceptDriftMutation.mutate(d.id)}
+                                disabled={acceptDriftMutation.isPending}
+                                className="flex items-center gap-1 px-3 py-1 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition disabled:opacity-50"
+                              >
+                                {acceptDriftMutation.isPending ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <Sparkles className="h-3 w-3" />
+                                )}
+                                <span>Değişiklikleri Kabul Et & Güncelle</span>
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Summary */}
+                      <p className="text-xs text-foreground font-medium">{report.summary}</p>
+
+                      {/* Diff Items Table */}
+                      {report.changes && report.changes.length > 0 && (
+                        <div className="rounded-xl border border-border bg-card/80 overflow-hidden text-xs">
+                          <table className="w-full text-left">
+                            <thead className="bg-muted/40 border-b border-border text-[10px] uppercase font-bold text-muted-foreground">
+                              <tr>
+                                <th className="px-3 py-2">Alan / Path</th>
+                                <th className="px-3 py-2">Sapma Türü</th>
+                                <th className="px-3 py-2">Açıklama</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border">
+                              {report.changes.map((ch, idx) => (
+                                <tr key={idx} className="hover:bg-muted/20">
+                                  <td className="px-3 py-2 font-mono text-primary font-semibold">{ch.path}</td>
+                                  <td className="px-3 py-2">
+                                    <span
+                                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                        ch.changeType === "FIELD_ADDED"
+                                          ? "bg-emerald-500/10 text-emerald-400"
+                                          : ch.changeType === "FIELD_MISSING"
+                                          ? "bg-rose-500/10 text-rose-400"
+                                          : "bg-amber-500/10 text-amber-400"
+                                      }`}
+                                    >
+                                      {ch.changeType}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2 text-muted-foreground">{ch.description}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
         </div>
-      </div>
+      )}
 
       {/* Infer from Payload Modal */}
       {isInferModalOpen && (

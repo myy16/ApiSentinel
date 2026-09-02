@@ -296,6 +296,34 @@ export interface SchemaBaseline {
   updatedAt: string;
 }
 
+export interface DriftChange {
+  path: string;
+  changeType: "FIELD_ADDED" | "FIELD_MISSING" | "TYPE_MISMATCH";
+  expected?: string;
+  actual?: string;
+  description: string;
+}
+
+export interface DriftReport {
+  hasDrift: boolean;
+  severity: "BREAKING" | "NON_BREAKING" | "NONE";
+  changes: DriftChange[];
+  summary: string;
+}
+
+export interface SchemaDriftEvent {
+  id: string;
+  endpointId: string;
+  schemaBaselineId: string;
+  requestId?: string | null;
+  monotonicRequestId?: string | null;
+  requestCreatedAt?: string | null;
+  driftType: "BREAKING" | "NON_BREAKING";
+  diffJson: DriftReport | string;
+  isAcknowledged: boolean;
+  createdAt: string;
+}
+
 
 
 

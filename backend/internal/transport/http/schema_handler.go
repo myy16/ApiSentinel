@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/apisentinel/apisentinel/internal/database"
@@ -260,4 +261,132 @@ func (h *SchemaHandler) ActivateBaseline(w http.ResponseWriter, r *http.Request)
 	}
 
 	writeJSON(w, http.StatusOK, updated)
+}
+
+// ListDrifts lists detected schema drift events for an endpoint.
+func (h *SchemaHandler) ListDrifts(w http.ResponseWriter, r *http.Request) {
+	endpointIDStr := getEndpointIDParam(r)
+	endpointUUID, err := uuid.Parse(endpointIDStr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_ENDPOINT_ID", "Invalid endpoint ID format")
+		return
+	}
+
+	drifts, err := h.queries.ListSchemaDriftsByEndpoint(r.Context(), pgtype.UUID{Bytes: endpointUUID, Valid: true})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", "Failed to list schema drifts")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"drifts": drifts,
+		"count":  len(drifts),
+	})
+}
+
+// DismissDrift acknowledges and hides a drift event.
+func (h *SchemaHandler) DismissDrift(w http.ResponseWriter, r *http.Request) {
+	endpointIDStr := getEndpointIDParam(r)
+	endpointUUID, err := uuid.Parse(endpointIDStr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_ENDPOINT_ID", "Invalid endpoint ID format")
+		return
+	}
+
+	driftIDStr := chi.URLParam(r, "driftId")
+	driftUUID, err := uuid.Parse(driftIDStr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_DRIFT_ID", "Invalid drift ID format")
+		return
+	}
+
+	updated, err := h.queries.AcknowledgeSchemaDrift(r.Context(), database.AcknowledgeSchemaDriftParams{
+		ID:         pgtype.UUID{Bytes: driftUUID, Valid: true},
+		EndpointID: pgtype.UUID{Bytes: endpointUUID, Valid: true},
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", "Failed to acknowledge drift event")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, updated)
+}
+
+// AcceptDrift adopts the payload from a drift event and increments the baseline to the next version.
+func (h *SchemaHandler) AcceptDrift(w http.ResponseWriter, r *http.Request) {
+	endpointIDStr := getEndpointIDParam(r)
+	endpointUUID, err := uuid.Parse(endpointIDStr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_ENDPOINT_ID", "Invalid endpoint ID format")
+		return
+	}
+
+	driftIDStr := chi.URLParam(r, "driftId")
+	driftUUID, err := uuid.Parse(driftIDStr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_DRIFT_ID", "Invalid drift ID format")
+		return
+	}
+
+	// 1. Acknowledge drift
+	_, _ = h.queries.AcknowledgeSchemaDrift(r.Context(), database.AcknowledgeSchemaDriftParams{
+		ID:         pgtype.UUID{Bytes: driftUUID, Valid: true},
+		EndpointID: pgtype.UUID{Bytes: endpointUUID, Valid: true},
+	})
+
+	// 2. Fetch associated captured request
+	drifts, _ := h.queries.ListSchemaDriftsByEndpoint(r.Context(), pgtype.UUID{Bytes: endpointUUID, Valid: true})
+	var targetRequestID pgtype.UUID
+	for _, d := range drifts {
+		if d.ID.Bytes == driftUUID {
+			targetRequestID = d.RequestID
+			break
+		}
+	}
+
+	if !targetRequestID.Valid {
+		writeError(w, http.StatusNotFound, "REQUEST_NOT_FOUND", "Associated request for drift event not found")
+		return
+	}
+
+	captured, err := h.queries.GetCapturedRequestByID(r.Context(), targetRequestID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "REQUEST_NOT_FOUND", "Could not load captured request payload")
+		return
+	}
+
+	payloadBytes := captured.ParsedJson
+	if len(payloadBytes) == 0 && captured.MaskedBody.Valid {
+		payloadBytes = []byte(captured.MaskedBody.String)
+	}
+
+	schemaJSON, err := schema.InferJSONSchema(payloadBytes)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INFERENCE_FAILED", "Failed to infer updated schema: "+err.Error())
+		return
+	}
+
+	nextVer, err := h.queries.GetNextSchemaVersion(r.Context(), pgtype.UUID{Bytes: endpointUUID, Valid: true})
+	if err != nil {
+		nextVer = 1
+	}
+
+	_ = h.queries.DeactivateAllSchemaBaselines(r.Context(), pgtype.UUID{Bytes: endpointUUID, Valid: true})
+
+	baseline, err := h.queries.CreateSchemaBaseline(r.Context(), database.CreateSchemaBaselineParams{
+		EndpointID: pgtype.UUID{Bytes: endpointUUID, Valid: true},
+		Version:    nextVer,
+		SchemaJson: []byte(schemaJSON),
+		Source:     "INFERRED_PAYLOAD",
+		IsActive:   true,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", "Failed to create updated baseline")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"message":  fmt.Sprintf("Şema sapması kabul edildi ve v%d aktif baseline olarak güncellendi.", baseline.Version),
+		"baseline": baseline,
+	})
 }

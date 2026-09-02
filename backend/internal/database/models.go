@@ -254,6 +254,17 @@ type SchemaBaseline struct {
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
 }
 
+type SchemaDriftEvent struct {
+	ID               pgtype.UUID        `json:"id"`
+	EndpointID       pgtype.UUID        `json:"endpoint_id"`
+	SchemaBaselineID pgtype.UUID        `json:"schema_baseline_id"`
+	RequestID        pgtype.UUID        `json:"request_id"`
+	DriftType        string             `json:"drift_type"`
+	DiffJson         []byte             `json:"diff_json"`
+	IsAcknowledged   bool               `json:"is_acknowledged"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+}
+
 type SecurityFinding struct {
 	ID             pgtype.UUID        `json:"id"`
 	RequestID      pgtype.UUID        `json:"request_id"`

@@ -11,6 +11,34 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const acknowledgeSchemaDrift = `-- name: AcknowledgeSchemaDrift :one
+UPDATE schema_drift_events
+SET is_acknowledged = TRUE
+WHERE id = $1 AND endpoint_id = $2
+RETURNING id, endpoint_id, schema_baseline_id, request_id, drift_type, diff_json, is_acknowledged, created_at
+`
+
+type AcknowledgeSchemaDriftParams struct {
+	ID         pgtype.UUID `json:"id"`
+	EndpointID pgtype.UUID `json:"endpoint_id"`
+}
+
+func (q *Queries) AcknowledgeSchemaDrift(ctx context.Context, arg AcknowledgeSchemaDriftParams) (SchemaDriftEvent, error) {
+	row := q.db.QueryRow(ctx, acknowledgeSchemaDrift, arg.ID, arg.EndpointID)
+	var i SchemaDriftEvent
+	err := row.Scan(
+		&i.ID,
+		&i.EndpointID,
+		&i.SchemaBaselineID,
+		&i.RequestID,
+		&i.DriftType,
+		&i.DiffJson,
+		&i.IsAcknowledged,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const activateSchemaBaseline = `-- name: ActivateSchemaBaseline :one
 UPDATE schema_baselines
 SET is_active = TRUE, updated_at = NOW()
@@ -73,6 +101,46 @@ func (q *Queries) CreateSchemaBaseline(ctx context.Context, arg CreateSchemaBase
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const createSchemaDriftEvent = `-- name: CreateSchemaDriftEvent :one
+INSERT INTO schema_drift_events (
+    endpoint_id, schema_baseline_id, request_id, drift_type, diff_json, is_acknowledged
+) VALUES (
+    $1, $2, $3, $4, $5, $6
+) RETURNING id, endpoint_id, schema_baseline_id, request_id, drift_type, diff_json, is_acknowledged, created_at
+`
+
+type CreateSchemaDriftEventParams struct {
+	EndpointID       pgtype.UUID `json:"endpoint_id"`
+	SchemaBaselineID pgtype.UUID `json:"schema_baseline_id"`
+	RequestID        pgtype.UUID `json:"request_id"`
+	DriftType        string      `json:"drift_type"`
+	DiffJson         []byte      `json:"diff_json"`
+	IsAcknowledged   bool        `json:"is_acknowledged"`
+}
+
+func (q *Queries) CreateSchemaDriftEvent(ctx context.Context, arg CreateSchemaDriftEventParams) (SchemaDriftEvent, error) {
+	row := q.db.QueryRow(ctx, createSchemaDriftEvent,
+		arg.EndpointID,
+		arg.SchemaBaselineID,
+		arg.RequestID,
+		arg.DriftType,
+		arg.DiffJson,
+		arg.IsAcknowledged,
+	)
+	var i SchemaDriftEvent
+	err := row.Scan(
+		&i.ID,
+		&i.EndpointID,
+		&i.SchemaBaselineID,
+		&i.RequestID,
+		&i.DriftType,
+		&i.DiffJson,
+		&i.IsAcknowledged,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -147,6 +215,59 @@ func (q *Queries) ListSchemaBaselinesByEndpoint(ctx context.Context, endpointID 
 			&i.IsActive,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSchemaDriftsByEndpoint = `-- name: ListSchemaDriftsByEndpoint :many
+SELECT d.id, d.endpoint_id, d.schema_baseline_id, d.request_id, d.drift_type, d.diff_json, d.is_acknowledged, d.created_at, r.request_id as monotonic_request_id, r.created_at as request_created_at
+FROM schema_drift_events d
+LEFT JOIN captured_requests r ON d.request_id = r.id
+WHERE d.endpoint_id = $1
+ORDER BY d.created_at DESC
+LIMIT 50
+`
+
+type ListSchemaDriftsByEndpointRow struct {
+	ID                 pgtype.UUID        `json:"id"`
+	EndpointID         pgtype.UUID        `json:"endpoint_id"`
+	SchemaBaselineID   pgtype.UUID        `json:"schema_baseline_id"`
+	RequestID          pgtype.UUID        `json:"request_id"`
+	DriftType          string             `json:"drift_type"`
+	DiffJson           []byte             `json:"diff_json"`
+	IsAcknowledged     bool               `json:"is_acknowledged"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	MonotonicRequestID pgtype.Text        `json:"monotonic_request_id"`
+	RequestCreatedAt   pgtype.Timestamptz `json:"request_created_at"`
+}
+
+func (q *Queries) ListSchemaDriftsByEndpoint(ctx context.Context, endpointID pgtype.UUID) ([]ListSchemaDriftsByEndpointRow, error) {
+	rows, err := q.db.Query(ctx, listSchemaDriftsByEndpoint, endpointID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSchemaDriftsByEndpointRow
+	for rows.Next() {
+		var i ListSchemaDriftsByEndpointRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EndpointID,
+			&i.SchemaBaselineID,
+			&i.RequestID,
+			&i.DriftType,
+			&i.DiffJson,
+			&i.IsAcknowledged,
+			&i.CreatedAt,
+			&i.MonotonicRequestID,
+			&i.RequestCreatedAt,
 		); err != nil {
 			return nil, err
 		}

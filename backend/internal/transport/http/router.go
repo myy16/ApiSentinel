@@ -184,7 +184,7 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 				protected.Get("/templates/providers", h.TemplateHandler.ListProviders)
 			}
 
-			// Schema Baselines & Contracts (Milestone 9)
+			// Schema Baselines & Contracts (Milestone 9 & Milestone 10)
 			if h.SchemaHandler != nil {
 				protected.With(tenantGuard, endpointGuard).Get("/endpoints/{endpointId}/schemas", h.SchemaHandler.ListBaselines)
 				protected.With(tenantGuard, endpointGuard).Get("/endpoints/{endpointId}/schemas/active", h.SchemaHandler.GetActiveBaseline)
@@ -192,6 +192,11 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 				protected.With(tenantGuard, endpointGuard, requireDeveloper).Post("/endpoints/{endpointId}/schemas/infer", h.SchemaHandler.InferBaseline)
 				protected.With(tenantGuard, endpointGuard, requireDeveloper).Post("/endpoints/{endpointId}/schemas/openapi", h.SchemaHandler.ImportOpenAPI)
 				protected.With(tenantGuard, endpointGuard, requireDeveloper).Put("/endpoints/{endpointId}/schemas/{schemaId}/activate", h.SchemaHandler.ActivateBaseline)
+
+				// Schema Drift Endpoints (Milestone 10)
+				protected.With(tenantGuard, endpointGuard).Get("/endpoints/{endpointId}/drifts", h.SchemaHandler.ListDrifts)
+				protected.With(tenantGuard, endpointGuard, requireDeveloper).Post("/endpoints/{endpointId}/drifts/{driftId}/accept", h.SchemaHandler.AcceptDrift)
+				protected.With(tenantGuard, endpointGuard, requireDeveloper).Post("/endpoints/{endpointId}/drifts/{driftId}/dismiss", h.SchemaHandler.DismissDrift)
 			}
 		})
 	})
