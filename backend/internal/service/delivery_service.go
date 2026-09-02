@@ -32,6 +32,11 @@ type DeliveryService struct {
 	endpointSem    map[string]chan struct{}
 	endpointSemMu  sync.Mutex
 	maxPerEndpoint int
+	alertService   *AlertService
+}
+
+func (s *DeliveryService) SetAlertService(alertService *AlertService) {
+	s.alertService = alertService
 }
 
 func NewDeliveryService(
@@ -327,6 +332,19 @@ func (s *DeliveryService) ExecuteJob(ctx context.Context, job database.DeliveryJ
 			ID:               job.RequestID,
 			ProcessingStatus: procStatus,
 		})
+
+		// Trigger delivery anomaly / digest alerting
+		if s.alertService != nil {
+			endpoint, _ := s.queries.GetEndpointByIDOnly(ctx, job.EndpointID)
+			epName := endpoint.Name
+			if epName == "" {
+				epName = endpoint.Slug
+			}
+			projID := uuid.UUID(endpoint.ProjectID.Bytes).String()
+			epID := uuid.UUID(job.EndpointID.Bytes).String()
+			isDLQ := (eval.NextState == delivery.DeliveryStateDeadLetter)
+			s.alertService.RecordDeliveryFailure(projID, epName, epID, epName, job.TargetUrl, statusCode, eval.ReasonSummary, isDLQ)
+		}
 	}
 
 	return &attempt, doErr

@@ -20,6 +20,7 @@ type AlertService struct {
 	dispatcher    *alerting.Dispatcher
 	workerPool    *worker.Pool
 	encryptionKey string
+	digestAcc     *alerting.DeliveryDigestAccumulator
 }
 
 func NewAlertService(queries *database.Queries, workerPool *worker.Pool, encryptionKey ...string) *AlertService {
@@ -27,11 +28,78 @@ func NewAlertService(queries *database.Queries, workerPool *worker.Pool, encrypt
 	if len(encryptionKey) > 0 {
 		encKey = encryptionKey[0]
 	}
-	return &AlertService{
+	s := &AlertService{
 		queries:       queries,
 		dispatcher:    alerting.NewDispatcher(),
 		workerPool:    workerPool,
 		encryptionKey: encKey,
+	}
+
+	// Initialize digest accumulator: 2-minute window or 10 failures threshold
+	s.digestAcc = alerting.NewDeliveryDigestAccumulator(2*time.Minute, 10, func(ctx context.Context, payload alerting.DeliveryAlertPayload) {
+		s.dispatchDeliveryAlertToChannels(ctx, payload)
+	})
+
+	return s
+}
+
+// RecordDeliveryFailure routes critical non-retryable errors instantly, and aggregates transient 5xx into digests
+func (s *AlertService) RecordDeliveryFailure(projectID, projectName, endpointID, endpointName, targetURL string, statusCode int, errMsg string, isDLQ bool) {
+	// Instant Critical: 401 Unauthorized, 403 Forbidden, 404 Not Found, or DLQ final exhaustion
+	if statusCode == 401 || statusCode == 403 || statusCode == 404 || isDLQ {
+		epPrefix := endpointID
+		if len(epPrefix) > 8 {
+			epPrefix = epPrefix[:8]
+		}
+		payload := alerting.DeliveryAlertPayload{
+			EventID:        fmt.Sprintf("crit-%s-%d", epPrefix, time.Now().UnixNano()),
+			ProjectID:      projectID,
+			ProjectName:    projectName,
+			EndpointID:     endpointID,
+			EndpointName:   endpointName,
+			TargetURL:      targetURL,
+			AlertKind:      "INSTANT_CRITICAL",
+			StatusCode:     statusCode,
+			ErrorType:      "DELIVERY_CRITICAL_HALT",
+			ErrorMessage:   errMsg,
+			TotalFailures:  1,
+			WindowDuration: "instant",
+			Timestamp:      time.Now().Format(time.RFC3339),
+		}
+
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			s.dispatchDeliveryAlertToChannels(ctx, payload)
+		}()
+		return
+	}
+
+	// Transient 5xx / Timeouts -> Accumulate in Anti-Spam Digest Window
+	if s.digestAcc != nil {
+		s.digestAcc.RecordFailure(projectID, projectName, endpointID, endpointName, targetURL, statusCode, errMsg)
+	}
+}
+
+func (s *AlertService) dispatchDeliveryAlertToChannels(ctx context.Context, payload alerting.DeliveryAlertPayload) {
+	projUUID, err := uuid.Parse(payload.ProjectID)
+	if err != nil {
+		return
+	}
+
+	channels, err := s.queries.ListAlertChannelsByProject(ctx, pgtype.UUID{Bytes: projUUID, Valid: true})
+	if err != nil || len(channels) == 0 {
+		return
+	}
+
+	for _, ch := range channels {
+		if !ch.IsEnabled {
+			continue
+		}
+		targetURL := s.resolveChannelURL(ch)
+		if err := s.dispatcher.DispatchDeliveryAlert(ctx, alerting.ChannelType(ch.ChannelType), targetURL, payload); err != nil {
+			log.Warn().Err(err).Str("channel", ch.Name).Msg("Failed to dispatch delivery alert")
+		}
 	}
 }
 

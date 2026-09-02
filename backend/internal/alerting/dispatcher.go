@@ -198,7 +198,7 @@ func formatDiscordEmbed(p AlertPayload) ([]byte, error) {
 	return json.Marshal(payload)
 }
 
-// formatTelegramMessage formats Telegram markdown
+// formatTelegramMessage formats Telegram markdown for security alerts
 func formatTelegramMessage(p AlertPayload) ([]byte, error) {
 	text := fmt.Sprintf(
 		"🚨 *ApiSentinel Güvenlik Uyarısı*\n\n"+
@@ -219,3 +219,151 @@ func formatTelegramMessage(p AlertPayload) ([]byte, error) {
 	}
 	return json.Marshal(payload)
 }
+
+// DispatchDeliveryAlert sends delivery failure / anomaly / digest alerts to target channel
+func (d *Dispatcher) DispatchDeliveryAlert(ctx context.Context, channelType ChannelType, webhookURL string, payload DeliveryAlertPayload) error {
+	var body []byte
+	var err error
+
+	switch channelType {
+	case ChannelSlack:
+		body, err = formatSlackDeliveryBlock(payload)
+	case ChannelDiscord:
+		body, err = formatDiscordDeliveryEmbed(payload)
+	case ChannelTelegram:
+		body, err = formatTelegramDeliveryMessage(payload)
+	default:
+		body, err = json.Marshal(payload)
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to format delivery alert payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "ApiSentinel-Delivery-Alerts/0.1.0")
+
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("delivery alert dispatch failed to %s: %w", channelType, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("delivery alert endpoint returned HTTP %d", resp.StatusCode)
+	}
+
+	log.Info().
+		Str("channel", string(channelType)).
+		Str("kind", payload.AlertKind).
+		Str("endpoint", payload.EndpointName).
+		Msg("Delivery alert successfully dispatched")
+
+	return nil
+}
+
+func formatSlackDeliveryBlock(p DeliveryAlertPayload) ([]byte, error) {
+	emoji := "⚠️"
+	headerText := fmt.Sprintf("%s Webhook Teslimat Arızası: %s", emoji, p.EndpointName)
+	if p.AlertKind == "INSTANT_CRITICAL" {
+		emoji = "🔥"
+		headerText = fmt.Sprintf("%s KRİTİK Webhook İletim Engeli: %s (HTTP %d)", emoji, p.EndpointName, p.StatusCode)
+	} else if p.AlertKind == "DIGEST_SUMMARY" {
+		emoji = "📊"
+		headerText = fmt.Sprintf("%s Webhook Teslimat Hata Özeti (%d Başarısızlık / %s)", emoji, p.TotalFailures, p.WindowDuration)
+	}
+
+	blocks := map[string]interface{}{
+		"blocks": []map[string]interface{}{
+			{
+				"type": "header",
+				"text": map[string]string{
+					"type":  "plain_text",
+					"text":  headerText,
+					"emoji": "true",
+				},
+			},
+			{
+				"type": "section",
+				"fields": []map[string]string{
+					{"type": "mrkdwn", "text": fmt.Sprintf("*Proje:*\n%s", p.ProjectName)},
+					{"type": "mrkdwn", "text": fmt.Sprintf("*Endpoint:*\n%s", p.EndpointName)},
+					{"type": "mrkdwn", "text": fmt.Sprintf("*Hedef URL:*\n`%s`", p.TargetURL)},
+					{"type": "mrkdwn", "text": fmt.Sprintf("*HTTP Kodu:*\n`%d`", p.StatusCode)},
+				},
+			},
+			{
+				"type": "section",
+				"text": map[string]string{
+					"type": "mrkdwn",
+					"text": fmt.Sprintf("*Hata Detayı:* %s", p.ErrorMessage),
+				},
+			},
+			{
+				"type": "context",
+				"elements": []map[string]string{
+					{"type": "mrkdwn", "text": fmt.Sprintf("🛡️ ApiSentinel Delivery Engine • %s", p.Timestamp)},
+				},
+			},
+		},
+	}
+	return json.Marshal(blocks)
+}
+
+func formatDiscordDeliveryEmbed(p DeliveryAlertPayload) ([]byte, error) {
+	color := 0xf59e0b // Amber
+	if p.AlertKind == "INSTANT_CRITICAL" {
+		color = 0xef4444 // Red
+	}
+
+	title := fmt.Sprintf("⚠️ Webhook Teslimat Uyarısı: %s", p.EndpointName)
+	if p.AlertKind == "DIGEST_SUMMARY" {
+		title = fmt.Sprintf("📊 Webhook Hata Özeti: %d Başarısız İletim (%s)", p.TotalFailures, p.WindowDuration)
+	}
+
+	payload := map[string]interface{}{
+		"username":   "ApiSentinel Delivery Sentinel",
+		"avatar_url": "https://raw.githubusercontent.com/apisentinel/apisentinel/main/docs/logo.png",
+		"embeds": []map[string]interface{}{
+			{
+				"title":       title,
+				"description": p.ErrorMessage,
+				"color":       color,
+				"fields": []map[string]interface{}{
+					{"name": "Proje", "value": p.ProjectName, "inline": true},
+					{"name": "Endpoint", "value": p.EndpointName, "inline": true},
+					{"name": "HTTP Kodu", "value": fmt.Sprintf("`%d`", p.StatusCode), "inline": true},
+					{"name": "Hedef URL", "value": fmt.Sprintf("`%s`", p.TargetURL), "inline": false},
+				},
+				"footer": map[string]string{
+					"text": "ApiSentinel Delivery Control Plane",
+				},
+			},
+		},
+	}
+	return json.Marshal(payload)
+}
+
+func formatTelegramDeliveryMessage(p DeliveryAlertPayload) ([]byte, error) {
+	text := fmt.Sprintf(
+		"⚠️ *ApiSentinel Teslimat Uyarısı*\n\n"+
+			"*Endpoint:* %s\n"+
+			"*Proje:* %s\n"+
+			"*HTTP Kodu:* `%d`\n"+
+			"*Hedef URL:* `%s`\n"+
+			"*Tür:* `%s`\n\n"+
+			"_%s_",
+		p.EndpointName, p.ProjectName, p.StatusCode, p.TargetURL, p.AlertKind, p.ErrorMessage,
+	)
+
+	payload := map[string]string{
+		"text":       text,
+		"parse_mode": "Markdown",
+	}
+	return json.Marshal(payload)
+}
+

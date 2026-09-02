@@ -91,6 +91,7 @@ func main() {
 	apiKeyService := service.NewAPIKeyService(queries)
 	webhookSecurityService := service.NewWebhookSecurityService(queries, encryptionKey)
 	deliveryService := service.NewDeliveryService(queries, workerPool, encryptionKey)
+	deliveryService.SetAlertService(alertService)
 	explainer := ai.NewExplainer("")
 
 	// 4. gRPC Server (Port 50051) with Token Auth Interceptor & TLS
