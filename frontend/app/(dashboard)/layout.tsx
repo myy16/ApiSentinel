@@ -29,11 +29,13 @@ import {
   Plus,
   PanelLeftClose,
   PanelLeftOpen,
+  SendHorizonal,
+  History,
 } from "lucide-react";
 
 const navItems = [
   { name: "Genel Bakış", href: "/overview", icon: LayoutDashboard },
-  { name: "Projeler", href: "/projects", icon: FolderGit2 },
+  { name: "Delivery Control", href: "/deliveries", icon: SendHorizonal },
   { name: "Endpoints", href: "/endpoints", icon: Globe },
   { name: "Canlı İstekler", href: "/requests", icon: Radio },
   { name: "Güvenlik Bulguları", href: "/security", icon: ShieldAlert },
@@ -42,6 +44,7 @@ const navItems = [
   { name: "Replay Lab", href: "/replay", icon: Repeat },
   { name: "Mock Lab", href: "/mock", icon: Sparkles },
   { name: "Sözleşmeler", href: "/contracts", icon: FileCode },
+  { name: "Audit Logları", href: "/audit", icon: History },
   { name: "Local Agent", href: "/agents", icon: Terminal },
   { name: "Ayarlar", href: "/settings", icon: Settings },
 ];

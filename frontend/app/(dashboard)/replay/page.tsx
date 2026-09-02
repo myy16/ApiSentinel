@@ -84,6 +84,7 @@ export default function ReplayPage() {
     onSuccess: (data) => {
       setLastReplayResult(data);
       queryClient.invalidateQueries({ queryKey: ["replays", activeProjectId] });
+      queryClient.invalidateQueries({ queryKey: ["audit-logs", activeProjectId] });
       setReplayError(null);
     },
     onError: (err: any) => {

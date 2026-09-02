@@ -176,3 +176,88 @@ export interface ForwardingDlq {
   lastAttemptAt: Date;
 }
 
+export type RequestState = "RECEIVED" | "VERIFIED" | "ACCEPTED" | "REJECTED_SIGNATURE" | "BLOCKED_POLICY";
+
+export type DeliveryState = "NOT_CONFIGURED" | "PENDING" | "PROCESSING" | "RETRY_WAIT" | "DELIVERED" | "DEAD_LETTER";
+
+export interface DeliveryJob {
+  id: string;
+  endpointId: string;
+  requestId: string;
+  targetUrl: string;
+  status: DeliveryState;
+  attempts: number;
+  maxRetries: number;
+  nextRetryAt: string;
+  lockedAt?: string | null;
+  lockedBy?: string | null;
+  idempotencyKey?: string | null;
+  lastError?: string | null;
+  payloadMode: PayloadMode;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string | null;
+}
+
+export interface DeliveryAttempt {
+  id: string;
+  jobId: string;
+  attemptNumber: number;
+  startedAt: string;
+  finishedAt: string;
+  latencyMs: number;
+  responseStatusCode?: number | null;
+  errorType?: string | null;
+  errorMessage?: string | null;
+  requestHeadersSent: Record<string, string>;
+  responseHeadersReceived: Record<string, string>;
+  responseBodySnippet?: string | null;
+  createdAt: string;
+}
+
+export interface DeliveryTimelineStep {
+  step: "INGEST" | "SECURITY_INSPECTION" | "ATTEMPT";
+  attempt?: number;
+  status: "COMPLETED" | "SUCCESS" | "FAILED" | "PENDING";
+  statusCode?: number;
+  latencyMs?: number;
+  error?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  timestamp?: string;
+  description: string;
+}
+
+export interface DeliveryTimelineData {
+  job: DeliveryJob;
+  request: CapturedRequest;
+  attempts: DeliveryAttempt[];
+  timeline: DeliveryTimelineStep[];
+}
+
+export interface DeliveryKPIs {
+  totalDeliveries: number;
+  delivered: number;
+  deadLetter: number;
+  pending: number;
+  retryWait: number;
+  successRate: number;
+  dlqBacklog: number;
+  timestamp: string;
+}
+
+export interface AuditLog {
+  id: string;
+  organizationId: string;
+  projectId?: string | null;
+  userId?: string | null;
+  action: string;
+  resourceType: string;
+  resourceId: string;
+  justification?: string | null;
+  ipAddress?: string | null;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+}
+
+

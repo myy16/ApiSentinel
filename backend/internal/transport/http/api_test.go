@@ -48,6 +48,7 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 	mockService := service.NewMockService(queries)
 	findingService := service.NewFindingService(queries)
 	apiKeyService := service.NewAPIKeyService(queries)
+	deliveryService := service.NewDeliveryService(queries, nil, "")
 
 	handlers := &Handlers{
 		AuthHandler:       NewAuthHandler(authService),
@@ -63,6 +64,7 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 		ForwardingHandler: NewForwardingHandler(forwardingService),
 		FindingHandler:    NewFindingHandler(findingService),
 		APIKeyHandler:     NewAPIKeyHandler(apiKeyService),
+		DeliveryHandler:   NewDeliveryHandler(queries, deliveryService),
 	}
 
 	router := SetupRouter(handlers, cfg.JWTSecret, queries, "*")
@@ -240,6 +242,66 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 
 	if w.Code != 202 {
 		t.Fatalf("Expected mock status code 202, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// 10. Fetch captured requests and trigger Replay
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", fmt.Sprintf("/api/projects/%s/requests", projectId), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("x-organization-id", orgId)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 on list requests, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var reqListRes struct {
+		Requests []struct {
+			ID string `json:"id"`
+		} `json:"requests"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &reqListRes)
+	if len(reqListRes.Requests) == 0 {
+		t.Fatalf("Expected at least 1 captured request, got 0")
+	}
+
+	// Trigger Replay
+	replayPayload, _ := json.Marshal(map[string]string{
+		"targetUrl": "https://example.com/webhook",
+	})
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("POST", fmt.Sprintf("/api/requests/%s/replay", reqListRes.Requests[0].ID), bytes.NewBuffer(replayPayload))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("x-organization-id", orgId)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 on replay execution, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// 11. Test Audit Logs Endpoint -> MUST contain the Replay Audit Log!
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", fmt.Sprintf("/api/projects/%s/audit-logs", projectId), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("x-organization-id", orgId)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 on audit logs list, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var auditRes struct {
+		AuditLogs []struct {
+			Action string `json:"action"`
+		} `json:"auditLogs"`
+		Count int `json:"count"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &auditRes)
+	if auditRes.Count == 0 || len(auditRes.AuditLogs) == 0 {
+		t.Fatalf("Expected at least 1 audit log entry after replay, got 0")
+	}
+	if auditRes.AuditLogs[0].Action != "REPLAY_LAB_EXECUTED" {
+		t.Fatalf("Expected action REPLAY_LAB_EXECUTED, got %s", auditRes.AuditLogs[0].Action)
 	}
 }
 

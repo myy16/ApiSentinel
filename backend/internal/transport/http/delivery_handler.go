@@ -154,6 +154,17 @@ func (h *DeliveryHandler) Replay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Audit Logging for Replay
+	orgID := middleware.GetOrganizationID(r.Context())
+	userID := middleware.GetUserID(r.Context())
+	endpoint, _ := h.queries.GetEndpointByIDOnly(r.Context(), job.EndpointID)
+
+	action := "REPLAY_EXECUTED"
+	justificationText := input.Justification
+	if justificationText == "" {
+		justificationText = "Delivery Control Plane üzerinden replay tetiklendi"
+	}
+
 	// Idempotency Override Protection
 	if input.OverrideIdempotency {
 		userRole := middleware.GetRole(r.Context())
@@ -165,28 +176,27 @@ func (h *DeliveryHandler) Replay(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "JUSTIFICATION_REQUIRED", "A justification is required when overriding idempotency")
 			return
 		}
-
-		// Log to audit_logs
-		orgID := middleware.GetOrganizationID(r.Context())
-		userID := middleware.GetUserID(r.Context())
-
-		metaJSON, _ := json.Marshal(map[string]interface{}{
-			"jobId":     jobIDStr,
-			"requestId": uuid.UUID(job.RequestID.Bytes).String(),
-			"override":  true,
-		})
-
-		_, _ = h.queries.CreateAuditLog(r.Context(), database.CreateAuditLogParams{
-			OrganizationID: orgID,
-			UserID:         userID,
-			Action:         "REPLAY_IDEMPOTENCY_OVERRIDDEN",
-			ResourceType:   "DELIVERY_JOB",
-			ResourceID:     jobIDStr,
-			Justification:  pgtype.Text{String: input.Justification, Valid: true},
-			IpAddress:      pgtype.Text{String: r.RemoteAddr, Valid: true},
-			Metadata:       metaJSON,
-		})
+		action = "REPLAY_IDEMPOTENCY_OVERRIDDEN"
 	}
+
+	metaJSON, _ := json.Marshal(map[string]interface{}{
+		"jobId":               jobIDStr,
+		"requestId":           uuid.UUID(job.RequestID.Bytes).String(),
+		"overrideIdempotency": input.OverrideIdempotency,
+		"targetUrl":           job.TargetUrl,
+	})
+
+	_, _ = h.queries.CreateAuditLog(r.Context(), database.CreateAuditLogParams{
+		OrganizationID: orgID,
+		ProjectID:      endpoint.ProjectID,
+		UserID:         userID,
+		Action:         action,
+		ResourceType:   "DELIVERY_JOB",
+		ResourceID:     jobIDStr,
+		Justification:  pgtype.Text{String: justificationText, Valid: true},
+		IpAddress:      pgtype.Text{String: r.RemoteAddr, Valid: true},
+		Metadata:       metaJSON,
+	})
 
 	// Requeue job to PENDING
 	requeued, err := h.queries.RequeueDeliveryJob(r.Context(), job.ID)
@@ -290,10 +300,12 @@ func (h *DeliveryHandler) ListAuditLogs(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	logs, err := h.queries.ListAuditLogsByProject(r.Context(), database.ListAuditLogsByProjectParams{
-		ProjectID: pgtype.UUID{Bytes: projUUID, Valid: true},
-		Limit:     limit,
-		Offset:    offset,
+	orgID := middleware.GetOrganizationID(r.Context())
+	logs, err := h.queries.ListAuditLogsByProjectOrOrg(r.Context(), database.ListAuditLogsByProjectOrOrgParams{
+		ProjectID:      pgtype.UUID{Bytes: projUUID, Valid: true},
+		OrganizationID: orgID,
+		Limit:          limit,
+		Offset:         offset,
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to list audit logs")

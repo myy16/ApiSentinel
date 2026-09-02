@@ -68,6 +68,7 @@ type Querier interface {
 	ListAlertChannelsByProject(ctx context.Context, projectID pgtype.UUID) ([]AlertChannel, error)
 	ListAuditLogsByOrganization(ctx context.Context, arg ListAuditLogsByOrganizationParams) ([]AuditLog, error)
 	ListAuditLogsByProject(ctx context.Context, arg ListAuditLogsByProjectParams) ([]AuditLog, error)
+	ListAuditLogsByProjectOrOrg(ctx context.Context, arg ListAuditLogsByProjectOrOrgParams) ([]AuditLog, error)
 	ListDLQRecordsByEndpoint(ctx context.Context, endpointID pgtype.UUID) ([]ForwardingDlq, error)
 	ListDeliveryAttemptsByJobID(ctx context.Context, jobID pgtype.UUID) ([]DeliveryAttempt, error)
 	ListDeliveryJobsByEndpoint(ctx context.Context, arg ListDeliveryJobsByEndpointParams) ([]DeliveryJob, error)

@@ -59,6 +59,11 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 		MaxAge:           300,
 	}))
 
+	// Root redirect to API documentation (/docs)
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/docs", http.StatusTemporaryRedirect)
+	})
+
 	// Health check
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{

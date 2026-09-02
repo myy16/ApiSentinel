@@ -158,3 +158,54 @@ func (q *Queries) ListAuditLogsByProject(ctx context.Context, arg ListAuditLogsB
 	}
 	return items, nil
 }
+
+const listAuditLogsByProjectOrOrg = `-- name: ListAuditLogsByProjectOrOrg :many
+SELECT id, organization_id, project_id, user_id, action, resource_type, resource_id, justification, ip_address, metadata, created_at FROM audit_logs
+WHERE project_id = $1 OR organization_id = $2
+ORDER BY created_at DESC
+LIMIT $3 OFFSET $4
+`
+
+type ListAuditLogsByProjectOrOrgParams struct {
+	ProjectID      pgtype.UUID `json:"project_id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	Limit          int32       `json:"limit"`
+	Offset         int32       `json:"offset"`
+}
+
+func (q *Queries) ListAuditLogsByProjectOrOrg(ctx context.Context, arg ListAuditLogsByProjectOrOrgParams) ([]AuditLog, error) {
+	rows, err := q.db.Query(ctx, listAuditLogsByProjectOrOrg,
+		arg.ProjectID,
+		arg.OrganizationID,
+		arg.Limit,
+		arg.Offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AuditLog
+	for rows.Next() {
+		var i AuditLog
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrganizationID,
+			&i.ProjectID,
+			&i.UserID,
+			&i.Action,
+			&i.ResourceType,
+			&i.ResourceID,
+			&i.Justification,
+			&i.IpAddress,
+			&i.Metadata,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

@@ -144,6 +144,34 @@ func (s *ReplayService) ExecuteReplay(ctx context.Context, sourceRequestId, targ
 		log.Error().Err(err).Msg("Failed to update replay job record")
 	}
 
+	// 7. Record to Audit Trail
+	orgID, err := s.queries.GetProjectOrganizationID(ctx, reqRecord.ProjectID)
+	if err != nil {
+		log.Warn().Err(err).Msg("Could not fetch project organization ID for audit log")
+	}
+
+	metaJSON, _ := json.Marshal(map[string]interface{}{
+		"targetUrl":      targetUrl,
+		"responseStatus": respStatus,
+		"latencyMs":      latencyMs,
+		"status":         status,
+		"replayedFrom":   "REPLAY_LAB",
+	})
+
+	_, auditErr := s.queries.CreateAuditLog(ctx, database.CreateAuditLogParams{
+		OrganizationID: orgID,
+		ProjectID:      reqRecord.ProjectID,
+		Action:         "REPLAY_LAB_EXECUTED",
+		ResourceType:   "CAPTURED_REQUEST",
+		ResourceID:     reqRecord.RequestID,
+		Justification:  pgtype.Text{String: "Manuel Replay Lab üzerinden tekrar iletildi", Valid: true},
+		IpAddress:      pgtype.Text{Valid: false},
+		Metadata:       metaJSON,
+	})
+	if auditErr != nil {
+		log.Error().Err(auditErr).Msg("Failed to write audit log in ReplayService")
+	}
+
 	return &ReplayResultResponse{
 		JobID:          jobIdStr,
 		Status:         updatedJob.Status,
