@@ -808,14 +808,25 @@ export default function EndpointsPage() {
                       )}
                     </div>
 
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                       <span>Yakalanan İstek:</span>
                       <span className="font-bold text-foreground">{endpoint.requestCount}</span>
-                      {endpoint.upstreamUrl && (
-                        <>
-                          <span>•</span>
-                          <span className="truncate max-w-xs font-mono">İletim: {endpoint.upstreamUrl}</span>
-                        </>
+                      <span>•</span>
+                      {endpoint.upstreamUrl ? (
+                        <span className="flex items-center gap-1 font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20 text-[11px] truncate max-w-xs" title={endpoint.upstreamUrl}>
+                          <Globe className="h-3 w-3 shrink-0" />
+                          <span>İletim: {endpoint.upstreamUrl}</span>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleStartEdit(endpoint)}
+                          className="flex items-center gap-1 font-sans text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-0.5 rounded-md border border-amber-500/30 text-[11px] transition cursor-pointer"
+                          title="Gelen webhook'ların iletileceği sunucu adresini (Upstream URL) tanımlayın"
+                        >
+                          <AlertCircle className="h-3 w-3 shrink-0 text-amber-400" />
+                          <span>Upstream Tanımsız (+ Ekle)</span>
+                        </button>
                       )}
                     </div>
                   </div>
@@ -880,12 +891,12 @@ export default function EndpointsPage() {
                     </Link>
 
                     <Link
-                      href="/forwarding"
+                      href={`/forwarding?endpointId=${endpoint.id}`}
                       className="flex items-center gap-1 rounded-xl border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/40 transition"
-                      title="Upstream Forwarding"
+                      title="Bu endpoint için iletim kurallarını ve DLQ'yu yönet"
                     >
                       <Share2 className="h-3.5 w-3.5 text-emerald-400" />
-                      <span>Forwarding</span>
+                      <span>İletim & Retry</span>
                     </Link>
 
                     <Link

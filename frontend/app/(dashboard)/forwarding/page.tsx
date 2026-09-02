@@ -28,6 +28,7 @@ import {
   Lock,
 } from "lucide-react";
 import { useActiveProject } from "../../../contexts/ProjectContext";
+import { useSearchParams } from "next/navigation";
 
 interface ForwardingConfig {
   id?: string;
@@ -57,6 +58,9 @@ interface DLQRecord {
 
 export default function ForwardingPage() {
   const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
+  const endpointParam = searchParams.get("endpointId");
+
   const { accessToken, organization } = useAuth();
   const { projects, activeProjectId, setActiveProjectId } = useActiveProject();
 
@@ -87,6 +91,16 @@ export default function ForwardingPage() {
   });
 
   const endpoints = endpointsData?.endpoints || [];
+
+  // Sync activeEndpointId with endpointParam if provided
+  useEffect(() => {
+    if (endpointParam && endpoints.some((e) => e.id === endpointParam)) {
+      setSelectedEndpointId(endpointParam);
+    } else if (!selectedEndpointId && endpoints.length > 0) {
+      setSelectedEndpointId(endpoints[0].id);
+    }
+  }, [endpoints, endpointParam, selectedEndpointId]);
+
   const activeEndpointId = selectedEndpointId || (endpoints[0]?.id ?? "");
 
   // 3. Fetch Forwarding Config for active endpoint

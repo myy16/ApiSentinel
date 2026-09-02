@@ -2,6 +2,7 @@ package alerting
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -9,11 +10,14 @@ import (
 
 func TestDeliveryDigestAccumulator_ThresholdFlush(t *testing.T) {
 	var dispatchedCount int32
+	var mu sync.Mutex
 	var lastPayload DeliveryAlertPayload
 
 	callback := func(ctx context.Context, p DeliveryAlertPayload) {
 		atomic.AddInt32(&dispatchedCount, 1)
+		mu.Lock()
 		lastPayload = p
+		mu.Unlock()
 	}
 
 	// Window 10s, threshold 5
@@ -38,24 +42,31 @@ func TestDeliveryDigestAccumulator_ThresholdFlush(t *testing.T) {
 		t.Fatalf("Expected exactly 1 digest flush, got %d", atomic.LoadInt32(&dispatchedCount))
 	}
 
-	if lastPayload.TotalFailures != 5 {
-		t.Errorf("Expected 5 total failures in digest payload, got %d", lastPayload.TotalFailures)
+	mu.Lock()
+	payloadCopy := lastPayload
+	mu.Unlock()
+
+	if payloadCopy.TotalFailures != 5 {
+		t.Errorf("Expected 5 total failures in digest payload, got %d", payloadCopy.TotalFailures)
 	}
-	if lastPayload.AlertKind != "DIGEST_SUMMARY" {
-		t.Errorf("Expected AlertKind DIGEST_SUMMARY, got %s", lastPayload.AlertKind)
+	if payloadCopy.AlertKind != "DIGEST_SUMMARY" {
+		t.Errorf("Expected AlertKind DIGEST_SUMMARY, got %s", payloadCopy.AlertKind)
 	}
-	if lastPayload.StatusCode != 503 {
-		t.Errorf("Expected StatusCode 503, got %d", lastPayload.StatusCode)
+	if payloadCopy.StatusCode != 503 {
+		t.Errorf("Expected StatusCode 503, got %d", payloadCopy.StatusCode)
 	}
 }
 
 func TestDeliveryDigestAccumulator_WindowExpiryFlush(t *testing.T) {
 	var dispatchedCount int32
+	var mu sync.Mutex
 	var lastPayload DeliveryAlertPayload
 
 	callback := func(ctx context.Context, p DeliveryAlertPayload) {
 		atomic.AddInt32(&dispatchedCount, 1)
+		mu.Lock()
 		lastPayload = p
+		mu.Unlock()
 	}
 
 	// Window 100ms, threshold 10
@@ -74,8 +85,12 @@ func TestDeliveryDigestAccumulator_WindowExpiryFlush(t *testing.T) {
 		t.Fatalf("Expected 1 expired window flush, got %d", atomic.LoadInt32(&dispatchedCount))
 	}
 
-	if lastPayload.TotalFailures != 3 {
-		t.Errorf("Expected 3 failures in digest payload, got %d", lastPayload.TotalFailures)
+	mu.Lock()
+	payloadCopy := lastPayload
+	mu.Unlock()
+
+	if payloadCopy.TotalFailures != 3 {
+		t.Errorf("Expected 3 failures in digest payload, got %d", payloadCopy.TotalFailures)
 	}
 }
 
