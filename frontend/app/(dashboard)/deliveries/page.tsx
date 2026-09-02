@@ -35,10 +35,12 @@ import {
   X,
   AlertOctagon,
   ArrowRight,
-  Layers,
-  ChevronRight,
   Globe,
   Loader2,
+  Stethoscope,
+  Wrench,
+  Lightbulb,
+  ExternalLink,
 } from "lucide-react";
 
 export default function DeliveriesPage() {
@@ -56,6 +58,7 @@ export default function DeliveriesPage() {
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [selectedEndpointId, setSelectedEndpointId] = useState<string>("ALL");
   const [activeAttemptTab, setActiveAttemptTab] = useState<number>(0);
+  const [copiedSnippet, setCopiedSnippet] = useState<boolean>(false);
 
   // 1. Fetch Endpoints for filter
   const { data: endpointsData } = useQuery({
@@ -491,6 +494,68 @@ export default function DeliveriesPage() {
                 </div>
               ) : timelineData ? (
                 <div className="space-y-6">
+                  {/* Smart Diagnostics & Quick Fix Card */}
+                  {timelineData.diagnostic && timelineData.diagnostic.category !== "SUCCESS" && (
+                    <div className="rounded-2xl border border-rose-500/30 bg-rose-500/5 p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Stethoscope className="h-4 w-4 text-rose-400" />
+                          <span className="text-xs font-bold text-foreground">Akıllı İletim Teşhisi</span>
+                        </div>
+                        <span
+                          className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${
+                            timelineData.diagnostic.severity === "CRITICAL"
+                              ? "bg-rose-500/20 text-rose-300 border-rose-500/40"
+                              : "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                          }`}
+                        >
+                          {timelineData.diagnostic.category}
+                        </span>
+                      </div>
+
+                      <div>
+                        <div className="text-xs font-bold text-rose-300">
+                          {timelineData.diagnostic.title}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {timelineData.diagnostic.rootCause}
+                        </p>
+                      </div>
+
+                      {/* Suggested Action Box */}
+                      <div className="rounded-xl border border-border bg-card/80 p-3 space-y-2">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+                          <Lightbulb className="h-3.5 w-3.5 text-amber-400" />
+                          <span>Önerilen Çözüm Adımı</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {timelineData.diagnostic.suggestedAction}
+                        </p>
+
+                        {timelineData.diagnostic.quickFixSnippet && (
+                          <div className="mt-2 pt-2 border-t border-border flex items-center justify-between gap-2">
+                            <code className="text-[11px] font-mono text-primary truncate">
+                              {timelineData.diagnostic.quickFixSnippet}
+                            </code>
+                            <button
+                              onClick={() => {
+                                if (timelineData?.diagnostic?.quickFixSnippet) {
+                                  navigator.clipboard.writeText(timelineData.diagnostic.quickFixSnippet);
+                                  setCopiedSnippet(true);
+                                  setTimeout(() => setCopiedSnippet(false), 2000);
+                                }
+                              }}
+                              className="px-2 py-1 rounded-lg bg-secondary hover:bg-muted text-xs font-semibold text-foreground flex items-center gap-1 shrink-0"
+                            >
+                              {copiedSnippet ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                              <span>{copiedSnippet ? "Kopyalandı" : "Kopyala"}</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Step Timeline */}
                   <div className="space-y-4">
                     <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider">

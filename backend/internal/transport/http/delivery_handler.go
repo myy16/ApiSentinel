@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -104,11 +105,22 @@ func (h *DeliveryHandler) GetTimeline(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
+	var latestDiagnostic *delivery.DiagnosticResult
 	for _, a := range attempts {
 		status := "SUCCESS"
-		if a.ResponseStatusCode.Int32 >= 400 || !a.ResponseStatusCode.Valid {
-			status = "FAILED"
+		var netErr error
+		if a.ErrorMessage.Valid && a.ErrorMessage.String != "" && (!a.ResponseStatusCode.Valid || a.ResponseStatusCode.Int32 == 0) {
+			netErr = errors.New(a.ErrorMessage.String)
 		}
+
+		diag := delivery.DiagnoseAttempt(int(a.ResponseStatusCode.Int32), netErr, job.TargetUrl, a.ResponseBodySnippet.String)
+
+		if a.ResponseStatusCode.Int32 >= 400 || !a.ResponseStatusCode.Valid || netErr != nil {
+			status = "FAILED"
+			diagCopy := diag
+			latestDiagnostic = &diagCopy
+		}
+
 		timelineSteps = append(timelineSteps, map[string]interface{}{
 			"step":        "ATTEMPT",
 			"attempt":     a.AttemptNumber,
@@ -119,14 +131,16 @@ func (h *DeliveryHandler) GetTimeline(w http.ResponseWriter, r *http.Request) {
 			"startedAt":   a.StartedAt,
 			"finishedAt":  a.FinishedAt,
 			"description": "Forwarding attempt " + strconv.Itoa(int(a.AttemptNumber)),
+			"diagnostic":  diag,
 		})
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"job":      job,
-		"request":  req,
-		"attempts": attempts,
-		"timeline": timelineSteps,
+		"job":        job,
+		"request":    req,
+		"attempts":   attempts,
+		"timeline":   timelineSteps,
+		"diagnostic": latestDiagnostic,
 	})
 }
 

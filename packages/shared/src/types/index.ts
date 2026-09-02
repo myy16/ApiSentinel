@@ -215,6 +215,16 @@ export interface DeliveryAttempt {
   createdAt: string;
 }
 
+export interface DiagnosticResult {
+  category: string;
+  severity: "CRITICAL" | "WARNING" | "INFO";
+  title: string;
+  rootCause: string;
+  suggestedAction: string;
+  quickFixSnippet?: string;
+  docLink?: string;
+}
+
 export interface DeliveryTimelineStep {
   step: "INGEST" | "SECURITY_INSPECTION" | "ATTEMPT";
   attempt?: number;
@@ -226,6 +236,7 @@ export interface DeliveryTimelineStep {
   finishedAt?: string;
   timestamp?: string;
   description: string;
+  diagnostic?: DiagnosticResult;
 }
 
 export interface DeliveryTimelineData {
@@ -233,6 +244,7 @@ export interface DeliveryTimelineData {
   request: CapturedRequest;
   attempts: DeliveryAttempt[];
   timeline: DeliveryTimelineStep[];
+  diagnostic?: DiagnosticResult;
 }
 
 export interface DeliveryKPIs {
