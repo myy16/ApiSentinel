@@ -44,6 +44,8 @@ func Verify(provider Provider, secret string, rawBody []byte, headers map[string
 		return verifyGitHub(secret, rawBody, headers)
 	case ProviderShopify:
 		return verifyShopify(secret, rawBody, headers)
+	case ProviderIyzico:
+		return verifyIyzico(secret, rawBody, headers)
 	default:
 		return verifyGeneric(secret, rawBody, headers)
 	}

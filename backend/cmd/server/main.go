@@ -120,6 +120,7 @@ func main() {
 		AgentHandler:           transporthttp.NewAgentHandler(grpcServer),
 		WebhookSecurityHandler: transporthttp.NewWebhookSecurityHandler(webhookSecurityService),
 		DeliveryHandler:        transporthttp.NewDeliveryHandler(queries, deliveryService),
+		TemplateHandler:        transporthttp.NewTemplateHandler(),
 	}
 
 	router := transporthttp.SetupRouter(handlers, cfg.JWTSecret, queries, cfg.CORSOrigin)

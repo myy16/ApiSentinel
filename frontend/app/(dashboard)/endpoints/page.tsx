@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../../hooks/useAuth";
 import { apiFetch } from "../../../lib/api";
-import { Project, Endpoint, EndpointMode } from "@apisentinel/shared";
+import { Project, Endpoint, EndpointMode, ProviderTemplate } from "@apisentinel/shared";
 import {
   Radio,
   Plus,
@@ -28,13 +28,20 @@ import {
   X,
   Search,
   Terminal,
+  ShieldCheck,
+  CreditCard,
+  ShoppingBag,
+  Github,
+  Code2,
+  Key,
+  CheckCircle2,
 } from "lucide-react";
 import Link from "next/link";
 import { useActiveProject } from "../../../contexts/ProjectContext";
 
 interface WebhookSecurityConfig {
   endpointId: string;
-  provider: "stripe" | "github" | "shopify" | "generic";
+  provider: "stripe" | "iyzico" | "github" | "shopify" | "generic";
   requireSignature: boolean;
   configured: boolean;
   updatedAt: string;
@@ -52,11 +59,13 @@ export default function EndpointsPage() {
   const [testStatus, setTestStatus] = useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Create Form state
-  const [name, setName] = useState("");
-  const [slug, setSlug] = useState("");
+  // Create Form state & Provider-First template
+  const [selectedProvider, setSelectedProvider] = useState<string>("STRIPE");
+  const [name, setName] = useState("Stripe Ödeme Webhook'u");
+  const [slug, setSlug] = useState("stripe-payments");
   const [mode, setMode] = useState<EndpointMode>(EndpointMode.PASS);
   const [upstreamUrl, setUpstreamUrl] = useState("");
+  const [createSecret, setCreateSecret] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
 
   // Edit Form state
@@ -84,20 +93,66 @@ export default function EndpointsPage() {
     enabled: !!accessToken && !!activeProjectId,
   });
 
-  // Create endpoint mutation
+  // Fetch Provider Templates
+  const { data: templatesData } = useQuery({
+    queryKey: ["providerTemplates"],
+    queryFn: () =>
+      apiFetch<{ providers: ProviderTemplate[] }>("/api/templates/providers", {
+        token: accessToken,
+        organizationId: organization?.id,
+      }),
+    enabled: !!accessToken,
+  });
+
+  const templates = templatesData?.providers || [];
+
+  // Create endpoint mutation (with instant Webhook Security setup)
   const createMutation = useMutation({
-    mutationFn: (input: { name: string; slug?: string; mode: EndpointMode; upstreamUrl?: string }) =>
-      apiFetch<Endpoint>(`/api/projects/${activeProjectId}/endpoints`, {
+    mutationFn: async (input: {
+      name: string;
+      slug?: string;
+      mode: EndpointMode;
+      upstreamUrl?: string;
+      provider?: string;
+      secret?: string;
+    }) => {
+      const ep = await apiFetch<Endpoint>(`/api/projects/${activeProjectId}/endpoints`, {
         method: "POST",
         token: accessToken,
         organizationId: organization?.id,
-        body: JSON.stringify(input),
-      }),
+        body: JSON.stringify({
+          name: input.name,
+          slug: input.slug,
+          mode: input.mode,
+          upstreamUrl: input.upstreamUrl || undefined,
+        }),
+      });
+
+      if (input.secret && input.secret.trim()) {
+        try {
+          await apiFetch(`/api/endpoints/${ep.id}/webhook-security`, {
+            method: "PUT",
+            token: accessToken,
+            organizationId: organization?.id,
+            body: JSON.stringify({
+              provider: (input.provider || "generic").toLowerCase(),
+              secret: input.secret.trim(),
+              requireSignature: true,
+            }),
+          });
+        } catch (secErr) {
+          console.warn("Failed to set webhook security on create:", secErr);
+        }
+      }
+
+      return ep;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["endpoints", activeProjectId] });
-      setName("");
-      setSlug("");
+      setName("Stripe Ödeme Webhook'u");
+      setSlug("stripe-payments");
       setUpstreamUrl("");
+      setCreateSecret("");
       setMode(EndpointMode.PASS);
       setIsCreateOpen(false);
       setCreateError(null);
@@ -200,6 +255,8 @@ export default function EndpointsPage() {
       slug: slug.trim() || undefined,
       mode,
       upstreamUrl: upstreamUrl.trim() || undefined,
+      provider: selectedProvider,
+      secret: createSecret,
     });
   };
 
@@ -364,7 +421,68 @@ export default function EndpointsPage() {
             </div>
           )}
 
-          <form onSubmit={handleCreate} className="space-y-4">
+          <form onSubmit={handleCreate} className="space-y-5">
+            {/* 1. Provider Template Selection Cards */}
+            <div className="space-y-2">
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                1. Webhook Sağlayıcı Şablonu Seçin (1-Click Entegrasyon)
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                {[
+                  { id: "STRIPE", name: "Stripe", icon: CreditCard, header: "Stripe-Signature", color: "text-indigo-400 bg-indigo-500/10 border-indigo-500/30" },
+                  { id: "IYZICO", name: "iyzico", icon: ShoppingBag, header: "X-IYZ-SIGNATURE", color: "text-blue-400 bg-blue-500/10 border-blue-500/30" },
+                  { id: "GITHUB", name: "GitHub", icon: Github, header: "X-Hub-Signature-256", color: "text-slate-300 bg-slate-500/10 border-slate-500/30" },
+                  { id: "SHOPIFY", name: "Shopify", icon: ShoppingBag, header: "X-Shopify-Hmac-Sha256", color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/30" },
+                  { id: "GENERIC", name: "Özel HMAC", icon: Code2, header: "X-Signature", color: "text-purple-400 bg-purple-500/10 border-purple-500/30" },
+                ].map((p) => {
+                  const isSelected = selectedProvider === p.id;
+                  const Icon = p.icon;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedProvider(p.id);
+                        if (p.id === "STRIPE") {
+                          setName("Stripe Ödeme Webhook'u");
+                          setSlug("stripe-payments");
+                        } else if (p.id === "IYZICO") {
+                          setName("iyzico Ödeme Bildirimi");
+                          setSlug("iyzico-checkout");
+                        } else if (p.id === "GITHUB") {
+                          setName("GitHub Webhook");
+                          setSlug("github-events");
+                        } else if (p.id === "SHOPIFY") {
+                          setName("Shopify Sipariş Hook'u");
+                          setSlug("shopify-orders");
+                        } else {
+                          setName("Özel HMAC Webhook");
+                          setSlug("custom-webhook");
+                        }
+                      }}
+                      className={`p-3 rounded-xl border text-left transition flex flex-col justify-between gap-2 ${
+                        isSelected
+                          ? "border-primary bg-primary/10 shadow-sm ring-1 ring-primary"
+                          : "border-border bg-card/60 hover:bg-muted/40"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <Icon className="h-4 w-4 text-foreground" />
+                        {isSelected && <CheckCircle2 className="h-3.5 w-3.5 text-primary" />}
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-foreground">{p.name}</div>
+                        <div className="text-[10px] font-mono text-muted-foreground truncate" title={p.header}>
+                          {p.header}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 2. Basic Configuration */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
@@ -397,26 +515,36 @@ export default function EndpointsPage() {
               </div>
             </div>
 
+            {/* 3. Signing Secret & Upstream URL */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
-                  Çalışma Modu
+                  Webhook İmza Secret'ı (Opsiyonel / Anında Koruma)
                 </label>
-                <select
-                  value={mode}
-                  onChange={(e) => setMode(e.target.value as EndpointMode)}
-                  className="w-full rounded-xl border border-input bg-background/50 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                >
-                  <option value={EndpointMode.PASS}>PASS (Normal Güvenlik Taraması & Kaydet)</option>
-                  <option value={EndpointMode.CAPTURE_ONLY}>CAPTURE_ONLY (Sadece Kaydet, İletme)</option>
-                  <option value={EndpointMode.BLOCK}>BLOCK (Gelen Tüm İstekleri 403 ile Reddet)</option>
-                  <option value={EndpointMode.MOCK}>MOCK (Sahte Yanıt Dön)</option>
-                </select>
+                <div className="relative flex items-center">
+                  <Key className="absolute left-3 h-3.5 w-3.5 text-muted-foreground" />
+                  <input
+                    type="password"
+                    value={createSecret}
+                    onChange={(e) => setCreateSecret(e.target.value)}
+                    placeholder={
+                      selectedProvider === "STRIPE"
+                        ? "whsec_..."
+                        : selectedProvider === "IYZICO"
+                        ? "iyzico webhook secret..."
+                        : "Gizli imza anahtarınız..."
+                    }
+                    className="w-full rounded-xl border border-input bg-background/50 pl-9 pr-3 py-2 text-sm font-mono placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Girildiğinde gelen webhook istekleri HMAC doğrulaması olmadan geçirilmez.
+                </p>
               </div>
 
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
-                  Upstream URL (Opsiyonel İletim Hedefi)
+                  Upstream URL (İletim Hedefi)
                 </label>
                 <input
                   type="url"
@@ -425,7 +553,27 @@ export default function EndpointsPage() {
                   placeholder="https://api.mycompany.com/webhooks/stripe"
                   className="w-full rounded-xl border border-input bg-background/50 px-3 py-2 text-sm placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 />
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Doğrulanan istekler otomatik olarak bu sunucuya iletilir.
+                </p>
               </div>
+            </div>
+
+            {/* 4. Mode Selection */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
+                Çalışma Modu
+              </label>
+              <select
+                value={mode}
+                onChange={(e) => setMode(e.target.value as EndpointMode)}
+                className="w-full rounded-xl border border-input bg-background/50 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+              >
+                <option value={EndpointMode.PASS}>PASS (Normal Güvenlik Taraması, İmza Doğrulama & Upstream İletim)</option>
+                <option value={EndpointMode.CAPTURE_ONLY}>CAPTURE_ONLY (Sadece Kaydet, İletme)</option>
+                <option value={EndpointMode.BLOCK}>BLOCK (Gelen Tüm İstekleri 403 ile Reddet)</option>
+                <option value={EndpointMode.MOCK}>MOCK (Sahte Yanıt Dön)</option>
+              </select>
             </div>
 
             <div className="flex justify-end pt-2">

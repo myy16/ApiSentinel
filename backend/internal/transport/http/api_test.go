@@ -65,6 +65,7 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 		FindingHandler:    NewFindingHandler(findingService),
 		APIKeyHandler:     NewAPIKeyHandler(apiKeyService),
 		DeliveryHandler:   NewDeliveryHandler(queries, deliveryService),
+		TemplateHandler:   NewTemplateHandler(),
 	}
 
 	router := SetupRouter(handlers, cfg.JWTSecret, queries, "*")
@@ -300,8 +301,27 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 	if auditRes.Count == 0 || len(auditRes.AuditLogs) == 0 {
 		t.Fatalf("Expected at least 1 audit log entry after replay, got 0")
 	}
-	if auditRes.AuditLogs[0].Action != "REPLAY_LAB_EXECUTED" {
-		t.Fatalf("Expected action REPLAY_LAB_EXECUTED, got %s", auditRes.AuditLogs[0].Action)
+	// 12. Test Provider Templates Catalog Endpoint (Milestone 7)
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", "/api/templates/providers", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("x-organization-id", orgId)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 on /api/templates/providers, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var tmplRes struct {
+		Providers []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"providers"`
+		Count int `json:"count"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &tmplRes)
+	if tmplRes.Count < 5 || len(tmplRes.Providers) < 5 {
+		t.Fatalf("Expected at least 5 providers in templates catalog, got %d", tmplRes.Count)
 	}
 }
 

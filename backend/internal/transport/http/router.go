@@ -29,6 +29,7 @@ type Handlers struct {
 	AgentHandler           *AgentHandler
 	WebhookSecurityHandler *WebhookSecurityHandler
 	DeliveryHandler        *DeliveryHandler
+	TemplateHandler        *TemplateHandler
 }
 
 func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsOrigin string) *chi.Mux {
@@ -175,6 +176,11 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 			// Agent Sessions (Real gRPC connected agents)
 			if h.AgentHandler != nil {
 				protected.With(tenantGuard).Get("/agents/sessions", h.AgentHandler.ListSessions)
+			}
+
+			// Provider Templates Catalog (Milestone 7)
+			if h.TemplateHandler != nil {
+				protected.Get("/templates/providers", h.TemplateHandler.ListProviders)
 			}
 		})
 	})

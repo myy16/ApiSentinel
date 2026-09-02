@@ -260,4 +260,18 @@ export interface AuditLog {
   createdAt: string;
 }
 
+export interface ProviderTemplate {
+  id: string;
+  name: string;
+  description: string;
+  docsUrl: string;
+  signatureHeader: string;
+  algorithm: string;
+  encoding: string;
+  defaultToleranceSeconds: number;
+  samplePayload: string;
+  sampleHeaders: Record<string, string>;
+}
+
+
 
