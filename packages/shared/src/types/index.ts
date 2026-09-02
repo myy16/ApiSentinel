@@ -285,5 +285,17 @@ export interface ProviderTemplate {
   sampleHeaders: Record<string, string>;
 }
 
+export interface SchemaBaseline {
+  id: string;
+  endpointId: string;
+  version: number;
+  schemaJson: Record<string, unknown> | string;
+  source: "OPENAPI" | "INFERRED_PAYLOAD" | "MANUAL";
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+
 
 

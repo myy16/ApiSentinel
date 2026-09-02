@@ -66,6 +66,7 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 		APIKeyHandler:     NewAPIKeyHandler(apiKeyService),
 		DeliveryHandler:   NewDeliveryHandler(queries, deliveryService),
 		TemplateHandler:   NewTemplateHandler(),
+		SchemaHandler:     NewSchemaHandler(queries),
 	}
 
 	router := SetupRouter(handlers, cfg.JWTSecret, queries, "*")
@@ -125,6 +126,12 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("Expected 201 on endpoint create, got %d: %s", w.Code, w.Body.String())
 	}
+
+	var epRes struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &epRes)
+	endpointId := epRes.ID
 
 	// 4. Send Clean Webhook to /hook/{slug}
 	hookPayload := []byte(`{"event":"order.completed","amount":9900,"customer":{"email":"customer@test.com"}}`)
@@ -322,6 +329,48 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &tmplRes)
 	if tmplRes.Count < 5 || len(tmplRes.Providers) < 5 {
 		t.Fatalf("Expected at least 5 providers in templates catalog, got %d", tmplRes.Count)
+	}
+
+	// 13. Test Schema Baseline Infer & List Endpoints (Milestone 9)
+	inferReqBody, _ := json.Marshal(map[string]interface{}{
+		"payload":  `{"event_id":"evt_001","amount":1500,"customer":{"email":"user@test.com"}}`,
+		"activate": true,
+	})
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("POST", fmt.Sprintf("/api/endpoints/%s/schemas/infer", endpointId), bytes.NewReader(inferReqBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("x-organization-id", orgId)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("Expected 201 on /schemas/infer, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// 14. List Schema Baselines
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", fmt.Sprintf("/api/endpoints/%s/schemas", endpointId), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("x-organization-id", orgId)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 on /schemas, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var schemaListRes struct {
+		Baselines []struct {
+			ID      string `json:"id"`
+			Version int    `json:"version"`
+			Source  string `json:"source"`
+		} `json:"baselines"`
+		Count int `json:"count"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &schemaListRes)
+	if schemaListRes.Count == 0 || len(schemaListRes.Baselines) == 0 {
+		t.Fatalf("Expected at least 1 schema baseline entry, got 0")
+	}
+	if schemaListRes.Baselines[0].Source != "INFERRED_PAYLOAD" {
+		t.Fatalf("Expected source INFERRED_PAYLOAD, got %s", schemaListRes.Baselines[0].Source)
 	}
 }
 

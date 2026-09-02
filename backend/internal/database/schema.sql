@@ -319,4 +319,20 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 CREATE INDEX IF NOT EXISTS idx_audit_logs_org_created ON audit_logs(organization_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_project_created ON audit_logs(project_id, created_at DESC);
 
+-- 22. Schema Baselines (Versioned Contracts and OpenAPI Baselines)
+CREATE TABLE IF NOT EXISTS schema_baselines (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    endpoint_id UUID NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,
+    version INT NOT NULL DEFAULT 1,
+    schema_json JSONB NOT NULL,
+    source VARCHAR(50) NOT NULL DEFAULT 'MANUAL',
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_endpoint_version UNIQUE (endpoint_id, version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_schema_baselines_endpoint ON schema_baselines (endpoint_id, is_active);
+
+
 

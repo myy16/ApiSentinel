@@ -30,6 +30,7 @@ type Handlers struct {
 	WebhookSecurityHandler *WebhookSecurityHandler
 	DeliveryHandler        *DeliveryHandler
 	TemplateHandler        *TemplateHandler
+	SchemaHandler          *SchemaHandler
 }
 
 func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsOrigin string) *chi.Mux {
@@ -181,6 +182,16 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 			// Provider Templates Catalog (Milestone 7)
 			if h.TemplateHandler != nil {
 				protected.Get("/templates/providers", h.TemplateHandler.ListProviders)
+			}
+
+			// Schema Baselines & Contracts (Milestone 9)
+			if h.SchemaHandler != nil {
+				protected.With(tenantGuard, endpointGuard).Get("/endpoints/{endpointId}/schemas", h.SchemaHandler.ListBaselines)
+				protected.With(tenantGuard, endpointGuard).Get("/endpoints/{endpointId}/schemas/active", h.SchemaHandler.GetActiveBaseline)
+				protected.With(tenantGuard, endpointGuard, requireDeveloper).Post("/endpoints/{endpointId}/schemas", h.SchemaHandler.SaveManual)
+				protected.With(tenantGuard, endpointGuard, requireDeveloper).Post("/endpoints/{endpointId}/schemas/infer", h.SchemaHandler.InferBaseline)
+				protected.With(tenantGuard, endpointGuard, requireDeveloper).Post("/endpoints/{endpointId}/schemas/openapi", h.SchemaHandler.ImportOpenAPI)
+				protected.With(tenantGuard, endpointGuard, requireDeveloper).Put("/endpoints/{endpointId}/schemas/{schemaId}/activate", h.SchemaHandler.ActivateBaseline)
 			}
 		})
 	})

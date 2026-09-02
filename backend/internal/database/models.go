@@ -243,6 +243,17 @@ type Rule struct {
 	Configuration []byte      `json:"configuration"`
 }
 
+type SchemaBaseline struct {
+	ID         pgtype.UUID        `json:"id"`
+	EndpointID pgtype.UUID        `json:"endpoint_id"`
+	Version    int32              `json:"version"`
+	SchemaJson []byte             `json:"schema_json"`
+	Source     string             `json:"source"`
+	IsActive   bool               `json:"is_active"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
 type SecurityFinding struct {
 	ID             pgtype.UUID        `json:"id"`
 	RequestID      pgtype.UUID        `json:"request_id"`

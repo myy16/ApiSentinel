@@ -11,6 +11,7 @@ import (
 )
 
 type Querier interface {
+	ActivateSchemaBaseline(ctx context.Context, arg ActivateSchemaBaselineParams) (SchemaBaseline, error)
 	ClaimPendingDeliveryJobs(ctx context.Context, arg ClaimPendingDeliveryJobsParams) ([]DeliveryJob, error)
 	ClaimPendingOutboxJobs(ctx context.Context, arg ClaimPendingOutboxJobsParams) ([]ForwardingDlq, error)
 	CompleteDeliveryJob(ctx context.Context, id pgtype.UUID) (DeliveryJob, error)
@@ -29,8 +30,10 @@ type Querier interface {
 	CreateOutboxJob(ctx context.Context, arg CreateOutboxJobParams) (ForwardingDlq, error)
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
 	CreateReplayJob(ctx context.Context, arg CreateReplayJobParams) (ReplayJob, error)
+	CreateSchemaBaseline(ctx context.Context, arg CreateSchemaBaselineParams) (SchemaBaseline, error)
 	CreateSecurityFinding(ctx context.Context, arg CreateSecurityFindingParams) (SecurityFinding, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error)
+	DeactivateAllSchemaBaselines(ctx context.Context, endpointID pgtype.UUID) error
 	DeleteAPIKey(ctx context.Context, arg DeleteAPIKeyParams) error
 	DeleteAlertChannel(ctx context.Context, id pgtype.UUID) error
 	DeleteDLQRecordsByEndpoint(ctx context.Context, endpointID pgtype.UUID) error
@@ -42,6 +45,7 @@ type Querier interface {
 	FailDeliveryJob(ctx context.Context, arg FailDeliveryJobParams) (DeliveryJob, error)
 	FailOutboxJob(ctx context.Context, arg FailOutboxJobParams) (ForwardingDlq, error)
 	GetAPIKeyByPrefixAndHash(ctx context.Context, arg GetAPIKeyByPrefixAndHashParams) (ApiKey, error)
+	GetActiveSchemaBaseline(ctx context.Context, endpointID pgtype.UUID) (SchemaBaseline, error)
 	GetAgentScanByIdempotencyKey(ctx context.Context, arg GetAgentScanByIdempotencyKeyParams) (AgentScan, error)
 	GetAlertChannelByID(ctx context.Context, id pgtype.UUID) (AlertChannel, error)
 	GetCapturedRequestByID(ctx context.Context, id pgtype.UUID) (GetCapturedRequestByIDRow, error)
@@ -58,6 +62,7 @@ type Querier interface {
 	GetForwardingConfigByEndpoint(ctx context.Context, endpointID pgtype.UUID) (ForwardingConfig, error)
 	GetMatchingMockRule(ctx context.Context, endpointID pgtype.UUID) (MockRule, error)
 	GetMembership(ctx context.Context, arg GetMembershipParams) (Membership, error)
+	GetNextSchemaVersion(ctx context.Context, endpointID pgtype.UUID) (int32, error)
 	GetOrganizationByID(ctx context.Context, id pgtype.UUID) (Organization, error)
 	GetProjectByID(ctx context.Context, arg GetProjectByIDParams) (Project, error)
 	GetProjectOrganizationID(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error)
@@ -79,6 +84,7 @@ type Querier interface {
 	ListReplayJobsByProject(ctx context.Context, arg ListReplayJobsByProjectParams) ([]ListReplayJobsByProjectRow, error)
 	ListRequestsByEndpoint(ctx context.Context, arg ListRequestsByEndpointParams) ([]CapturedRequest, error)
 	ListRequestsByProject(ctx context.Context, arg ListRequestsByProjectParams) ([]ListRequestsByProjectRow, error)
+	ListSchemaBaselinesByEndpoint(ctx context.Context, endpointID pgtype.UUID) ([]SchemaBaseline, error)
 	ListUserMemberships(ctx context.Context, userID pgtype.UUID) ([]ListUserMembershipsRow, error)
 	RecordDeliveryAttempt(ctx context.Context, arg RecordDeliveryAttemptParams) (DeliveryAttempt, error)
 	RecoverStaleDeliveryJobs(ctx context.Context) error

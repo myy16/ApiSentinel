@@ -121,6 +121,7 @@ func main() {
 		WebhookSecurityHandler: transporthttp.NewWebhookSecurityHandler(webhookSecurityService),
 		DeliveryHandler:        transporthttp.NewDeliveryHandler(queries, deliveryService),
 		TemplateHandler:        transporthttp.NewTemplateHandler(),
+		SchemaHandler:          transporthttp.NewSchemaHandler(queries),
 	}
 
 	router := transporthttp.SetupRouter(handlers, cfg.JWTSecret, queries, cfg.CORSOrigin)
