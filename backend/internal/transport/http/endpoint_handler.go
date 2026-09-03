@@ -17,10 +17,13 @@ func NewEndpointHandler(endpointService *service.EndpointService) *EndpointHandl
 }
 
 type CreateEndpointRequest struct {
-	Name        string  `json:"name"`
-	Slug        string  `json:"slug"`
-	Mode        string  `json:"mode"`
-	UpstreamURL *string `json:"upstreamUrl"`
+	Name                string  `json:"name"`
+	Slug                string  `json:"slug"`
+	Mode                string  `json:"mode"`
+	UpstreamURL         *string `json:"upstreamUrl"`
+	MaxPayloadSizeBytes int32   `json:"maxPayloadSizeBytes"`
+	RateLimitRpm        int32   `json:"rateLimitRpm"`
+	BurstThreshold      int32   `json:"burstThreshold"`
 }
 
 func (h *EndpointHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -45,7 +48,16 @@ func (h *EndpointHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ep, err := h.endpointService.CreateEndpoint(r.Context(), projectId, req.Name, req.Slug, req.Mode, req.UpstreamURL)
+	ep, err := h.endpointService.CreateEndpoint(r.Context(), service.CreateEndpointInput{
+		ProjectID:           projectId,
+		Name:                req.Name,
+		Slug:                req.Slug,
+		Mode:                req.Mode,
+		UpstreamURL:         req.UpstreamURL,
+		MaxPayloadSizeBytes: req.MaxPayloadSizeBytes,
+		RateLimitRpm:        req.RateLimitRpm,
+		BurstThreshold:      req.BurstThreshold,
+	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "SLUG_EXISTS", err.Error())
 		return
@@ -55,10 +67,13 @@ func (h *EndpointHandler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 type UpdateEndpointRequest struct {
-	Name        string  `json:"name"`
-	Mode        string  `json:"mode"`
-	IsActive    *bool   `json:"isActive"`
-	UpstreamURL *string `json:"upstreamUrl"`
+	Name                string  `json:"name"`
+	Mode                string  `json:"mode"`
+	IsActive            *bool   `json:"isActive"`
+	UpstreamURL         *string `json:"upstreamUrl"`
+	MaxPayloadSizeBytes *int32  `json:"maxPayloadSizeBytes"`
+	RateLimitRpm        *int32  `json:"rateLimitRpm"`
+	BurstThreshold      *int32  `json:"burstThreshold"`
 }
 
 func (h *EndpointHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +86,17 @@ func (h *EndpointHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ep, err := h.endpointService.UpdateEndpoint(r.Context(), endpointId, projectId, req.Name, req.Mode, req.IsActive, req.UpstreamURL)
+	ep, err := h.endpointService.UpdateEndpoint(r.Context(), service.UpdateEndpointInput{
+		EndpointID:          endpointId,
+		ProjectID:           projectId,
+		Name:                req.Name,
+		Mode:                req.Mode,
+		IsActive:            req.IsActive,
+		UpstreamURL:         req.UpstreamURL,
+		MaxPayloadSizeBytes: req.MaxPayloadSizeBytes,
+		RateLimitRpm:        req.RateLimitRpm,
+		BurstThreshold:      req.BurstThreshold,
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
 		return

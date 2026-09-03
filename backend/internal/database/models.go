@@ -123,14 +123,17 @@ type DeliveryJob struct {
 }
 
 type Endpoint struct {
-	ID          pgtype.UUID        `json:"id"`
-	ProjectID   pgtype.UUID        `json:"project_id"`
-	Slug        string             `json:"slug"`
-	Name        string             `json:"name"`
-	Mode        string             `json:"mode"`
-	IsActive    bool               `json:"is_active"`
-	UpstreamUrl pgtype.Text        `json:"upstream_url"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	ID                  pgtype.UUID        `json:"id"`
+	ProjectID           pgtype.UUID        `json:"project_id"`
+	Slug                string             `json:"slug"`
+	Name                string             `json:"name"`
+	Mode                string             `json:"mode"`
+	IsActive            bool               `json:"is_active"`
+	UpstreamUrl         pgtype.Text        `json:"upstream_url"`
+	MaxPayloadSizeBytes int32              `json:"max_payload_size_bytes"`
+	RateLimitRpm        int32              `json:"rate_limit_rpm"`
+	BurstThreshold      int32              `json:"burst_threshold"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 }
 
 type EndpointSchema struct {

@@ -46,6 +46,10 @@ export interface Endpoint {
   mode: EndpointMode;
   isActive: boolean;
   upstreamUrl?: string | null;
+  maxPayloadSizeBytes?: number;
+  rateLimitRpm?: number;
+  burstThreshold?: number;
+  requestCount?: number;
   createdAt: Date;
 }
 

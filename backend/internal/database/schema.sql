@@ -44,6 +44,9 @@ CREATE TABLE IF NOT EXISTS endpoints (
     mode VARCHAR(30) NOT NULL DEFAULT 'PASS',
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     upstream_url TEXT,
+    max_payload_size_bytes INT NOT NULL DEFAULT 5242880,
+    rate_limit_rpm INT NOT NULL DEFAULT 120,
+    burst_threshold INT NOT NULL DEFAULT 30,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

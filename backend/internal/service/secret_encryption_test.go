@@ -135,7 +135,12 @@ func TestSecretEncryption_ForwardingCustomHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create project: %v", err)
 	}
-	ep, err := endpointService.CreateEndpoint(ctx, proj.ID, "Payment Ingestion", fmt.Sprintf("pay-%d", time.Now().UnixNano()), "DEVELOPMENT", nil)
+	ep, err := endpointService.CreateEndpoint(ctx, CreateEndpointInput{
+		ProjectID: proj.ID,
+		Name:      "Payment Ingestion",
+		Slug:      fmt.Sprintf("pay-%d", time.Now().UnixNano()),
+		Mode:      "DEVELOPMENT",
+	})
 	if err != nil {
 		t.Fatalf("Failed to create endpoint: %v", err)
 	}

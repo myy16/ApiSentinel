@@ -65,6 +65,9 @@ export default function EndpointsPage() {
   const [slug, setSlug] = useState("stripe-payments");
   const [mode, setMode] = useState<EndpointMode>(EndpointMode.PASS);
   const [upstreamUrl, setUpstreamUrl] = useState("");
+  const [maxPayloadSize, setMaxPayloadSize] = useState<number>(5242880); // 5 MB
+  const [rateLimitRpm, setRateLimitRpm] = useState<number>(120);
+  const [burstThreshold, setBurstThreshold] = useState<number>(30);
   const [createSecret, setCreateSecret] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -72,6 +75,9 @@ export default function EndpointsPage() {
   const [editName, setEditName] = useState("");
   const [editMode, setEditMode] = useState<EndpointMode>(EndpointMode.PASS);
   const [editUpstreamUrl, setEditUpstreamUrl] = useState("");
+  const [editMaxPayloadSize, setEditMaxPayloadSize] = useState<number>(5242880);
+  const [editRateLimitRpm, setEditRateLimitRpm] = useState<number>(120);
+  const [editBurstThreshold, setEditBurstThreshold] = useState<number>(30);
   const [editIsActive, setEditIsActive] = useState(true);
   const [editError, setEditError] = useState<string | null>(null);
   const [webhookProvider, setWebhookProvider] = useState<WebhookSecurityConfig["provider"]>("stripe");
@@ -115,6 +121,9 @@ export default function EndpointsPage() {
       upstreamUrl?: string;
       provider?: string;
       secret?: string;
+      maxPayloadSizeBytes?: number;
+      rateLimitRpm?: number;
+      burstThreshold?: number;
     }) => {
       const ep = await apiFetch<Endpoint>(`/api/projects/${activeProjectId}/endpoints`, {
         method: "POST",
@@ -125,6 +134,9 @@ export default function EndpointsPage() {
           slug: input.slug,
           mode: input.mode,
           upstreamUrl: input.upstreamUrl || undefined,
+          maxPayloadSizeBytes: input.maxPayloadSizeBytes,
+          rateLimitRpm: input.rateLimitRpm,
+          burstThreshold: input.burstThreshold,
         }),
       });
 
@@ -152,6 +164,9 @@ export default function EndpointsPage() {
       setName("Stripe Ödeme Webhook'u");
       setSlug("stripe-payments");
       setUpstreamUrl("");
+      setMaxPayloadSize(5242880);
+      setRateLimitRpm(120);
+      setBurstThreshold(30);
       setCreateSecret("");
       setMode(EndpointMode.PASS);
       setIsCreateOpen(false);
@@ -164,7 +179,16 @@ export default function EndpointsPage() {
 
   // Edit endpoint mutation
   const updateMutation = useMutation({
-    mutationFn: (input: { id: string; name: string; mode: EndpointMode; isActive: boolean; upstreamUrl?: string }) =>
+    mutationFn: (input: {
+      id: string;
+      name: string;
+      mode: EndpointMode;
+      isActive: boolean;
+      upstreamUrl?: string;
+      maxPayloadSizeBytes?: number;
+      rateLimitRpm?: number;
+      burstThreshold?: number;
+    }) =>
       apiFetch<Endpoint>(`/api/projects/${activeProjectId}/endpoints/${input.id}`, {
         method: "PUT",
         token: accessToken,
@@ -174,6 +198,9 @@ export default function EndpointsPage() {
           mode: input.mode,
           isActive: input.isActive,
           upstreamUrl: input.upstreamUrl || null,
+          maxPayloadSizeBytes: input.maxPayloadSizeBytes,
+          rateLimitRpm: input.rateLimitRpm,
+          burstThreshold: input.burstThreshold,
         }),
       }),
     onSuccess: () => {
@@ -255,6 +282,9 @@ export default function EndpointsPage() {
       slug: slug.trim() || undefined,
       mode,
       upstreamUrl: upstreamUrl.trim() || undefined,
+      maxPayloadSizeBytes: maxPayloadSize,
+      rateLimitRpm,
+      burstThreshold,
       provider: selectedProvider,
       secret: createSecret,
     });
@@ -265,6 +295,9 @@ export default function EndpointsPage() {
     setEditName(ep.name);
     setEditMode(ep.mode);
     setEditUpstreamUrl(ep.upstreamUrl || "");
+    setEditMaxPayloadSize(ep.maxPayloadSizeBytes || 5242880);
+    setEditRateLimitRpm(ep.rateLimitRpm || 120);
+    setEditBurstThreshold(ep.burstThreshold || 30);
     setEditIsActive(ep.isActive);
     setEditError(null);
     setWebhookSecret("");
@@ -280,6 +313,9 @@ export default function EndpointsPage() {
       mode: editMode,
       isActive: editIsActive,
       upstreamUrl: editUpstreamUrl.trim() || undefined,
+      maxPayloadSizeBytes: editMaxPayloadSize,
+      rateLimitRpm: editRateLimitRpm,
+      burstThreshold: editBurstThreshold,
     });
   };
 
@@ -559,7 +595,61 @@ export default function EndpointsPage() {
               </div>
             </div>
 
-            {/* 4. Mode Selection */}
+            {/* 4. Traffic & Payload Protection */}
+            <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-primary" />
+                <span className="text-xs font-bold text-foreground">Trafik Hacmi & Payload Koruma Kalkanı</span>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
+                    Max Payload Boyutu
+                  </label>
+                  <select
+                    value={maxPayloadSize}
+                    onChange={(e) => setMaxPayloadSize(Number(e.target.value))}
+                    className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs font-semibold text-foreground focus:border-primary focus:outline-none"
+                  >
+                    <option value={1048576}>1 MB (Küçük Webhook'lar)</option>
+                    <option value={5242880}>5 MB (Standart Önerilen)</option>
+                    <option value={10485760}>10 MB (Geniş Payload)</option>
+                    <option value={26214400}>25 MB (Maksimum Tavan)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
+                    Hız Limiti (Dakikalık RPM)
+                  </label>
+                  <input
+                    type="number"
+                    min={10}
+                    max={10000}
+                    value={rateLimitRpm}
+                    onChange={(e) => setRateLimitRpm(Number(e.target.value))}
+                    className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs font-mono text-foreground focus:border-primary focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
+                    Ani Spike Eşiği (10 sn)
+                  </label>
+                  <input
+                    type="number"
+                    min={5}
+                    max={1000}
+                    value={burstThreshold}
+                    onChange={(e) => setBurstThreshold(Number(e.target.value))}
+                    className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs font-mono text-foreground focus:border-primary focus:outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* 5. Mode Selection */}
             <div>
               <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
                 Çalışma Modu
@@ -668,18 +758,72 @@ export default function EndpointsPage() {
                 />
               </div>
 
-              <div className="flex items-center gap-3 pt-6">
-                <input
-                  type="checkbox"
-                  id="editIsActive"
-                  checked={editIsActive}
-                  onChange={(e) => setEditIsActive(e.target.checked)}
-                  className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
-                />
-                <label htmlFor="editIsActive" className="text-xs font-semibold text-foreground cursor-pointer">
-                  Endpoint Aktif (İstek Kabul Edilsin)
-                </label>
+            {/* Traffic & Payload Protection Edit */}
+            <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-primary" />
+                <span className="text-xs font-bold text-foreground">Trafik Hacmi & Payload Koruma Ayarları</span>
               </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
+                    Max Payload Boyutu
+                  </label>
+                  <select
+                    value={editMaxPayloadSize}
+                    onChange={(e) => setEditMaxPayloadSize(Number(e.target.value))}
+                    className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs font-semibold text-foreground focus:border-primary focus:outline-none"
+                  >
+                    <option value={1048576}>1 MB</option>
+                    <option value={5242880}>5 MB (Standart)</option>
+                    <option value={10485760}>10 MB</option>
+                    <option value={26214400}>25 MB</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
+                    Hız Limiti (RPM)
+                  </label>
+                  <input
+                    type="number"
+                    min={10}
+                    max={10000}
+                    value={editRateLimitRpm}
+                    onChange={(e) => setEditRateLimitRpm(Number(e.target.value))}
+                    className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs font-mono text-foreground focus:border-primary focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
+                    Ani Spike Eşiği (10 sn)
+                  </label>
+                  <input
+                    type="number"
+                    min={5}
+                    max={1000}
+                    value={editBurstThreshold}
+                    onChange={(e) => setEditBurstThreshold(Number(e.target.value))}
+                    className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs font-mono text-foreground focus:border-primary focus:outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <input
+                type="checkbox"
+                id="editIsActive"
+                checked={editIsActive}
+                onChange={(e) => setEditIsActive(e.target.checked)}
+                className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+              />
+              <label htmlFor="editIsActive" className="text-xs font-semibold text-foreground cursor-pointer">
+                Endpoint Aktif (İstek Kabul Edilsin)
+              </label>
+            </div>
             </div>
 
             <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 space-y-3">
@@ -800,6 +944,12 @@ export default function EndpointsPage() {
                         }`}
                       >
                         MOD: {endpoint.mode}
+                      </span>
+                      <span className="rounded-full bg-muted/60 border border-border px-2 py-0.5 text-[10px] font-mono text-muted-foreground" title="Maksimum Payload Boyut Sınırı">
+                        📦 {((endpoint.maxPayloadSizeBytes || 5242880) / (1024 * 1024)).toFixed(0)} MB
+                      </span>
+                      <span className="rounded-full bg-muted/60 border border-border px-2 py-0.5 text-[10px] font-mono text-muted-foreground" title="Dakikalık Hız ve Anlık Spike Eşiği">
+                        ⚡ {endpoint.rateLimitRpm || 120} RPM / {endpoint.burstThreshold || 30} Spike
                       </span>
                       {!endpoint.isActive && (
                         <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">

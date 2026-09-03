@@ -53,7 +53,12 @@ func TestForwardingOutbox_StateMachineAndRecovery(t *testing.T) {
 		t.Fatalf("Failed to create project: %v", err)
 	}
 
-	ep, err := endpointService.CreateEndpoint(ctx, proj.ID, "Payment Hook", fmt.Sprintf("payment-hook-%d", time.Now().UnixNano()), "DEVELOPMENT", nil)
+	ep, err := endpointService.CreateEndpoint(ctx, CreateEndpointInput{
+		ProjectID: proj.ID,
+		Name:      "Payment Hook",
+		Slug:      fmt.Sprintf("payment-hook-%d", time.Now().UnixNano()),
+		Mode:      "DEVELOPMENT",
+	})
 	if err != nil {
 		t.Fatalf("Failed to create endpoint: %v", err)
 	}
@@ -179,7 +184,12 @@ func TestForwarding_PayloadModes_RedactedVsRaw(t *testing.T) {
 	proj, _ := projectService.CreateProject(ctx, authResp.Organization.ID, "Mode Proj")
 
 	// Endpoint 1: REDACTED Mode
-	epRedacted, _ := endpointService.CreateEndpoint(ctx, proj.ID, "Redacted Ep", fmt.Sprintf("redacted-%d", time.Now().UnixNano()), "DEVELOPMENT", nil)
+	epRedacted, _ := endpointService.CreateEndpoint(ctx, CreateEndpointInput{
+		ProjectID: proj.ID,
+		Name:      "Redacted Ep",
+		Slug:      fmt.Sprintf("redacted-%d", time.Now().UnixNano()),
+		Mode:      "DEVELOPMENT",
+	})
 	epRedactedUUID, _ := uuid.Parse(epRedacted.ID)
 	reqRedacted, _ := queries.CreateCapturedRequest(ctx, database.CreateCapturedRequestParams{
 		EndpointID:       pgtype.UUID{Bytes: epRedactedUUID, Valid: true},
@@ -218,7 +228,12 @@ func TestForwarding_PayloadModes_RedactedVsRaw(t *testing.T) {
 	}
 
 	// Endpoint 2: RAW Mode
-	epRaw, _ := endpointService.CreateEndpoint(ctx, proj.ID, "Raw Ep", fmt.Sprintf("raw-%d", time.Now().UnixNano()), "DEVELOPMENT", nil)
+	epRaw, _ := endpointService.CreateEndpoint(ctx, CreateEndpointInput{
+		ProjectID: proj.ID,
+		Name:      "Raw Ep",
+		Slug:      fmt.Sprintf("raw-%d", time.Now().UnixNano()),
+		Mode:      "DEVELOPMENT",
+	})
 	epRawUUID, _ := uuid.Parse(epRaw.ID)
 	reqRaw, _ := queries.CreateCapturedRequest(ctx, database.CreateCapturedRequestParams{
 		EndpointID:       pgtype.UUID{Bytes: epRawUUID, Valid: true},
@@ -291,7 +306,12 @@ func TestForwardingOutbox_ConcurrentWorkerLease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create project: %v", err)
 	}
-	ep, err := endpointService.CreateEndpoint(ctx, proj.ID, "Concur Ep", fmt.Sprintf("concur-%d", time.Now().UnixNano()), "DEVELOPMENT", nil)
+	ep, err := endpointService.CreateEndpoint(ctx, CreateEndpointInput{
+		ProjectID: proj.ID,
+		Name:      "Concur Ep",
+		Slug:      fmt.Sprintf("concur-%d", time.Now().UnixNano()),
+		Mode:      "DEVELOPMENT",
+	})
 	if err != nil {
 		t.Fatalf("Failed to create endpoint: %v", err)
 	}

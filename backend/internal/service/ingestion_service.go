@@ -109,25 +109,124 @@ func (s *IngestionService) ProcessWebhook(
 	// 2. Time-sortable K-Sortable Request ID (UUIDv7)
 	requestId := id.NewRequestID()
 
-	// 3. Rate Limit Protection (Valkey Token Bucket)
-	if s.rateLimiter != nil {
-		endpointIdStr := uuid.UUID(endpoint.ID.Bytes).String()
-		rateKey := fmt.Sprintf("%s:%s", endpointIdStr, clientIP)
-		res, _ := s.rateLimiter.Allow(ctx, rateKey, 120, time.Minute)
-		if !res.Allowed {
-			return &IngestionResult{
-				StatusCode: http.StatusTooManyRequests,
-				RequestID:  requestId,
-				Action:     "BLOCK",
-				ResponseBody: map[string]interface{}{
-					"error": map[string]interface{}{
-						"code":      "RATE_LIMIT_EXCEEDED",
-						"message":   "Too many requests. Rate limit exceeded (120 req/min).",
-						"requestId": requestId,
-					},
+	// 3. Payload Size Guard (Configurable per Endpoint)
+	maxPayloadBytes := int(endpoint.MaxPayloadSizeBytes)
+	if maxPayloadBytes <= 0 {
+		maxPayloadBytes = 5242880 // 5 MB default
+	}
+
+	if len(rawBody) > maxPayloadBytes {
+		go func(ep database.Endpoint, reqId string, actualSize, limitSize int, ipStr string) {
+			metaBytes, _ := json.Marshal(map[string]interface{}{
+				"actualSizeBytes": actualSize,
+				"limitSizeBytes":  limitSize,
+				"clientIp":        ipStr,
+				"slug":            ep.Slug,
+			})
+			_, _ = s.queries.CreateSecurityFinding(context.Background(), database.CreateSecurityFindingParams{
+				ProjectID:      ep.ProjectID,
+				SourceType:     "WEBHOOK",
+				Category:       "PAYLOAD_SIZE",
+				Type:           "PAYLOAD_SIZE_EXCEEDED",
+				Severity:       "HIGH",
+				Action:         "BLOCK",
+				Message:        fmt.Sprintf("Gelen payload boyutu izin verilen sınırı aştı (%d bytes > %d bytes limit)", actualSize, limitSize),
+				EvidenceMasked: pgtype.Text{String: string(metaBytes), Valid: true},
+				Confidence:     pgtype.Float8{Float64: 1.0, Valid: true},
+			})
+		}(endpoint, requestId, len(rawBody), maxPayloadBytes, clientIP)
+
+		return &IngestionResult{
+			StatusCode: http.StatusRequestEntityTooLarge,
+			RequestID:  requestId,
+			Action:     "BLOCK",
+			ResponseBody: map[string]interface{}{
+				"error": map[string]interface{}{
+					"code":            "PAYLOAD_TOO_LARGE",
+					"message":         fmt.Sprintf("Payload boyutu endpoint limitini aşıyor (%d bytes > %d bytes limit)", len(rawBody), maxPayloadBytes),
+					"actualSizeBytes": len(rawBody),
+					"limitSizeBytes":  maxPayloadBytes,
+					"requestId":       requestId,
 				},
-			}, nil
-		}
+			},
+		}, nil
+	}
+
+	// 4. Rate Limit & Spike Anomaly Protection (Valkey + In-Memory Fallback)
+	rateLimitRpm := int(endpoint.RateLimitRpm)
+	if rateLimitRpm <= 0 {
+		rateLimitRpm = 120
+	}
+	burstThreshold := int(endpoint.BurstThreshold)
+	if burstThreshold <= 0 {
+		burstThreshold = 30
+	}
+
+	if s.rateLimiter == nil {
+		s.rateLimiter = ratelimit.NewLimiter(nil)
+	}
+
+	endpointIdStr := uuid.UUID(endpoint.ID.Bytes).String()
+
+	// 4.1 Spike / Burst Anomaly Check (10-second sliding window)
+	isSpike, burstCount := s.rateLimiter.CheckSpikeAnomaly(ctx, endpointIdStr, burstThreshold, 10*time.Second)
+	if isSpike {
+		go func(ep database.Endpoint, reqId string, burstCnt, burstLim int, ipStr string) {
+			metaBytes, _ := json.Marshal(map[string]interface{}{
+				"burstCount":     burstCnt,
+				"burstThreshold": burstLim,
+				"window":         "10s",
+				"clientIp":       ipStr,
+			})
+			_, _ = s.queries.CreateSecurityFinding(context.Background(), database.CreateSecurityFindingParams{
+				ProjectID:      ep.ProjectID,
+				SourceType:     "WEBHOOK",
+				Category:       "TRAFFIC",
+				Type:           "TRAFFIC_SPIKE_DETECTED",
+				Severity:       "HIGH",
+				Action:         "LOG",
+				Message:        fmt.Sprintf("Ani trafik patlaması (Spike/DDoS) algılandı: 10 saniyede %d istek (Eşik: %d)", burstCnt, burstLim),
+				EvidenceMasked: pgtype.Text{String: string(metaBytes), Valid: true},
+				Confidence:     pgtype.Float8{Float64: 1.0, Valid: true},
+			})
+		}(endpoint, requestId, burstCount, burstThreshold, clientIP)
+	}
+
+	// 4.2 Client IP Rate Limiting (1-minute window)
+	rateKey := fmt.Sprintf("%s:%s", endpointIdStr, clientIP)
+	res, _ := s.rateLimiter.Allow(ctx, rateKey, rateLimitRpm, time.Minute)
+	if !res.Allowed {
+		go func(ep database.Endpoint, reqId string, limit int, ipStr string) {
+			metaBytes, _ := json.Marshal(map[string]interface{}{
+				"rateLimitRpm": limit,
+				"clientIp":     ipStr,
+			})
+			_, _ = s.queries.CreateSecurityFinding(context.Background(), database.CreateSecurityFindingParams{
+				ProjectID:      ep.ProjectID,
+				SourceType:     "WEBHOOK",
+				Category:       "TRAFFIC",
+				Type:           "RATE_LIMIT_EXCEEDED",
+				Severity:       "HIGH",
+				Action:         "BLOCK",
+				Message:        fmt.Sprintf("İstemci IP (%s) dakikalık istek limitini aştı (%d RPM)", ipStr, limit),
+				EvidenceMasked: pgtype.Text{String: string(metaBytes), Valid: true},
+				Confidence:     pgtype.Float8{Float64: 1.0, Valid: true},
+			})
+		}(endpoint, requestId, rateLimitRpm, clientIP)
+
+		return &IngestionResult{
+			StatusCode: http.StatusTooManyRequests,
+			RequestID:  requestId,
+			Action:     "BLOCK",
+			ResponseBody: map[string]interface{}{
+				"error": map[string]interface{}{
+					"code":         "RATE_LIMIT_EXCEEDED",
+					"message":      fmt.Sprintf("Too many requests. Rate limit exceeded (%d req/min).", rateLimitRpm),
+					"rateLimitRpm": rateLimitRpm,
+					"requestId":    requestId,
+				},
+			},
+		}, nil
 	}
 
 	// 4. Webhook HMAC Signature Verification (if provider signatures are provided)
@@ -258,7 +357,7 @@ func (s *IngestionService) ProcessWebhook(
 
 	capturedIdStr := uuid.UUID(captured.ID.Bytes).String()
 	projectIdStr := uuid.UUID(endpoint.ProjectID.Bytes).String()
-	endpointIdStr := uuid.UUID(endpoint.ID.Bytes).String()
+	endpointIdStr = uuid.UUID(endpoint.ID.Bytes).String()
 
 	// 11. Async Worker Pool Stream & SSE Publishing
 	s.dispatchAsyncEvents(capturedIdStr, projectIdStr, endpointIdStr, requestId, httpMethod, responseStatus, action)

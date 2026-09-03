@@ -12,18 +12,21 @@ import (
 )
 
 const createEndpoint = `-- name: CreateEndpoint :one
-INSERT INTO endpoints (project_id, slug, name, mode, upstream_url, is_active)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, project_id, slug, name, mode, is_active, upstream_url, created_at
+INSERT INTO endpoints (project_id, slug, name, mode, upstream_url, is_active, max_payload_size_bytes, rate_limit_rpm, burst_threshold)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING id, project_id, slug, name, mode, is_active, upstream_url, max_payload_size_bytes, rate_limit_rpm, burst_threshold, created_at
 `
 
 type CreateEndpointParams struct {
-	ProjectID   pgtype.UUID `json:"project_id"`
-	Slug        string      `json:"slug"`
-	Name        string      `json:"name"`
-	Mode        string      `json:"mode"`
-	UpstreamUrl pgtype.Text `json:"upstream_url"`
-	IsActive    bool        `json:"is_active"`
+	ProjectID           pgtype.UUID `json:"project_id"`
+	Slug                string      `json:"slug"`
+	Name                string      `json:"name"`
+	Mode                string      `json:"mode"`
+	UpstreamUrl         pgtype.Text `json:"upstream_url"`
+	IsActive            bool        `json:"is_active"`
+	MaxPayloadSizeBytes int32       `json:"max_payload_size_bytes"`
+	RateLimitRpm        int32       `json:"rate_limit_rpm"`
+	BurstThreshold      int32       `json:"burst_threshold"`
 }
 
 func (q *Queries) CreateEndpoint(ctx context.Context, arg CreateEndpointParams) (Endpoint, error) {
@@ -34,6 +37,9 @@ func (q *Queries) CreateEndpoint(ctx context.Context, arg CreateEndpointParams) 
 		arg.Mode,
 		arg.UpstreamUrl,
 		arg.IsActive,
+		arg.MaxPayloadSizeBytes,
+		arg.RateLimitRpm,
+		arg.BurstThreshold,
 	)
 	var i Endpoint
 	err := row.Scan(
@@ -44,6 +50,9 @@ func (q *Queries) CreateEndpoint(ctx context.Context, arg CreateEndpointParams) 
 		&i.Mode,
 		&i.IsActive,
 		&i.UpstreamUrl,
+		&i.MaxPayloadSizeBytes,
+		&i.RateLimitRpm,
+		&i.BurstThreshold,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -75,7 +84,7 @@ func (q *Queries) DeleteEndpointSchema(ctx context.Context, endpointID pgtype.UU
 }
 
 const getEndpointByID = `-- name: GetEndpointByID :one
-SELECT id, project_id, slug, name, mode, is_active, upstream_url, created_at
+SELECT id, project_id, slug, name, mode, is_active, upstream_url, max_payload_size_bytes, rate_limit_rpm, burst_threshold, created_at
 FROM endpoints
 WHERE id = $1 AND project_id = $2 LIMIT 1
 `
@@ -96,13 +105,16 @@ func (q *Queries) GetEndpointByID(ctx context.Context, arg GetEndpointByIDParams
 		&i.Mode,
 		&i.IsActive,
 		&i.UpstreamUrl,
+		&i.MaxPayloadSizeBytes,
+		&i.RateLimitRpm,
+		&i.BurstThreshold,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getEndpointByIDOnly = `-- name: GetEndpointByIDOnly :one
-SELECT id, project_id, slug, name, mode, is_active, upstream_url, created_at
+SELECT id, project_id, slug, name, mode, is_active, upstream_url, max_payload_size_bytes, rate_limit_rpm, burst_threshold, created_at
 FROM endpoints
 WHERE id = $1 LIMIT 1
 `
@@ -118,13 +130,16 @@ func (q *Queries) GetEndpointByIDOnly(ctx context.Context, id pgtype.UUID) (Endp
 		&i.Mode,
 		&i.IsActive,
 		&i.UpstreamUrl,
+		&i.MaxPayloadSizeBytes,
+		&i.RateLimitRpm,
+		&i.BurstThreshold,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getEndpointBySlug = `-- name: GetEndpointBySlug :one
-SELECT id, project_id, slug, name, mode, is_active, upstream_url, created_at
+SELECT id, project_id, slug, name, mode, is_active, upstream_url, max_payload_size_bytes, rate_limit_rpm, burst_threshold, created_at
 FROM endpoints
 WHERE slug = $1 LIMIT 1
 `
@@ -140,6 +155,9 @@ func (q *Queries) GetEndpointBySlug(ctx context.Context, slug string) (Endpoint,
 		&i.Mode,
 		&i.IsActive,
 		&i.UpstreamUrl,
+		&i.MaxPayloadSizeBytes,
+		&i.RateLimitRpm,
+		&i.BurstThreshold,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -191,7 +209,8 @@ func (q *Queries) GetEndpointWithOwnership(ctx context.Context, arg GetEndpointW
 }
 
 const listEndpointsByProject = `-- name: ListEndpointsByProject :many
-SELECT e.id, e.project_id, e.slug, e.name, e.mode, e.is_active, e.upstream_url, e.created_at,
+SELECT e.id, e.project_id, e.slug, e.name, e.mode, e.is_active, e.upstream_url,
+       e.max_payload_size_bytes, e.rate_limit_rpm, e.burst_threshold, e.created_at,
        COUNT(r.id)::bigint as request_count
 FROM endpoints e
 LEFT JOIN captured_requests r ON e.id = r.endpoint_id
@@ -201,15 +220,18 @@ ORDER BY e.created_at DESC
 `
 
 type ListEndpointsByProjectRow struct {
-	ID           pgtype.UUID        `json:"id"`
-	ProjectID    pgtype.UUID        `json:"project_id"`
-	Slug         string             `json:"slug"`
-	Name         string             `json:"name"`
-	Mode         string             `json:"mode"`
-	IsActive     bool               `json:"is_active"`
-	UpstreamUrl  pgtype.Text        `json:"upstream_url"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	RequestCount int64              `json:"request_count"`
+	ID                  pgtype.UUID        `json:"id"`
+	ProjectID           pgtype.UUID        `json:"project_id"`
+	Slug                string             `json:"slug"`
+	Name                string             `json:"name"`
+	Mode                string             `json:"mode"`
+	IsActive            bool               `json:"is_active"`
+	UpstreamUrl         pgtype.Text        `json:"upstream_url"`
+	MaxPayloadSizeBytes int32              `json:"max_payload_size_bytes"`
+	RateLimitRpm        int32              `json:"rate_limit_rpm"`
+	BurstThreshold      int32              `json:"burst_threshold"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	RequestCount        int64              `json:"request_count"`
 }
 
 func (q *Queries) ListEndpointsByProject(ctx context.Context, projectID pgtype.UUID) ([]ListEndpointsByProjectRow, error) {
@@ -229,6 +251,9 @@ func (q *Queries) ListEndpointsByProject(ctx context.Context, projectID pgtype.U
 			&i.Mode,
 			&i.IsActive,
 			&i.UpstreamUrl,
+			&i.MaxPayloadSizeBytes,
+			&i.RateLimitRpm,
+			&i.BurstThreshold,
 			&i.CreatedAt,
 			&i.RequestCount,
 		); err != nil {
@@ -247,18 +272,24 @@ UPDATE endpoints
 SET name = COALESCE($3, name),
     mode = COALESCE($4, mode),
     is_active = COALESCE($5, is_active),
-    upstream_url = COALESCE($6, upstream_url)
+    upstream_url = COALESCE($6, upstream_url),
+    max_payload_size_bytes = COALESCE($7, max_payload_size_bytes),
+    rate_limit_rpm = COALESCE($8, rate_limit_rpm),
+    burst_threshold = COALESCE($9, burst_threshold)
 WHERE id = $1 AND project_id = $2
-RETURNING id, project_id, slug, name, mode, is_active, upstream_url, created_at
+RETURNING id, project_id, slug, name, mode, is_active, upstream_url, max_payload_size_bytes, rate_limit_rpm, burst_threshold, created_at
 `
 
 type UpdateEndpointParams struct {
-	ID          pgtype.UUID `json:"id"`
-	ProjectID   pgtype.UUID `json:"project_id"`
-	Name        string      `json:"name"`
-	Mode        string      `json:"mode"`
-	IsActive    bool        `json:"is_active"`
-	UpstreamUrl pgtype.Text `json:"upstream_url"`
+	ID                  pgtype.UUID `json:"id"`
+	ProjectID           pgtype.UUID `json:"project_id"`
+	Name                string      `json:"name"`
+	Mode                string      `json:"mode"`
+	IsActive            bool        `json:"is_active"`
+	UpstreamUrl         pgtype.Text `json:"upstream_url"`
+	MaxPayloadSizeBytes int32       `json:"max_payload_size_bytes"`
+	RateLimitRpm        int32       `json:"rate_limit_rpm"`
+	BurstThreshold      int32       `json:"burst_threshold"`
 }
 
 func (q *Queries) UpdateEndpoint(ctx context.Context, arg UpdateEndpointParams) (Endpoint, error) {
@@ -269,6 +300,9 @@ func (q *Queries) UpdateEndpoint(ctx context.Context, arg UpdateEndpointParams) 
 		arg.Mode,
 		arg.IsActive,
 		arg.UpstreamUrl,
+		arg.MaxPayloadSizeBytes,
+		arg.RateLimitRpm,
+		arg.BurstThreshold,
 	)
 	var i Endpoint
 	err := row.Scan(
@@ -279,6 +313,9 @@ func (q *Queries) UpdateEndpoint(ctx context.Context, arg UpdateEndpointParams) 
 		&i.Mode,
 		&i.IsActive,
 		&i.UpstreamUrl,
+		&i.MaxPayloadSizeBytes,
+		&i.RateLimitRpm,
+		&i.BurstThreshold,
 		&i.CreatedAt,
 	)
 	return i, err

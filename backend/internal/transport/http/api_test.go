@@ -493,6 +493,65 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 	if len(runReport.StepResults[0].Replacements) == 0 {
 		t.Fatalf("Expected idempotency replacements in step result, got 0")
 	}
+
+	// 19. Test Traffic Controls: Payload Size (413) & Rate Limiting (429) (Milestone 13)
+	trafficSlug := fmt.Sprintf("traffic-ctrl-%d", time.Now().UnixNano())
+	trafficEpBody, _ := json.Marshal(map[string]interface{}{
+		"name":                "Traffic Shield Endpoint",
+		"slug":                trafficSlug,
+		"mode":                "PASS",
+		"maxPayloadSizeBytes": 50, // 50 bytes limit
+		"rateLimitRpm":        2,  // 2 req/min limit
+		"burstThreshold":      5,
+	})
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("POST", fmt.Sprintf("/api/projects/%s/endpoints", projectId), bytes.NewBuffer(trafficEpBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("x-organization-id", orgId)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("Expected 201 on traffic endpoint create, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// 19.1 Send oversized payload (>50 bytes) -> Must return 413 Payload Too Large
+	oversizedBody := []byte(`{"message": "this is a very long webhook payload that easily exceeds the 50 bytes limit configured on the endpoint"}`)
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("POST", "/hook/"+trafficSlug, bytes.NewBuffer(oversizedBody))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("Expected 413 Payload Too Large, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// 19.2 Send 1st valid small request (<50 bytes) -> 200 OK
+	smallBody := []byte(`{"ok": true}`)
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("POST", "/hook/"+trafficSlug, bytes.NewBuffer(smallBody))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 on 1st small request, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// 19.3 Send 2nd valid small request (<50 bytes) -> 200 OK
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("POST", "/hook/"+trafficSlug, bytes.NewBuffer(smallBody))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 on 2nd small request, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// 19.4 Send 3rd request -> Rate limit exceeded (2 RPM) -> Must return 429 Too Many Requests
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("POST", "/hook/"+trafficSlug, bytes.NewBuffer(smallBody))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("Expected 429 Too Many Requests on 3rd request, got %d: %s", w.Code, w.Body.String())
+	}
 }
 
 func init() {

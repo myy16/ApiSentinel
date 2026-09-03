@@ -9,7 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-const maxWebhookBodyBytes int64 = 5 << 20 // 5 MiB
+const maxWebhookBodyBytes int64 = 25 << 20 // 25 MiB Global Upper Ceiling
 
 type IngestionHandler struct {
 	ingestionService *service.IngestionService
@@ -30,7 +30,7 @@ func (h *IngestionHandler) HandleWebhook(w http.ResponseWriter, r *http.Request)
 	r.Body = http.MaxBytesReader(w, r.Body, maxWebhookBodyBytes)
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
-		writeError(w, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "Webhook payload exceeds the 5 MiB limit")
+		writeError(w, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "Webhook payload exceeds the server memory ceiling (25 MiB)")
 		return
 	}
 
