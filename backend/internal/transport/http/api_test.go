@@ -16,6 +16,8 @@ import (
 	"github.com/apisentinel/apisentinel/internal/config"
 	"github.com/apisentinel/apisentinel/internal/database"
 	"github.com/apisentinel/apisentinel/internal/service"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -67,7 +69,7 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 		ForwardingHandler: NewForwardingHandler(forwardingService),
 		FindingHandler:    NewFindingHandler(findingService),
 		APIKeyHandler:     NewAPIKeyHandler(apiKeyService),
-		DeliveryHandler:   NewDeliveryHandler(queries, deliveryService),
+		DeliveryHandler:   NewDeliveryHandler(queries, deliveryService, ai.NewExplainer("")),
 		TemplateHandler:   NewTemplateHandler(),
 		SchemaHandler:     NewSchemaHandler(queries),
 		TestSuiteHandler:  NewTestSuiteHandler(testSuiteService),
@@ -612,6 +614,84 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 	}
 	if strings.Contains(sanitizeRes.SanitizedText, "test@domain.com") {
 		t.Fatalf("Expected email to be sanitized in test response")
+	}
+
+	// 21. Test AI Incident & DLQ Root-Cause Assistant (Milestone 15)
+	// 21.1 Create a dummy captured request, delivery job and failed attempt
+	epUUID, _ := uuid.Parse(endpointId)
+	var pgEpUUID pgtype.UUID
+	copy(pgEpUUID.Bytes[:], epUUID[:])
+	pgEpUUID.Valid = true
+
+	capReqRow, err := queries.CreateCapturedRequest(ctx, database.CreateCapturedRequestParams{
+		EndpointID:       pgEpUUID,
+		RequestID:        fmt.Sprintf("req-inc-%d", time.Now().UnixNano()),
+		HttpMethod:       "POST",
+		Headers:          []byte(`{"Content-Type": "application/json"}`),
+		QueryParams:      []byte(`{}`),
+		RawBody:          pgtype.Text{String: `{"event": "payment_failed", "amount": 1000}`, Valid: true},
+		MaskedBody:       pgtype.Text{String: `{"event": "payment_failed", "amount": 1000}`, Valid: true},
+		ParsedJson:       []byte(`{"event": "payment_failed", "amount": 1000}`),
+		ClientIp:         nil,
+		ResponseStatus:   pgtype.Int4{Int32: 200, Valid: true},
+		ProcessingStatus: "FAILED",
+	})
+	if err != nil {
+		t.Fatalf("Failed to create captured request for test: %v", err)
+	}
+
+	dummyJob, err := queries.CreateDeliveryJob(ctx, database.CreateDeliveryJobParams{
+		EndpointID:     pgEpUUID,
+		RequestID:      capReqRow.ID,
+		TargetUrl:      "https://upstream.api.com/webhooks",
+		Status:         "DEAD_LETTER",
+		MaxRetries:     3,
+		IdempotencyKey: pgtype.Text{String: "idem-inc-1", Valid: true},
+		PayloadMode:    "RAW",
+	})
+	if err != nil {
+		t.Fatalf("Failed to create dummy delivery job: %v", err)
+	}
+
+	_, _ = queries.RecordDeliveryAttempt(ctx, database.RecordDeliveryAttemptParams{
+		JobID:                   dummyJob.ID,
+		AttemptNumber:           1,
+		StartedAt:               pgtype.Timestamptz{Time: time.Now(), Valid: true},
+		FinishedAt:              pgtype.Timestamptz{Time: time.Now().Add(50 * time.Millisecond), Valid: true},
+		LatencyMs:               50,
+		ResponseStatusCode:      pgtype.Int4{Int32: 504, Valid: true},
+		ErrorType:               pgtype.Text{String: "UPSTREAM_TIMEOUT", Valid: true},
+		ErrorMessage:            pgtype.Text{String: "Gateway Timeout: upstream server took too long to respond", Valid: true},
+		RequestHeadersSent:      []byte(`{"Content-Type": "application/json"}`),
+		ResponseHeadersReceived: []byte(`{"Content-Type": "text/html"}`),
+		ResponseBodySnippet:     pgtype.Text{String: "<html>504 Gateway Time-out</html>", Valid: true},
+	})
+
+	jobIdStr := uuid.UUID(dummyJob.ID.Bytes).String()
+
+	// 21.2 Call AI Explain API
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("POST", fmt.Sprintf("/api/deliveries/%s/ai-explain", jobIdStr), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("x-organization-id", orgId)
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 on delivery AI explain, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var incidentRes ai.IncidentAnalysis
+	json.Unmarshal(w.Body.Bytes(), &incidentRes)
+	if incidentRes.IncidentSummary == "" {
+		t.Fatalf("Expected incidentSummary in AI incident analysis")
+	}
+	if incidentRes.RootCause == "" {
+		t.Fatalf("Expected rootCause in AI incident analysis")
+	}
+	if !incidentRes.IsUpstreamFault {
+		t.Fatalf("Expected isUpstreamFault to be true for HTTP 504")
+	}
+	if len(incidentRes.ActionSteps) == 0 {
+		t.Fatalf("Expected actionSteps in AI incident analysis")
 	}
 }
 

@@ -14,6 +14,7 @@ import {
   DeliveryState,
   RequestState,
   Endpoint,
+  IncidentAnalysis,
 } from "@apisentinel/shared";
 import {
   SendHorizonal,
@@ -41,6 +42,9 @@ import {
   Wrench,
   Lightbulb,
   ExternalLink,
+  Bot,
+  Sparkles,
+  Play,
 } from "lucide-react";
 
 export default function DeliveriesPage() {
@@ -59,6 +63,8 @@ export default function DeliveriesPage() {
   const [selectedEndpointId, setSelectedEndpointId] = useState<string>("ALL");
   const [activeAttemptTab, setActiveAttemptTab] = useState<number>(0);
   const [copiedSnippet, setCopiedSnippet] = useState<boolean>(false);
+  const [aiAnalysis, setAiAnalysis] = useState<IncidentAnalysis | null>(null);
+  const [copiedCurl, setCopiedCurl] = useState<boolean>(false);
 
   // 1. Fetch Endpoints for filter
   const { data: endpointsData } = useQuery({
@@ -152,6 +158,19 @@ export default function DeliveriesPage() {
         organizationId: organization?.id,
       }),
     enabled: !!accessToken && !!selectedJobId,
+  });
+
+  // AI Incident Explainer Mutation (Milestone 15)
+  const aiExplainMutation = useMutation({
+    mutationFn: (jobId: string) =>
+      apiFetch<IncidentAnalysis>(`/api/deliveries/${jobId}/ai-explain`, {
+        method: "POST",
+        token: accessToken,
+        organizationId: organization?.id,
+      }),
+    onSuccess: (data) => {
+      setAiAnalysis(data);
+    },
   });
 
   // 6. Safe Replay Mutation
@@ -555,6 +574,113 @@ export default function DeliveriesPage() {
                       </div>
                     </div>
                   )}
+
+                  {/* AI Incident Explainer & Root-Cause Assistant (Milestone 15) */}
+                  <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Bot className="h-4 w-4 text-primary" />
+                        <span className="text-xs font-bold text-foreground">AI Kök Neden & Çözüm Asistanı</span>
+                      </div>
+                      <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20">
+                        Gizlilik Korumalı (Sanitized)
+                      </span>
+                    </div>
+
+                    {!aiAnalysis ? (
+                      <div className="flex flex-col items-center justify-center p-4 text-center space-y-2.5 bg-background/50 rounded-xl border border-border">
+                        <p className="text-xs text-muted-foreground max-w-xs">
+                          Bu iletim hatasını yapay zeka ile analiz ederek anlaşılır Türkçe kök neden ve cURL çözüm rehberi üretin.
+                        </p>
+                        <button
+                          type="button"
+                          disabled={aiExplainMutation.isPending}
+                          onClick={() => aiExplainMutation.mutate(timelineData.job.id)}
+                          className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:opacity-50"
+                        >
+                          {aiExplainMutation.isPending ? (
+                            <>
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              <span>Arıza Analiz Ediliyor...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="h-3.5 w-3.5" />
+                              <span>AI İle Kök Neden Analizi Yap</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-3 text-xs animate-in fade-in duration-150">
+                        <div className="p-3 rounded-xl bg-background/90 border border-border space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-foreground text-xs">{aiAnalysis.incidentSummary}</span>
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                                aiAnalysis.canSafelyReplay
+                                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                                  : "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                              }`}
+                            >
+                              {aiAnalysis.canSafelyReplay ? "✅ Güvenle Replay Edilebilir" : "⚠️ Önce Backend'i Düzeltin"}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground leading-relaxed">
+                            {aiAnalysis.rootCause}
+                          </p>
+                        </div>
+
+                        {/* Suggested Fix and Action Steps */}
+                        <div className="p-3 rounded-xl bg-background/90 border border-border space-y-2">
+                          <div className="flex items-center gap-1.5 font-bold text-foreground text-xs">
+                            <Lightbulb className="h-3.5 w-3.5 text-amber-400" />
+                            <span>Önerilen Çözüm Yolu</span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground">
+                            {aiAnalysis.suggestedFix}
+                          </p>
+
+                          {aiAnalysis.actionSteps && aiAnalysis.actionSteps.length > 0 && (
+                            <ul className="space-y-1 pl-4 list-decimal text-[11px] text-muted-foreground">
+                              {aiAnalysis.actionSteps.map((step, sIdx) => (
+                                <li key={sIdx}>{step}</li>
+                              ))}
+                            </ul>
+                          )}
+
+                          {aiAnalysis.curlReproduction && (
+                            <div className="pt-2 border-t border-border flex items-center justify-between gap-2">
+                              <code className="text-[10px] font-mono text-primary truncate max-w-xs">
+                                {aiAnalysis.curlReproduction}
+                              </code>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (aiAnalysis?.curlReproduction) {
+                                    navigator.clipboard.writeText(aiAnalysis.curlReproduction);
+                                    setCopiedCurl(true);
+                                    setTimeout(() => setCopiedCurl(false), 2000);
+                                  }
+                                }}
+                                className="px-2 py-1 rounded bg-secondary hover:bg-muted text-[11px] font-semibold text-foreground flex items-center gap-1 shrink-0"
+                              >
+                                {copiedCurl ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                                <span>{copiedCurl ? "Kopyalandı" : "cURL"}</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex items-center justify-between pt-1 text-[10px] text-muted-foreground">
+                          <span>Model: {aiAnalysis.provider}</span>
+                          {aiAnalysis.redactionCount > 0 && (
+                            <span className="text-emerald-400 font-bold">🛡️ {aiAnalysis.redactionCount} hassas veri maskelendi</span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
                   {/* Step Timeline */}
                   <div className="space-y-4">

@@ -402,6 +402,19 @@ export interface TestSanitizeResult {
   details: Record<string, number>;
 }
 
+export interface IncidentAnalysis {
+  incidentSummary: string;
+  rootCause: string;
+  isUpstreamFault: boolean;
+  canSafelyReplay: boolean;
+  suggestedFix: string;
+  actionSteps: string[];
+  curlReproduction: string;
+  provider: string;
+  wasSanitized: boolean;
+  redactionCount: number;
+}
+
 
 
 

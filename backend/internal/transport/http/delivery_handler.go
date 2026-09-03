@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/apisentinel/apisentinel/internal/ai"
 	"github.com/apisentinel/apisentinel/internal/database"
 	"github.com/apisentinel/apisentinel/internal/delivery"
 	"github.com/apisentinel/apisentinel/internal/middleware"
@@ -20,12 +21,14 @@ import (
 type DeliveryHandler struct {
 	queries     *database.Queries
 	deliverySvc *service.DeliveryService
+	explainer   *ai.Explainer
 }
 
-func NewDeliveryHandler(queries *database.Queries, deliverySvc *service.DeliveryService) *DeliveryHandler {
+func NewDeliveryHandler(queries *database.Queries, deliverySvc *service.DeliveryService, explainer *ai.Explainer) *DeliveryHandler {
 	return &DeliveryHandler{
 		queries:     queries,
 		deliverySvc: deliverySvc,
+		explainer:   explainer,
 	}
 }
 
@@ -331,4 +334,98 @@ func (h *DeliveryHandler) ListAuditLogs(w http.ResponseWriter, r *http.Request) 
 		"auditLogs": logs,
 		"count":     len(logs),
 	})
+}
+
+// AIExplain generates root-cause diagnosis and actionable fix for a failed delivery job.
+func (h *DeliveryHandler) AIExplain(w http.ResponseWriter, r *http.Request) {
+	jobIDStr := chi.URLParam(r, "id")
+	jobUUID, err := uuid.Parse(jobIDStr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_ID", "Geçersiz delivery job ID")
+		return
+	}
+
+	job, err := h.queries.GetDeliveryJobByID(r.Context(), pgtype.UUID{Bytes: jobUUID, Valid: true})
+	if err != nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "Teslimat kaydı bulunamadı")
+		return
+	}
+
+	endpoint, err := h.queries.GetEndpointByIDOnly(r.Context(), job.EndpointID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "Endpoint bulunamadı")
+		return
+	}
+
+	// 1. Get captured request for payload and method
+	capReq, _ := h.queries.GetCapturedRequestByID(r.Context(), job.RequestID)
+
+	// 2. Get latest attempt
+	attempts, _ := h.queries.ListDeliveryAttemptsByJobID(r.Context(), job.ID)
+	var latestAttempt database.DeliveryAttempt
+	if len(attempts) > 0 {
+		latestAttempt = attempts[len(attempts)-1]
+	}
+
+	// 3. Organization AI Settings & Custom Redaction Keys
+	var customRedactKeys []string
+	orgID := middleware.GetOrganizationID(r.Context())
+	if orgID.Valid {
+		if orgSettings, orgErr := h.queries.GetOrganizationAISettings(r.Context(), orgID); orgErr == nil {
+			if len(orgSettings.AiCustomRedactionPatterns) > 0 {
+				_ = json.Unmarshal(orgSettings.AiCustomRedactionPatterns, &customRedactKeys)
+			}
+		}
+	}
+
+	rawBody := ""
+	if capReq.RawBody.Valid {
+		rawBody = capReq.RawBody.String
+	} else if capReq.MaskedBody.Valid {
+		rawBody = capReq.MaskedBody.String
+	}
+
+	responseBody := ""
+	if latestAttempt.ResponseBodySnippet.Valid {
+		responseBody = latestAttempt.ResponseBodySnippet.String
+	}
+
+	errorMsg := ""
+	if latestAttempt.ErrorMessage.Valid {
+		errorMsg = latestAttempt.ErrorMessage.String
+	} else if job.LastError.Valid {
+		errorMsg = job.LastError.String
+	}
+
+	httpMethod := "POST"
+	if capReq.HttpMethod != "" {
+		httpMethod = capReq.HttpMethod
+	}
+
+	status := 0
+	if latestAttempt.ResponseStatusCode.Valid {
+		status = int(latestAttempt.ResponseStatusCode.Int32)
+	}
+
+	if h.explainer == nil {
+		h.explainer = ai.NewExplainer("")
+	}
+
+	analysis, err := h.explainer.ExplainDeliveryIncident(r.Context(), ai.DeliveryIncidentInput{
+		EndpointSlug:     endpoint.Slug,
+		HTTPMethod:       httpMethod,
+		ResponseStatus:   status,
+		ErrorMessage:     errorMsg,
+		RequestBody:      rawBody,
+		ResponseBody:     responseBody,
+		LatencyMs:        int64(latestAttempt.LatencyMs),
+		AttemptCount:     int(job.Attempts),
+		CustomRedactKeys: customRedactKeys,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "AI_ERROR", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, analysis)
 }

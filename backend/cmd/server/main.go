@@ -122,7 +122,7 @@ func main() {
 		APIKeyHandler:          transporthttp.NewAPIKeyHandler(apiKeyService),
 		AgentHandler:           transporthttp.NewAgentHandler(grpcServer),
 		WebhookSecurityHandler: transporthttp.NewWebhookSecurityHandler(webhookSecurityService),
-		DeliveryHandler:        transporthttp.NewDeliveryHandler(queries, deliveryService),
+		DeliveryHandler:        transporthttp.NewDeliveryHandler(queries, deliveryService, explainer),
 		TemplateHandler:        transporthttp.NewTemplateHandler(),
 		SchemaHandler:          transporthttp.NewSchemaHandler(queries),
 		TestSuiteHandler:       transporthttp.NewTestSuiteHandler(testSuiteService),

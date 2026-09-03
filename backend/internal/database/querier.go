@@ -54,6 +54,7 @@ type Querier interface {
 	GetAgentScanByIdempotencyKey(ctx context.Context, arg GetAgentScanByIdempotencyKeyParams) (AgentScan, error)
 	GetAlertChannelByID(ctx context.Context, id pgtype.UUID) (AlertChannel, error)
 	GetCapturedRequestByID(ctx context.Context, id pgtype.UUID) (GetCapturedRequestByIDRow, error)
+	GetCapturedRequestByRequestIDStr(ctx context.Context, requestID string) (GetCapturedRequestByRequestIDStrRow, error)
 	GetDLQRecordByID(ctx context.Context, id pgtype.UUID) (ForwardingDlq, error)
 	GetDeliveryJobByID(ctx context.Context, id pgtype.UUID) (DeliveryJob, error)
 	GetDeliveryJobByRequestID(ctx context.Context, requestID pgtype.UUID) (DeliveryJob, error)

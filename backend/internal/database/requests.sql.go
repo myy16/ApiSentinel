@@ -120,6 +120,58 @@ func (q *Queries) GetCapturedRequestByID(ctx context.Context, id pgtype.UUID) (G
 	return i, err
 }
 
+const getCapturedRequestByRequestIDStr = `-- name: GetCapturedRequestByRequestIDStr :one
+SELECT r.id, r.endpoint_id, r.request_id, r.http_method, r.headers, r.query_params,
+       r.raw_body, r.masked_body, r.parsed_json, r.client_ip, r.response_status, r.processing_status, r.created_at,
+       e.name as endpoint_name, e.slug as endpoint_slug, e.project_id
+FROM captured_requests r
+JOIN endpoints e ON r.endpoint_id = e.id
+WHERE r.request_id = $1 LIMIT 1
+`
+
+type GetCapturedRequestByRequestIDStrRow struct {
+	ID               pgtype.UUID        `json:"id"`
+	EndpointID       pgtype.UUID        `json:"endpoint_id"`
+	RequestID        string             `json:"request_id"`
+	HttpMethod       string             `json:"http_method"`
+	Headers          []byte             `json:"headers"`
+	QueryParams      []byte             `json:"query_params"`
+	RawBody          pgtype.Text        `json:"raw_body"`
+	MaskedBody       pgtype.Text        `json:"masked_body"`
+	ParsedJson       []byte             `json:"parsed_json"`
+	ClientIp         *netip.Addr        `json:"client_ip"`
+	ResponseStatus   pgtype.Int4        `json:"response_status"`
+	ProcessingStatus string             `json:"processing_status"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	EndpointName     string             `json:"endpoint_name"`
+	EndpointSlug     string             `json:"endpoint_slug"`
+	ProjectID        pgtype.UUID        `json:"project_id"`
+}
+
+func (q *Queries) GetCapturedRequestByRequestIDStr(ctx context.Context, requestID string) (GetCapturedRequestByRequestIDStrRow, error) {
+	row := q.db.QueryRow(ctx, getCapturedRequestByRequestIDStr, requestID)
+	var i GetCapturedRequestByRequestIDStrRow
+	err := row.Scan(
+		&i.ID,
+		&i.EndpointID,
+		&i.RequestID,
+		&i.HttpMethod,
+		&i.Headers,
+		&i.QueryParams,
+		&i.RawBody,
+		&i.MaskedBody,
+		&i.ParsedJson,
+		&i.ClientIp,
+		&i.ResponseStatus,
+		&i.ProcessingStatus,
+		&i.CreatedAt,
+		&i.EndpointName,
+		&i.EndpointSlug,
+		&i.ProjectID,
+	)
+	return i, err
+}
+
 const listRequestsByEndpoint = `-- name: ListRequestsByEndpoint :many
 SELECT id, endpoint_id, request_id, http_method, headers, query_params,
        raw_body, masked_body, parsed_json, client_ip, response_status, processing_status, created_at

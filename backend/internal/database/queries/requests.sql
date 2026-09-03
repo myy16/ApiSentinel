@@ -32,6 +32,14 @@ FROM captured_requests r
 JOIN endpoints e ON r.endpoint_id = e.id
 WHERE r.id = $1 LIMIT 1;
 
+-- name: GetCapturedRequestByRequestIDStr :one
+SELECT r.id, r.endpoint_id, r.request_id, r.http_method, r.headers, r.query_params,
+       r.raw_body, r.masked_body, r.parsed_json, r.client_ip, r.response_status, r.processing_status, r.created_at,
+       e.name as endpoint_name, e.slug as endpoint_slug, e.project_id
+FROM captured_requests r
+JOIN endpoints e ON r.endpoint_id = e.id
+WHERE r.request_id = $1 LIMIT 1;
+
 -- name: VerifyRequestOwnership :one
 SELECT r.id
 FROM captured_requests r
