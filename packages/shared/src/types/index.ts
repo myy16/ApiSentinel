@@ -123,16 +123,27 @@ export interface MockRule {
   enabled: boolean;
 }
 
+export type ReplayEnvironment = "PRODUCTION" | "STAGING" | "DEV" | "LOCAL" | "CUSTOM";
+
 export interface ReplayJob {
   id: string;
   sourceRequestId: string;
-  targetType: ReplayTargetType;
+  requestId?: string;
+  httpMethod?: string;
+  endpointName?: string;
+  endpointSlug?: string;
+  targetType?: ReplayTargetType;
   targetUrl?: string | null;
-  status: ReplayStatus;
+  environment?: ReplayEnvironment;
+  customHeaders?: Record<string, string>;
+  status: ReplayStatus | "RUNNING";
   responseStatus?: number | null;
+  originalResponseStatus?: number | null;
+  latencyMs?: number;
   responseBody?: string | null;
-  createdAt: Date;
-  completedAt?: Date | null;
+  originalPayload?: string | null;
+  createdAt: string | Date;
+  completedAt?: string | Date | null;
 }
 
 export interface Agent {
@@ -323,6 +334,8 @@ export interface SchemaDriftEvent {
   isAcknowledged: boolean;
   createdAt: string;
 }
+
+
 
 
 

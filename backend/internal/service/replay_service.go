@@ -29,25 +29,47 @@ func NewReplayService(queries *database.Queries) *ReplayService {
 	}
 }
 
-type ReplayResultResponse struct {
-	JobID          string `json:"jobId"`
-	Status         string `json:"status"`
-	ResponseStatus int    `json:"responseStatus"`
-	ResponseBody   string `json:"responseBody"`
-	LatencyMs      int64  `json:"latencyMs"`
-	TargetURL      string `json:"targetUrl"`
-	CreatedAt      string `json:"createdAt"`
+type ExecuteReplayParams struct {
+	SourceRequestId     string            `json:"sourceRequestId"`
+	TargetURL           string            `json:"targetUrl"`
+	Environment         string            `json:"environment"` // "PRODUCTION", "STAGING", "DEV", "LOCAL", "CUSTOM"
+	CustomHeaders       map[string]string `json:"customHeaders,omitempty"`
+	Justification       string            `json:"justification,omitempty"`
+	OverrideIdempotency bool              `json:"overrideIdempotency"`
+	UserID              string            `json:"userId,omitempty"`
+	ClientIP            string            `json:"clientIp,omitempty"`
 }
 
-func (s *ReplayService) ExecuteReplay(ctx context.Context, sourceRequestId, targetUrl string) (*ReplayResultResponse, error) {
+type ReplayResultResponse struct {
+	JobID                  string            `json:"jobId"`
+	Status                 string            `json:"status"`
+	ResponseStatus         int               `json:"responseStatus"`
+	ResponseBody           string            `json:"responseBody"`
+	LatencyMs              int64             `json:"latencyMs"`
+	TargetURL              string            `json:"targetUrl"`
+	Environment            string            `json:"environment"`
+	CustomHeaders          map[string]string `json:"customHeaders,omitempty"`
+	OriginalResponseStatus int               `json:"originalResponseStatus,omitempty"`
+	CreatedAt              string            `json:"createdAt"`
+}
+
+func (s *ReplayService) ExecuteReplay(ctx context.Context, params ExecuteReplayParams) (*ReplayResultResponse, error) {
+	if params.TargetURL == "" {
+		return nil, errors.New("hedef URL (targetUrl) zorunludur")
+	}
+
+	if params.Environment == "" {
+		params.Environment = "CUSTOM"
+	}
+
 	// 1. SSRF Validation
-	_, err := ssrf.ValidateURL(targetUrl)
+	_, err := ssrf.ValidateURL(params.TargetURL)
 	if err != nil {
-		return nil, fmt.Errorf("SSRF Guard blocked target URL: %w", err)
+		return nil, fmt.Errorf("SSRF Guard hedef URL'yi engelledi: %w", err)
 	}
 
 	// 2. Fetch original captured request
-	reqUUID, err := uuid.Parse(sourceRequestId)
+	reqUUID, err := uuid.Parse(params.SourceRequestId)
 	if err != nil {
 		return nil, errors.New("geçersiz istek ID formatı")
 	}
@@ -61,11 +83,15 @@ func (s *ReplayService) ExecuteReplay(ctx context.Context, sourceRequestId, targ
 		return nil, errors.New("kayıtlı istek bulunamadı")
 	}
 
+	customHeadersJSON, _ := json.Marshal(params.CustomHeaders)
+
 	// 3. Create initial Replay Job
 	job, err := s.queries.CreateReplayJob(ctx, database.CreateReplayJobParams{
 		SourceRequestID: pgReqId,
 		TargetType:      "DIRECT_HTTP",
-		TargetUrl:       pgtype.Text{String: targetUrl, Valid: true},
+		TargetUrl:       pgtype.Text{String: params.TargetURL, Valid: true},
+		Environment:     params.Environment,
+		CustomHeaders:   customHeadersJSON,
 		Status:          "RUNNING",
 	})
 	if err != nil {
@@ -79,17 +105,15 @@ func (s *ReplayService) ExecuteReplay(ctx context.Context, sourceRequestId, targ
 	if reqRecord.RawBody.Valid && len(reqRecord.RawBody.String) > 0 {
 		bodyReader = bytes.NewBufferString(reqRecord.RawBody.String)
 	} else if reqRecord.MaskedBody.Valid && len(reqRecord.MaskedBody.String) > 0 {
-		// Raw payload retention is disabled by default. Replays therefore use the
-		// redacted payload unless an encrypted raw-payload store is introduced.
 		bodyReader = bytes.NewBufferString(reqRecord.MaskedBody.String)
 	}
 
-	outboundReq, err := http.NewRequestWithContext(ctx, reqRecord.HttpMethod, targetUrl, bodyReader)
+	outboundReq, err := http.NewRequestWithContext(ctx, reqRecord.HttpMethod, params.TargetURL, bodyReader)
 	if err != nil {
 		return nil, err
 	}
 
-	// Restore original headers (DB stores as map[string][]string or map[string]string)
+	// Restore original headers
 	var headers map[string]interface{}
 	if err := json.Unmarshal(reqRecord.Headers, &headers); err == nil {
 		for k, v := range headers {
@@ -109,7 +133,13 @@ func (s *ReplayService) ExecuteReplay(ctx context.Context, sourceRequestId, targ
 			}
 		}
 	}
+
+	// Inject custom headers & environment headers
+	for hk, hv := range params.CustomHeaders {
+		outboundReq.Header.Set(hk, hv)
+	}
 	outboundReq.Header.Set("X-ApiSentinel-Replayed", "true")
+	outboundReq.Header.Set("X-ApiSentinel-Environment", params.Environment)
 
 	// 5. Execute HTTP Replay
 	startTime := time.Now()
@@ -138,6 +168,7 @@ func (s *ReplayService) ExecuteReplay(ctx context.Context, sourceRequestId, targ
 		Status:         status,
 		ResponseStatus: pgtype.Int4{Int32: int32(respStatus), Valid: true},
 		ResponseBody:   pgtype.Text{String: respBodyStr, Valid: true},
+		LatencyMs:      int32(latencyMs),
 		CompletedAt:    pgtype.Timestamptz{Time: now, Valid: true},
 	})
 	if err != nil {
@@ -150,22 +181,42 @@ func (s *ReplayService) ExecuteReplay(ctx context.Context, sourceRequestId, targ
 		log.Warn().Err(err).Msg("Could not fetch project organization ID for audit log")
 	}
 
+	justificationText := params.Justification
+	if justificationText == "" {
+		justificationText = fmt.Sprintf("Replay Lab üzerinden %s hedefine (%s) tekrar iletildi", params.Environment, params.TargetURL)
+	}
+
+	var originalStatus int32 = 0
+	if reqRecord.ResponseStatus.Valid {
+		originalStatus = reqRecord.ResponseStatus.Int32
+	}
+
 	metaJSON, _ := json.Marshal(map[string]interface{}{
-		"targetUrl":      targetUrl,
-		"responseStatus": respStatus,
-		"latencyMs":      latencyMs,
-		"status":         status,
-		"replayedFrom":   "REPLAY_LAB",
+		"targetUrl":              params.TargetURL,
+		"environment":            params.Environment,
+		"responseStatus":         respStatus,
+		"originalResponseStatus": originalStatus,
+		"latencyMs":              latencyMs,
+		"status":                 status,
+		"replayedFrom":           "REPLAY_LAB",
 	})
+
+	var pgUserId pgtype.UUID
+	if params.UserID != "" {
+		if uUUID, err := uuid.Parse(params.UserID); err == nil {
+			pgUserId = pgtype.UUID{Bytes: uUUID, Valid: true}
+		}
+	}
 
 	_, auditErr := s.queries.CreateAuditLog(ctx, database.CreateAuditLogParams{
 		OrganizationID: orgID,
 		ProjectID:      reqRecord.ProjectID,
+		UserID:         pgUserId,
 		Action:         "REPLAY_LAB_EXECUTED",
 		ResourceType:   "CAPTURED_REQUEST",
 		ResourceID:     reqRecord.RequestID,
-		Justification:  pgtype.Text{String: "Manuel Replay Lab üzerinden tekrar iletildi", Valid: true},
-		IpAddress:      pgtype.Text{Valid: false},
+		Justification:  pgtype.Text{String: justificationText, Valid: true},
+		IpAddress:      pgtype.Text{String: params.ClientIP, Valid: params.ClientIP != ""},
 		Metadata:       metaJSON,
 	})
 	if auditErr != nil {
@@ -173,13 +224,16 @@ func (s *ReplayService) ExecuteReplay(ctx context.Context, sourceRequestId, targ
 	}
 
 	return &ReplayResultResponse{
-		JobID:          jobIdStr,
-		Status:         updatedJob.Status,
-		ResponseStatus: respStatus,
-		ResponseBody:   respBodyStr,
-		LatencyMs:      latencyMs,
-		TargetURL:      targetUrl,
-		CreatedAt:      updatedJob.CreatedAt.Time.Format(time.RFC3339),
+		JobID:                  jobIdStr,
+		Status:                 updatedJob.Status,
+		ResponseStatus:         respStatus,
+		ResponseBody:           respBodyStr,
+		LatencyMs:              latencyMs,
+		TargetURL:              params.TargetURL,
+		Environment:            params.Environment,
+		CustomHeaders:          params.CustomHeaders,
+		OriginalResponseStatus: int(originalStatus),
+		CreatedAt:              updatedJob.CreatedAt.Time.Format(time.RFC3339),
 	}, nil
 }
 
@@ -208,6 +262,10 @@ func (s *ReplayService) ListReplayJobs(ctx context.Context, projectId string, li
 		if j.ResponseStatus.Valid {
 			status = j.ResponseStatus.Int32
 		}
+		var origStatus int32 = 0
+		if j.OriginalResponseStatus.Valid {
+			origStatus = j.OriginalResponseStatus.Int32
+		}
 		var target string = ""
 		if j.TargetUrl.Valid {
 			target = j.TargetUrl.String
@@ -217,19 +275,60 @@ func (s *ReplayService) ListReplayJobs(ctx context.Context, projectId string, li
 			respBody = j.ResponseBody.String
 		}
 
+		var customH map[string]string
+		_ = json.Unmarshal(j.CustomHeaders, &customH)
+
 		res = append(res, map[string]interface{}{
-			"id":              uuid.UUID(j.ID.Bytes).String(),
-			"sourceRequestId": uuid.UUID(j.SourceRequestID.Bytes).String(),
-			"requestId":       j.RequestID,
-			"httpMethod":      j.HttpMethod,
-			"endpointName":    j.EndpointName,
-			"targetUrl":       target,
-			"status":          j.Status,
-			"responseStatus":  status,
-			"responseBody":    respBody,
-			"createdAt":       j.CreatedAt.Time.Format(time.RFC3339),
+			"id":                     uuid.UUID(j.ID.Bytes).String(),
+			"sourceRequestId":        uuid.UUID(j.SourceRequestID.Bytes).String(),
+			"requestId":              j.RequestID,
+			"httpMethod":             j.HttpMethod,
+			"endpointName":           j.EndpointName,
+			"targetUrl":              target,
+			"environment":            j.Environment,
+			"customHeaders":          customH,
+			"status":                 j.Status,
+			"responseStatus":         status,
+			"originalResponseStatus": origStatus,
+			"latencyMs":              j.LatencyMs,
+			"responseBody":           respBody,
+			"createdAt":              j.CreatedAt.Time.Format(time.RFC3339),
 		})
 	}
 
 	return res, nil
+}
+
+func (s *ReplayService) GetReplayJob(ctx context.Context, replayId string) (map[string]interface{}, error) {
+	rUUID, err := uuid.Parse(replayId)
+	if err != nil {
+		return nil, errors.New("geçersiz replay ID formatı")
+	}
+
+	job, err := s.queries.GetReplayJobByID(ctx, pgtype.UUID{Bytes: rUUID, Valid: true})
+	if err != nil {
+		return nil, errors.New("replay kaydı bulunamadı")
+	}
+
+	var customH map[string]string
+	_ = json.Unmarshal(job.CustomHeaders, &customH)
+
+	return map[string]interface{}{
+		"id":                     uuid.UUID(job.ID.Bytes).String(),
+		"sourceRequestId":        uuid.UUID(job.SourceRequestID.Bytes).String(),
+		"requestId":              job.RequestID,
+		"httpMethod":             job.HttpMethod,
+		"endpointName":           job.EndpointName,
+		"endpointSlug":           job.EndpointSlug,
+		"targetUrl":              job.TargetUrl.String,
+		"environment":            job.Environment,
+		"customHeaders":          customH,
+		"status":                 job.Status,
+		"responseStatus":         job.ResponseStatus.Int32,
+		"originalResponseStatus": job.OriginalResponseStatus.Int32,
+		"latencyMs":              job.LatencyMs,
+		"responseBody":           job.ResponseBody.String,
+		"originalPayload":        string(job.OriginalPayload),
+		"createdAt":              job.CreatedAt.Time.Format(time.RFC3339),
+	}, nil
 }

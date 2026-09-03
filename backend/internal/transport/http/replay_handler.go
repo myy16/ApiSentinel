@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/apisentinel/apisentinel/internal/middleware"
 	"github.com/apisentinel/apisentinel/internal/service"
 	"github.com/go-chi/chi/v5"
 )
@@ -18,7 +19,11 @@ func NewReplayHandler(replayService *service.ReplayService) *ReplayHandler {
 }
 
 type ExecuteReplayRequest struct {
-	TargetURL string `json:"targetUrl"`
+	TargetURL           string            `json:"targetUrl"`
+	Environment         string            `json:"environment"`
+	CustomHeaders       map[string]string `json:"customHeaders,omitempty"`
+	Justification       string            `json:"justification,omitempty"`
+	OverrideIdempotency bool              `json:"overrideIdempotency"`
 }
 
 func (h *ReplayHandler) Execute(w http.ResponseWriter, r *http.Request) {
@@ -34,7 +39,20 @@ func (h *ReplayHandler) Execute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.replayService.ExecuteReplay(r.Context(), requestId, req.TargetURL)
+	userID, _ := r.Context().Value(middleware.UserIDKey).(string)
+
+	clientIP := r.RemoteAddr
+
+	result, err := h.replayService.ExecuteReplay(r.Context(), service.ExecuteReplayParams{
+		SourceRequestId:     requestId,
+		TargetURL:           req.TargetURL,
+		Environment:         req.Environment,
+		CustomHeaders:       req.CustomHeaders,
+		Justification:       req.Justification,
+		OverrideIdempotency: req.OverrideIdempotency,
+		UserID:              userID,
+		ClientIP:            clientIP,
+	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "REPLAY_ERROR", err.Error())
 		return
@@ -67,4 +85,20 @@ func (h *ReplayHandler) ListByProject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"replays": jobs,
 	})
+}
+
+func (h *ReplayHandler) GetReplay(w http.ResponseWriter, r *http.Request) {
+	replayId := chi.URLParam(r, "id")
+	if replayId == "" {
+		writeError(w, http.StatusBadRequest, "REPLAY_ID_REQUIRED", "Replay ID belirtilmedi")
+		return
+	}
+
+	job, err := h.replayService.GetReplayJob(r.Context(), replayId)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, job)
 }

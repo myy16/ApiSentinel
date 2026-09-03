@@ -226,6 +226,9 @@ type ReplayJob struct {
 	SourceRequestID pgtype.UUID        `json:"source_request_id"`
 	TargetType      string             `json:"target_type"`
 	TargetUrl       pgtype.Text        `json:"target_url"`
+	Environment     string             `json:"environment"`
+	LatencyMs       int32              `json:"latency_ms"`
+	CustomHeaders   []byte             `json:"custom_headers"`
 	Status          string             `json:"status"`
 	ResponseStatus  pgtype.Int4        `json:"response_status"`
 	ResponseBody    pgtype.Text        `json:"response_body"`

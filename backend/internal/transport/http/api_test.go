@@ -273,9 +273,12 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 		t.Fatalf("Expected at least 1 captured request, got 0")
 	}
 
-	// Trigger Replay
-	replayPayload, _ := json.Marshal(map[string]string{
-		"targetUrl": "https://example.com/webhook",
+	// Trigger Replay with Staging Target & Custom Headers
+	replayPayload, _ := json.Marshal(map[string]interface{}{
+		"targetUrl":     "https://example.com/webhook",
+		"environment":   "STAGING",
+		"customHeaders": map[string]string{"X-Replay-Env": "staging-test"},
+		"justification": "Staging webhook regression test",
 	})
 	w = httptest.NewRecorder()
 	req, _ = http.NewRequest("POST", fmt.Sprintf("/api/requests/%s/replay", reqListRes.Requests[0].ID), bytes.NewBuffer(replayPayload))
@@ -285,6 +288,26 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("Expected 200 on replay execution, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var replayExecRes struct {
+		JobID       string `json:"jobId"`
+		Environment string `json:"environment"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &replayExecRes)
+	if replayExecRes.Environment != "STAGING" {
+		t.Fatalf("Expected environment STAGING, got %s", replayExecRes.Environment)
+	}
+
+	// Test GET /replays/{id}
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", fmt.Sprintf("/api/replays/%s", replayExecRes.JobID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("x-organization-id", orgId)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 on GET /replays/{id}, got %d: %s", w.Code, w.Body.String())
 	}
 
 	// 11. Test Audit Logs Endpoint -> MUST contain the Replay Audit Log!

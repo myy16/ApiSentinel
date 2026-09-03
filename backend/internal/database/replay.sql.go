@@ -12,44 +12,126 @@ import (
 )
 
 const createReplayJob = `-- name: CreateReplayJob :one
-INSERT INTO replay_jobs (source_request_id, target_type, target_url, status)
-VALUES ($1, $2, $3, $4)
-RETURNING id, source_request_id, target_type, target_url, status, response_status, response_body, created_at, completed_at
+INSERT INTO replay_jobs (source_request_id, target_type, target_url, environment, custom_headers, status)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, source_request_id, target_type, target_url, environment, custom_headers, status, response_status, response_body, latency_ms, created_at, completed_at
 `
 
 type CreateReplayJobParams struct {
 	SourceRequestID pgtype.UUID `json:"source_request_id"`
 	TargetType      string      `json:"target_type"`
 	TargetUrl       pgtype.Text `json:"target_url"`
+	Environment     string      `json:"environment"`
+	CustomHeaders   []byte      `json:"custom_headers"`
 	Status          string      `json:"status"`
 }
 
-func (q *Queries) CreateReplayJob(ctx context.Context, arg CreateReplayJobParams) (ReplayJob, error) {
+type CreateReplayJobRow struct {
+	ID              pgtype.UUID        `json:"id"`
+	SourceRequestID pgtype.UUID        `json:"source_request_id"`
+	TargetType      string             `json:"target_type"`
+	TargetUrl       pgtype.Text        `json:"target_url"`
+	Environment     string             `json:"environment"`
+	CustomHeaders   []byte             `json:"custom_headers"`
+	Status          string             `json:"status"`
+	ResponseStatus  pgtype.Int4        `json:"response_status"`
+	ResponseBody    pgtype.Text        `json:"response_body"`
+	LatencyMs       int32              `json:"latency_ms"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	CompletedAt     pgtype.Timestamptz `json:"completed_at"`
+}
+
+func (q *Queries) CreateReplayJob(ctx context.Context, arg CreateReplayJobParams) (CreateReplayJobRow, error) {
 	row := q.db.QueryRow(ctx, createReplayJob,
 		arg.SourceRequestID,
 		arg.TargetType,
 		arg.TargetUrl,
+		arg.Environment,
+		arg.CustomHeaders,
 		arg.Status,
 	)
-	var i ReplayJob
+	var i CreateReplayJobRow
 	err := row.Scan(
 		&i.ID,
 		&i.SourceRequestID,
 		&i.TargetType,
 		&i.TargetUrl,
+		&i.Environment,
+		&i.CustomHeaders,
 		&i.Status,
 		&i.ResponseStatus,
 		&i.ResponseBody,
+		&i.LatencyMs,
 		&i.CreatedAt,
 		&i.CompletedAt,
 	)
 	return i, err
 }
 
+const getReplayJobByID = `-- name: GetReplayJobByID :one
+SELECT rj.id, rj.source_request_id, rj.target_type, rj.target_url, rj.environment, rj.custom_headers, rj.status,
+       rj.response_status, rj.response_body, rj.latency_ms, rj.created_at, rj.completed_at,
+       cr.http_method, cr.request_id, cr.response_status as original_response_status, cr.headers as original_headers,
+       cr.parsed_json as original_payload, e.name as endpoint_name, e.slug as endpoint_slug
+FROM replay_jobs rj
+JOIN captured_requests cr ON rj.source_request_id = cr.id
+JOIN endpoints e ON cr.endpoint_id = e.id
+WHERE rj.id = $1
+`
+
+type GetReplayJobByIDRow struct {
+	ID                     pgtype.UUID        `json:"id"`
+	SourceRequestID        pgtype.UUID        `json:"source_request_id"`
+	TargetType             string             `json:"target_type"`
+	TargetUrl              pgtype.Text        `json:"target_url"`
+	Environment            string             `json:"environment"`
+	CustomHeaders          []byte             `json:"custom_headers"`
+	Status                 string             `json:"status"`
+	ResponseStatus         pgtype.Int4        `json:"response_status"`
+	ResponseBody           pgtype.Text        `json:"response_body"`
+	LatencyMs              int32              `json:"latency_ms"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	CompletedAt            pgtype.Timestamptz `json:"completed_at"`
+	HttpMethod             string             `json:"http_method"`
+	RequestID              string             `json:"request_id"`
+	OriginalResponseStatus pgtype.Int4        `json:"original_response_status"`
+	OriginalHeaders        []byte             `json:"original_headers"`
+	OriginalPayload        []byte             `json:"original_payload"`
+	EndpointName           string             `json:"endpoint_name"`
+	EndpointSlug           string             `json:"endpoint_slug"`
+}
+
+func (q *Queries) GetReplayJobByID(ctx context.Context, id pgtype.UUID) (GetReplayJobByIDRow, error) {
+	row := q.db.QueryRow(ctx, getReplayJobByID, id)
+	var i GetReplayJobByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.SourceRequestID,
+		&i.TargetType,
+		&i.TargetUrl,
+		&i.Environment,
+		&i.CustomHeaders,
+		&i.Status,
+		&i.ResponseStatus,
+		&i.ResponseBody,
+		&i.LatencyMs,
+		&i.CreatedAt,
+		&i.CompletedAt,
+		&i.HttpMethod,
+		&i.RequestID,
+		&i.OriginalResponseStatus,
+		&i.OriginalHeaders,
+		&i.OriginalPayload,
+		&i.EndpointName,
+		&i.EndpointSlug,
+	)
+	return i, err
+}
+
 const listReplayJobsByProject = `-- name: ListReplayJobsByProject :many
-SELECT rj.id, rj.source_request_id, rj.target_type, rj.target_url, rj.status,
-       rj.response_status, rj.response_body, rj.created_at, rj.completed_at,
-       cr.http_method, cr.request_id, e.name as endpoint_name
+SELECT rj.id, rj.source_request_id, rj.target_type, rj.target_url, rj.environment, rj.custom_headers, rj.status,
+       rj.response_status, rj.response_body, rj.latency_ms, rj.created_at, rj.completed_at,
+       cr.http_method, cr.request_id, cr.response_status as original_response_status, e.name as endpoint_name
 FROM replay_jobs rj
 JOIN captured_requests cr ON rj.source_request_id = cr.id
 JOIN endpoints e ON cr.endpoint_id = e.id
@@ -65,18 +147,22 @@ type ListReplayJobsByProjectParams struct {
 }
 
 type ListReplayJobsByProjectRow struct {
-	ID              pgtype.UUID        `json:"id"`
-	SourceRequestID pgtype.UUID        `json:"source_request_id"`
-	TargetType      string             `json:"target_type"`
-	TargetUrl       pgtype.Text        `json:"target_url"`
-	Status          string             `json:"status"`
-	ResponseStatus  pgtype.Int4        `json:"response_status"`
-	ResponseBody    pgtype.Text        `json:"response_body"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	CompletedAt     pgtype.Timestamptz `json:"completed_at"`
-	HttpMethod      string             `json:"http_method"`
-	RequestID       string             `json:"request_id"`
-	EndpointName    string             `json:"endpoint_name"`
+	ID                     pgtype.UUID        `json:"id"`
+	SourceRequestID        pgtype.UUID        `json:"source_request_id"`
+	TargetType             string             `json:"target_type"`
+	TargetUrl              pgtype.Text        `json:"target_url"`
+	Environment            string             `json:"environment"`
+	CustomHeaders          []byte             `json:"custom_headers"`
+	Status                 string             `json:"status"`
+	ResponseStatus         pgtype.Int4        `json:"response_status"`
+	ResponseBody           pgtype.Text        `json:"response_body"`
+	LatencyMs              int32              `json:"latency_ms"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	CompletedAt            pgtype.Timestamptz `json:"completed_at"`
+	HttpMethod             string             `json:"http_method"`
+	RequestID              string             `json:"request_id"`
+	OriginalResponseStatus pgtype.Int4        `json:"original_response_status"`
+	EndpointName           string             `json:"endpoint_name"`
 }
 
 func (q *Queries) ListReplayJobsByProject(ctx context.Context, arg ListReplayJobsByProjectParams) ([]ListReplayJobsByProjectRow, error) {
@@ -93,13 +179,17 @@ func (q *Queries) ListReplayJobsByProject(ctx context.Context, arg ListReplayJob
 			&i.SourceRequestID,
 			&i.TargetType,
 			&i.TargetUrl,
+			&i.Environment,
+			&i.CustomHeaders,
 			&i.Status,
 			&i.ResponseStatus,
 			&i.ResponseBody,
+			&i.LatencyMs,
 			&i.CreatedAt,
 			&i.CompletedAt,
 			&i.HttpMethod,
 			&i.RequestID,
+			&i.OriginalResponseStatus,
 			&i.EndpointName,
 		); err != nil {
 			return nil, err
@@ -117,9 +207,10 @@ UPDATE replay_jobs
 SET status = $2,
     response_status = $3,
     response_body = $4,
-    completed_at = $5
+    latency_ms = $5,
+    completed_at = $6
 WHERE id = $1
-RETURNING id, source_request_id, target_type, target_url, status, response_status, response_body, created_at, completed_at
+RETURNING id, source_request_id, target_type, target_url, environment, custom_headers, status, response_status, response_body, latency_ms, created_at, completed_at
 `
 
 type UpdateReplayJobResultParams struct {
@@ -127,26 +218,46 @@ type UpdateReplayJobResultParams struct {
 	Status         string             `json:"status"`
 	ResponseStatus pgtype.Int4        `json:"response_status"`
 	ResponseBody   pgtype.Text        `json:"response_body"`
+	LatencyMs      int32              `json:"latency_ms"`
 	CompletedAt    pgtype.Timestamptz `json:"completed_at"`
 }
 
-func (q *Queries) UpdateReplayJobResult(ctx context.Context, arg UpdateReplayJobResultParams) (ReplayJob, error) {
+type UpdateReplayJobResultRow struct {
+	ID              pgtype.UUID        `json:"id"`
+	SourceRequestID pgtype.UUID        `json:"source_request_id"`
+	TargetType      string             `json:"target_type"`
+	TargetUrl       pgtype.Text        `json:"target_url"`
+	Environment     string             `json:"environment"`
+	CustomHeaders   []byte             `json:"custom_headers"`
+	Status          string             `json:"status"`
+	ResponseStatus  pgtype.Int4        `json:"response_status"`
+	ResponseBody    pgtype.Text        `json:"response_body"`
+	LatencyMs       int32              `json:"latency_ms"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	CompletedAt     pgtype.Timestamptz `json:"completed_at"`
+}
+
+func (q *Queries) UpdateReplayJobResult(ctx context.Context, arg UpdateReplayJobResultParams) (UpdateReplayJobResultRow, error) {
 	row := q.db.QueryRow(ctx, updateReplayJobResult,
 		arg.ID,
 		arg.Status,
 		arg.ResponseStatus,
 		arg.ResponseBody,
+		arg.LatencyMs,
 		arg.CompletedAt,
 	)
-	var i ReplayJob
+	var i UpdateReplayJobResultRow
 	err := row.Scan(
 		&i.ID,
 		&i.SourceRequestID,
 		&i.TargetType,
 		&i.TargetUrl,
+		&i.Environment,
+		&i.CustomHeaders,
 		&i.Status,
 		&i.ResponseStatus,
 		&i.ResponseBody,
+		&i.LatencyMs,
 		&i.CreatedAt,
 		&i.CompletedAt,
 	)

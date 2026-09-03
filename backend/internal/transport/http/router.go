@@ -140,10 +140,11 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 			protected.With(tenantGuard, alertGuard, requireDeveloper).Delete("/alerts/{id}", h.AlertHandler.DeleteChannel)
 			protected.With(tenantGuard, alertGuard, requireDeveloper).Post("/alerts/{id}/test", h.AlertHandler.SendTestAlert)
 
-			// Requests & Replay
+			// Requests & Replay (Milestone 11)
 			protected.With(tenantGuard, projectGuard).Get("/projects/{projectId}/requests", h.RequestHandler.ListByProject)
 			protected.With(tenantGuard, requestGuard, requireDeveloper).Post("/requests/{id}/replay", h.ReplayHandler.Execute)
 			protected.With(tenantGuard, projectGuard).Get("/projects/{projectId}/replays", h.ReplayHandler.ListByProject)
+			protected.With(tenantGuard).Get("/replays/{id}", h.ReplayHandler.GetReplay)
 
 			// Security Findings (Real DB & Statistics) & Agent Scans
 			if h.FindingHandler != nil {
