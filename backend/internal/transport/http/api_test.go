@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -50,6 +51,7 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 	apiKeyService := service.NewAPIKeyService(queries)
 	deliveryService := service.NewDeliveryService(queries, nil, "")
 	testSuiteService := service.NewTestSuiteService(queries, replayService)
+	aiSettingsService := service.NewAISettingsService(queries, ai.NewExplainer(""))
 
 	handlers := &Handlers{
 		AuthHandler:       NewAuthHandler(authService),
@@ -69,6 +71,7 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 		TemplateHandler:   NewTemplateHandler(),
 		SchemaHandler:     NewSchemaHandler(queries),
 		TestSuiteHandler:  NewTestSuiteHandler(testSuiteService),
+		AISettingsHandler: NewAISettingsHandler(aiSettingsService),
 	}
 
 	router := SetupRouter(handlers, cfg.JWTSecret, queries, "*")
@@ -551,6 +554,64 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 	router.ServeHTTP(w, req)
 	if w.Code != http.StatusTooManyRequests {
 		t.Fatalf("Expected 429 Too Many Requests on 3rd request, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// 20. Test AI Opt-In & Zero-Leakage Privacy Settings (Milestone 14)
+	// 20.1 Get default AI settings (aiEnabled: false)
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", "/api/organization/ai-settings", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("x-organization-id", orgId)
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 on get AI settings, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var aiSettings service.AISettingsResponse
+	json.Unmarshal(w.Body.Bytes(), &aiSettings)
+	if aiSettings.AIEnabled {
+		t.Fatalf("Expected aiEnabled to default to false for privacy, got true")
+	}
+
+	// 20.2 Update AI settings (Opt-in enable + custom redaction key)
+	updateAIBody, _ := json.Marshal(map[string]interface{}{
+		"aiEnabled":           true,
+		"aiDataSharingLevel":  "SANITIZED",
+		"customRedactionKeys": []string{"tax_id", "national_id"},
+	})
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("PUT", "/api/organization/ai-settings", bytes.NewBuffer(updateAIBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("x-organization-id", orgId)
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 on update AI settings, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// 20.3 Test Sanitization Playground API
+	testSanitizeBody, _ := json.Marshal(map[string]interface{}{
+		"sampleText":       `{"email": "test@domain.com", "card": "4532 0150 1234 5671", "tax_id": "123456"}`,
+		"customRedactKeys": []string{"tax_id"},
+	})
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("POST", "/api/organization/ai-settings/test-sanitize", bytes.NewBuffer(testSanitizeBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("x-organization-id", orgId)
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 on test sanitize, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var sanitizeRes service.TestSanitizeResponse
+	json.Unmarshal(w.Body.Bytes(), &sanitizeRes)
+	if sanitizeRes.RedactionCount == 0 {
+		t.Fatalf("Expected redaction count > 0, got %d", sanitizeRes.RedactionCount)
+	}
+	if strings.Contains(sanitizeRes.SanitizedText, "4532 0150 1234 5671") {
+		t.Fatalf("Expected credit card to be sanitized in test response")
+	}
+	if strings.Contains(sanitizeRes.SanitizedText, "test@domain.com") {
+		t.Fatalf("Expected email to be sanitized in test response")
 	}
 }
 

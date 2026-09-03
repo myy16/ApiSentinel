@@ -42,9 +42,15 @@ VALUES ($1)
 RETURNING id, name, created_at
 `
 
-func (q *Queries) CreateOrganization(ctx context.Context, name string) (Organization, error) {
+type CreateOrganizationRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	Name      string             `json:"name"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) CreateOrganization(ctx context.Context, name string) (CreateOrganizationRow, error) {
 	row := q.db.QueryRow(ctx, createOrganization, name)
-	var i Organization
+	var i CreateOrganizationRow
 	err := row.Scan(&i.ID, &i.Name, &i.CreatedAt)
 	return i, err
 }
@@ -97,8 +103,28 @@ func (q *Queries) GetMembership(ctx context.Context, arg GetMembershipParams) (M
 	return i, err
 }
 
+const getOrganizationAISettings = `-- name: GetOrganizationAISettings :one
+SELECT id, name, ai_enabled, ai_data_sharing_level, ai_custom_redaction_patterns, created_at
+FROM organizations
+WHERE id = $1 LIMIT 1
+`
+
+func (q *Queries) GetOrganizationAISettings(ctx context.Context, id pgtype.UUID) (Organization, error) {
+	row := q.db.QueryRow(ctx, getOrganizationAISettings, id)
+	var i Organization
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.AiEnabled,
+		&i.AiDataSharingLevel,
+		&i.AiCustomRedactionPatterns,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getOrganizationByID = `-- name: GetOrganizationByID :one
-SELECT id, name, created_at
+SELECT id, name, ai_enabled, ai_data_sharing_level, ai_custom_redaction_patterns, created_at
 FROM organizations
 WHERE id = $1 LIMIT 1
 `
@@ -106,7 +132,14 @@ WHERE id = $1 LIMIT 1
 func (q *Queries) GetOrganizationByID(ctx context.Context, id pgtype.UUID) (Organization, error) {
 	row := q.db.QueryRow(ctx, getOrganizationByID, id)
 	var i Organization
-	err := row.Scan(&i.ID, &i.Name, &i.CreatedAt)
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.AiEnabled,
+		&i.AiDataSharingLevel,
+		&i.AiCustomRedactionPatterns,
+		&i.CreatedAt,
+	)
 	return i, err
 }
 
@@ -189,4 +222,39 @@ func (q *Queries) ListUserMemberships(ctx context.Context, userID pgtype.UUID) (
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateOrganizationAISettings = `-- name: UpdateOrganizationAISettings :one
+UPDATE organizations
+SET ai_enabled = $2,
+    ai_data_sharing_level = $3,
+    ai_custom_redaction_patterns = $4
+WHERE id = $1
+RETURNING id, name, ai_enabled, ai_data_sharing_level, ai_custom_redaction_patterns, created_at
+`
+
+type UpdateOrganizationAISettingsParams struct {
+	ID                        pgtype.UUID `json:"id"`
+	AiEnabled                 bool        `json:"ai_enabled"`
+	AiDataSharingLevel        string      `json:"ai_data_sharing_level"`
+	AiCustomRedactionPatterns []byte      `json:"ai_custom_redaction_patterns"`
+}
+
+func (q *Queries) UpdateOrganizationAISettings(ctx context.Context, arg UpdateOrganizationAISettingsParams) (Organization, error) {
+	row := q.db.QueryRow(ctx, updateOrganizationAISettings,
+		arg.ID,
+		arg.AiEnabled,
+		arg.AiDataSharingLevel,
+		arg.AiCustomRedactionPatterns,
+	)
+	var i Organization
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.AiEnabled,
+		&i.AiDataSharingLevel,
+		&i.AiCustomRedactionPatterns,
+		&i.CreatedAt,
+	)
+	return i, err
 }

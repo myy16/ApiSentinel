@@ -378,6 +378,30 @@ export interface TestSuiteRunReport {
   completedAt: string;
 }
 
+export type AIDataSharingLevel = "NONE" | "SANITIZED" | "FULL_LOCAL";
+
+export interface AISettings {
+  organizationId: string;
+  aiEnabled: boolean;
+  aiDataSharingLevel: AIDataSharingLevel;
+  customRedactionKeys: string[];
+  sanitizationAvailable: boolean;
+}
+
+export interface TestSanitizeResult {
+  originalText: string;
+  sanitizedText: string;
+  redactionCount: number;
+  maskedTypes: string[];
+  promptSafety: {
+    isSafe: boolean;
+    riskScore: number;
+    threatsFound?: string[];
+    cleanedPrompt: string;
+  };
+  details: Record<string, number>;
+}
+
 
 
 

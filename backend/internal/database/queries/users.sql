@@ -19,9 +19,22 @@ VALUES ($1)
 RETURNING id, name, created_at;
 
 -- name: GetOrganizationByID :one
-SELECT id, name, created_at
+SELECT id, name, ai_enabled, ai_data_sharing_level, ai_custom_redaction_patterns, created_at
 FROM organizations
 WHERE id = $1 LIMIT 1;
+
+-- name: GetOrganizationAISettings :one
+SELECT id, name, ai_enabled, ai_data_sharing_level, ai_custom_redaction_patterns, created_at
+FROM organizations
+WHERE id = $1 LIMIT 1;
+
+-- name: UpdateOrganizationAISettings :one
+UPDATE organizations
+SET ai_enabled = $2,
+    ai_data_sharing_level = $3,
+    ai_custom_redaction_patterns = $4
+WHERE id = $1
+RETURNING id, name, ai_enabled, ai_data_sharing_level, ai_custom_redaction_patterns, created_at;
 
 -- name: CreateMembership :one
 INSERT INTO memberships (organization_id, user_id, role)

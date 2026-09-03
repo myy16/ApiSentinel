@@ -6,6 +6,9 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE IF NOT EXISTS organizations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(150) NOT NULL,
+    ai_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    ai_data_sharing_level TEXT NOT NULL DEFAULT 'SANITIZED',
+    ai_custom_redaction_patterns JSONB NOT NULL DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

@@ -32,6 +32,7 @@ type Handlers struct {
 	TemplateHandler        *TemplateHandler
 	SchemaHandler          *SchemaHandler
 	TestSuiteHandler       *TestSuiteHandler
+	AISettingsHandler      *AISettingsHandler
 }
 
 func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsOrigin string) *chi.Mux {
@@ -208,6 +209,13 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 				protected.With(tenantGuard, endpointGuard).Get("/endpoints/{endpointId}/drifts", h.SchemaHandler.ListDrifts)
 				protected.With(tenantGuard, endpointGuard, requireDeveloper).Post("/endpoints/{endpointId}/drifts/{driftId}/accept", h.SchemaHandler.AcceptDrift)
 				protected.With(tenantGuard, endpointGuard, requireDeveloper).Post("/endpoints/{endpointId}/drifts/{driftId}/dismiss", h.SchemaHandler.DismissDrift)
+			}
+
+			// Organization AI Opt-in & Privacy Settings (Milestone 14)
+			if h.AISettingsHandler != nil {
+				protected.With(tenantGuard).Get("/organization/ai-settings", h.AISettingsHandler.GetSettings)
+				protected.With(tenantGuard, requireOwner).Put("/organization/ai-settings", h.AISettingsHandler.UpdateSettings)
+				protected.With(tenantGuard).Post("/organization/ai-settings/test-sanitize", h.AISettingsHandler.TestSanitize)
 			}
 		})
 	})

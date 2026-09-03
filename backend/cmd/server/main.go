@@ -104,6 +104,7 @@ func main() {
 
 	// 5. HTTP Handlers & Router (Port 3001)
 	testSuiteService := service.NewTestSuiteService(queries, replayService)
+	aiSettingsService := service.NewAISettingsService(queries, explainer)
 
 	handlers := &transporthttp.Handlers{
 		AuthHandler:            transporthttp.NewAuthHandler(authService),
@@ -125,6 +126,7 @@ func main() {
 		TemplateHandler:        transporthttp.NewTemplateHandler(),
 		SchemaHandler:          transporthttp.NewSchemaHandler(queries),
 		TestSuiteHandler:       transporthttp.NewTestSuiteHandler(testSuiteService),
+		AISettingsHandler:      transporthttp.NewAISettingsHandler(aiSettingsService),
 	}
 
 	router := transporthttp.SetupRouter(handlers, cfg.JWTSecret, queries, cfg.CORSOrigin)

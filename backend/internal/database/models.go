@@ -204,9 +204,12 @@ type MockRule struct {
 }
 
 type Organization struct {
-	ID        pgtype.UUID        `json:"id"`
-	Name      string             `json:"name"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID                        pgtype.UUID        `json:"id"`
+	Name                      string             `json:"name"`
+	AiEnabled                 bool               `json:"ai_enabled"`
+	AiDataSharingLevel        string             `json:"ai_data_sharing_level"`
+	AiCustomRedactionPatterns []byte             `json:"ai_custom_redaction_patterns"`
+	CreatedAt                 pgtype.Timestamptz `json:"created_at"`
 }
 
 type Policy struct {
