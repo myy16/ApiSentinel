@@ -31,6 +31,8 @@ type Querier interface {
 	CreateOutboxJob(ctx context.Context, arg CreateOutboxJobParams) (ForwardingDlq, error)
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
 	CreateReplayJob(ctx context.Context, arg CreateReplayJobParams) (CreateReplayJobRow, error)
+	CreateReplayTestRun(ctx context.Context, arg CreateReplayTestRunParams) (ReplayTestRun, error)
+	CreateReplayTestSuite(ctx context.Context, arg CreateReplayTestSuiteParams) (ReplayTestSuite, error)
 	CreateSchemaBaseline(ctx context.Context, arg CreateSchemaBaselineParams) (SchemaBaseline, error)
 	CreateSchemaDriftEvent(ctx context.Context, arg CreateSchemaDriftEventParams) (SchemaDriftEvent, error)
 	CreateSecurityFinding(ctx context.Context, arg CreateSecurityFindingParams) (SecurityFinding, error)
@@ -44,6 +46,7 @@ type Querier interface {
 	DeleteEndpointWebhookSecurity(ctx context.Context, endpointID pgtype.UUID) error
 	DeleteMockRule(ctx context.Context, arg DeleteMockRuleParams) error
 	DeleteProject(ctx context.Context, arg DeleteProjectParams) error
+	DeleteReplayTestSuite(ctx context.Context, arg DeleteReplayTestSuiteParams) error
 	FailDeliveryJob(ctx context.Context, arg FailDeliveryJobParams) (DeliveryJob, error)
 	FailOutboxJob(ctx context.Context, arg FailOutboxJobParams) (ForwardingDlq, error)
 	GetAPIKeyByPrefixAndHash(ctx context.Context, arg GetAPIKeyByPrefixAndHashParams) (ApiKey, error)
@@ -69,6 +72,7 @@ type Querier interface {
 	GetProjectByID(ctx context.Context, arg GetProjectByIDParams) (Project, error)
 	GetProjectOrganizationID(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error)
 	GetReplayJobByID(ctx context.Context, id pgtype.UUID) (GetReplayJobByIDRow, error)
+	GetReplayTestSuiteByID(ctx context.Context, id pgtype.UUID) (ReplayTestSuite, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error)
 	ListAPIKeysByProject(ctx context.Context, projectID pgtype.UUID) ([]ListAPIKeysByProjectRow, error)
@@ -85,6 +89,8 @@ type Querier interface {
 	ListMockRulesByEndpoint(ctx context.Context, endpointID pgtype.UUID) ([]MockRule, error)
 	ListProjectsByOrg(ctx context.Context, organizationID pgtype.UUID) ([]Project, error)
 	ListReplayJobsByProject(ctx context.Context, arg ListReplayJobsByProjectParams) ([]ListReplayJobsByProjectRow, error)
+	ListReplayTestRunsBySuite(ctx context.Context, suiteID pgtype.UUID) ([]ReplayTestRun, error)
+	ListReplayTestSuitesByProject(ctx context.Context, projectID pgtype.UUID) ([]ReplayTestSuite, error)
 	ListRequestsByEndpoint(ctx context.Context, arg ListRequestsByEndpointParams) ([]CapturedRequest, error)
 	ListRequestsByProject(ctx context.Context, arg ListRequestsByProjectParams) ([]ListRequestsByProjectRow, error)
 	ListSchemaBaselinesByEndpoint(ctx context.Context, endpointID pgtype.UUID) ([]SchemaBaseline, error)
@@ -101,6 +107,7 @@ type Querier interface {
 	UpdateEndpoint(ctx context.Context, arg UpdateEndpointParams) (Endpoint, error)
 	UpdateProject(ctx context.Context, arg UpdateProjectParams) (Project, error)
 	UpdateReplayJobResult(ctx context.Context, arg UpdateReplayJobResultParams) (UpdateReplayJobResultRow, error)
+	UpdateReplayTestRunResult(ctx context.Context, arg UpdateReplayTestRunResultParams) (ReplayTestRun, error)
 	UpdateRequestProcessingStatus(ctx context.Context, arg UpdateRequestProcessingStatusParams) error
 	UpsertEndpointSchema(ctx context.Context, arg UpsertEndpointSchemaParams) (EndpointSchema, error)
 	UpsertEndpointWebhookSecurity(ctx context.Context, arg UpsertEndpointWebhookSecurityParams) (EndpointWebhookSecurity, error)

@@ -36,6 +36,7 @@ type ExecuteReplayParams struct {
 	CustomHeaders       map[string]string `json:"customHeaders,omitempty"`
 	Justification       string            `json:"justification,omitempty"`
 	OverrideIdempotency bool              `json:"overrideIdempotency"`
+	RenewIdempotency    bool              `json:"renewIdempotency"`
 	UserID              string            `json:"userId,omitempty"`
 	ClientIP            string            `json:"clientIp,omitempty"`
 }
@@ -50,6 +51,7 @@ type ReplayResultResponse struct {
 	Environment            string            `json:"environment"`
 	CustomHeaders          map[string]string `json:"customHeaders,omitempty"`
 	OriginalResponseStatus int               `json:"originalResponseStatus,omitempty"`
+	Replacements           map[string]string `json:"replacements,omitempty"`
 	CreatedAt              string            `json:"createdAt"`
 }
 
@@ -100,34 +102,47 @@ func (s *ReplayService) ExecuteReplay(ctx context.Context, params ExecuteReplayP
 
 	jobIdStr := uuid.UUID(job.ID.Bytes).String()
 
-	// 4. Prepare Outbound HTTP Request
-	var bodyReader io.Reader
+	// 4. Prepare Outbound Payload & Headers
+	var rawPayloadBytes []byte
 	if reqRecord.RawBody.Valid && len(reqRecord.RawBody.String) > 0 {
-		bodyReader = bytes.NewBufferString(reqRecord.RawBody.String)
+		rawPayloadBytes = []byte(reqRecord.RawBody.String)
 	} else if reqRecord.MaskedBody.Valid && len(reqRecord.MaskedBody.String) > 0 {
-		bodyReader = bytes.NewBufferString(reqRecord.MaskedBody.String)
+		rawPayloadBytes = []byte(reqRecord.MaskedBody.String)
+	} else if len(reqRecord.ParsedJson) > 0 {
+		rawPayloadBytes = reqRecord.ParsedJson
 	}
 
-	outboundReq, err := http.NewRequestWithContext(ctx, reqRecord.HttpMethod, params.TargetURL, bodyReader)
+	var headers map[string]interface{}
+	_ = json.Unmarshal(reqRecord.Headers, &headers)
+
+	var replacements map[string]string
+	if params.RenewIdempotency {
+		mutation := MutateIdempotencyKeys(headers, rawPayloadBytes)
+		rawPayloadBytes = mutation.PayloadBytes
+		replacements = mutation.Replacements
+		headers = make(map[string]interface{})
+		for hk, hv := range mutation.Headers {
+			headers[hk] = hv
+		}
+	}
+
+	outboundReq, err := http.NewRequestWithContext(ctx, reqRecord.HttpMethod, params.TargetURL, bytes.NewBuffer(rawPayloadBytes))
 	if err != nil {
 		return nil, err
 	}
 
-	// Restore original headers
-	var headers map[string]interface{}
-	if err := json.Unmarshal(reqRecord.Headers, &headers); err == nil {
-		for k, v := range headers {
-			switch val := v.(type) {
-			case string:
-				outboundReq.Header.Set(k, val)
-			case []interface{}:
-				for i, item := range val {
-					if strItem, ok := item.(string); ok {
-						if i == 0 {
-							outboundReq.Header.Set(k, strItem)
-						} else {
-							outboundReq.Header.Add(k, strItem)
-						}
+	// Restore / set headers
+	for k, v := range headers {
+		switch val := v.(type) {
+		case string:
+			outboundReq.Header.Set(k, val)
+		case []interface{}:
+			for i, item := range val {
+				if strItem, ok := item.(string); ok {
+					if i == 0 {
+						outboundReq.Header.Set(k, strItem)
+					} else {
+						outboundReq.Header.Add(k, strItem)
 					}
 				}
 			}
@@ -233,6 +248,7 @@ func (s *ReplayService) ExecuteReplay(ctx context.Context, params ExecuteReplayP
 		Environment:            params.Environment,
 		CustomHeaders:          params.CustomHeaders,
 		OriginalResponseStatus: int(originalStatus),
+		Replacements:           replacements,
 		CreatedAt:              updatedJob.CreatedAt.Time.Format(time.RFC3339),
 	}, nil
 }

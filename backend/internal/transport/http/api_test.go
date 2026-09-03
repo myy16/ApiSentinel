@@ -49,6 +49,7 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 	findingService := service.NewFindingService(queries)
 	apiKeyService := service.NewAPIKeyService(queries)
 	deliveryService := service.NewDeliveryService(queries, nil, "")
+	testSuiteService := service.NewTestSuiteService(queries, replayService)
 
 	handlers := &Handlers{
 		AuthHandler:       NewAuthHandler(authService),
@@ -67,6 +68,7 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 		DeliveryHandler:   NewDeliveryHandler(queries, deliveryService),
 		TemplateHandler:   NewTemplateHandler(),
 		SchemaHandler:     NewSchemaHandler(queries),
+		TestSuiteHandler:  NewTestSuiteHandler(testSuiteService),
 	}
 
 	router := SetupRouter(handlers, cfg.JWTSecret, queries, "*")
@@ -441,6 +443,55 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("Expected 200 on /drifts/{id}/accept, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// 18. Create & Run Replay Test Suite (Milestone 12)
+	suiteCreateBody, _ := json.Marshal(map[string]interface{}{
+		"name":              "Checkout Regression Scenario",
+		"description":       "Tests order events with safe idempotency mutation",
+		"requestIds":        []string{reqListRes.Requests[0].ID},
+		"targetEnvironment": "STAGING",
+		"targetUrl":         "https://example.com/webhook",
+		"renewIdempotency":  true,
+		"customHeaders":     map[string]string{"X-Suite-Env": "staging"},
+	})
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("POST", fmt.Sprintf("/api/projects/%s/test-suites", projectId), bytes.NewBuffer(suiteCreateBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("x-organization-id", orgId)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("Expected 201 on create test-suite, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var suiteRes struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &suiteRes)
+	if suiteRes.Name != "Checkout Regression Scenario" {
+		t.Fatalf("Expected suite name 'Checkout Regression Scenario', got %s", suiteRes.Name)
+	}
+
+	// Run Test Suite
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("POST", fmt.Sprintf("/api/test-suites/%s/run", suiteRes.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("x-organization-id", orgId)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 on run test-suite, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var runReport service.TestSuiteRunReport
+	json.Unmarshal(w.Body.Bytes(), &runReport)
+	if runReport.TotalSteps == 0 || runReport.PassedSteps == 0 {
+		t.Fatalf("Expected at least 1 passed step, got %d passed out of %d total", runReport.PassedSteps, runReport.TotalSteps)
+	}
+	if len(runReport.StepResults[0].Replacements) == 0 {
+		t.Fatalf("Expected idempotency replacements in step result, got 0")
 	}
 }
 

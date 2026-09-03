@@ -31,6 +31,7 @@ type Handlers struct {
 	DeliveryHandler        *DeliveryHandler
 	TemplateHandler        *TemplateHandler
 	SchemaHandler          *SchemaHandler
+	TestSuiteHandler       *TestSuiteHandler
 }
 
 func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsOrigin string) *chi.Mux {
@@ -145,6 +146,15 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 			protected.With(tenantGuard, requestGuard, requireDeveloper).Post("/requests/{id}/replay", h.ReplayHandler.Execute)
 			protected.With(tenantGuard, projectGuard).Get("/projects/{projectId}/replays", h.ReplayHandler.ListByProject)
 			protected.With(tenantGuard).Get("/replays/{id}", h.ReplayHandler.GetReplay)
+
+			// Replay Test Suites & Scenario Runner (Milestone 12)
+			if h.TestSuiteHandler != nil {
+				protected.With(tenantGuard, projectGuard, requireDeveloper).Post("/projects/{projectId}/test-suites", h.TestSuiteHandler.Create)
+				protected.With(tenantGuard, projectGuard).Get("/projects/{projectId}/test-suites", h.TestSuiteHandler.ListByProject)
+				protected.With(tenantGuard).Get("/test-suites/{id}", h.TestSuiteHandler.Get)
+				protected.With(tenantGuard, requireDeveloper).Delete("/test-suites/{id}", h.TestSuiteHandler.Delete)
+				protected.With(tenantGuard, requireDeveloper).Post("/test-suites/{id}/run", h.TestSuiteHandler.Run)
+			}
 
 			// Security Findings (Real DB & Statistics) & Agent Scans
 			if h.FindingHandler != nil {

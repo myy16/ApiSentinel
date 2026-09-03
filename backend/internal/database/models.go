@@ -236,6 +236,33 @@ type ReplayJob struct {
 	CompletedAt     pgtype.Timestamptz `json:"completed_at"`
 }
 
+type ReplayTestRun struct {
+	ID             pgtype.UUID        `json:"id"`
+	SuiteID        pgtype.UUID        `json:"suite_id"`
+	Status         string             `json:"status"`
+	TotalSteps     int32              `json:"total_steps"`
+	PassedSteps    int32              `json:"passed_steps"`
+	FailedSteps    int32              `json:"failed_steps"`
+	TotalLatencyMs int32              `json:"total_latency_ms"`
+	StepResults    []byte             `json:"step_results"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	CompletedAt    pgtype.Timestamptz `json:"completed_at"`
+}
+
+type ReplayTestSuite struct {
+	ID                pgtype.UUID        `json:"id"`
+	ProjectID         pgtype.UUID        `json:"project_id"`
+	Name              string             `json:"name"`
+	Description       pgtype.Text        `json:"description"`
+	RequestIds        []byte             `json:"request_ids"`
+	TargetEnvironment string             `json:"target_environment"`
+	TargetUrl         pgtype.Text        `json:"target_url"`
+	RenewIdempotency  bool               `json:"renew_idempotency"`
+	CustomHeaders     []byte             `json:"custom_headers"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Rule struct {
 	ID            pgtype.UUID `json:"id"`
 	Name          string      `json:"name"`

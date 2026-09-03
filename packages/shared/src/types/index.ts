@@ -335,6 +335,46 @@ export interface SchemaDriftEvent {
   createdAt: string;
 }
 
+export interface ReplayTestSuite {
+  id: string;
+  projectId: string;
+  name: string;
+  description?: string | null;
+  requestIds: string[];
+  targetEnvironment: ReplayEnvironment;
+  targetUrl?: string | null;
+  renewIdempotency: boolean;
+  customHeaders?: Record<string, string>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TestSuiteStepResult {
+  stepIndex: number;
+  requestId: string;
+  targetUrl: string;
+  responseStatus: number;
+  latencyMs: number;
+  status: "PASSED" | "FAILED";
+  errorMessage?: string;
+  replacements?: Record<string, string>;
+}
+
+export interface TestSuiteRunReport {
+  runId: string;
+  suiteId: string;
+  suiteName: string;
+  status: "PASSED" | "FAILED" | "PARTIAL";
+  totalSteps: number;
+  passedSteps: number;
+  failedSteps: number;
+  totalLatencyMs: number;
+  stepResults: TestSuiteStepResult[];
+  createdAt: string;
+  completedAt: string;
+}
+
+
 
 
 
