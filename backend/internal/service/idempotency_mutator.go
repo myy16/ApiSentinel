@@ -18,21 +18,15 @@ var IdempotencyHeaderNames = []string{
 	"stripe-request-id",
 }
 
-// IdempotencyBodyFieldNames contains JSON field names typically carrying unique idempotency or event identifiers.
+// IdempotencyBodyFieldNames contains JSON field names carrying unique idempotency or event identifiers.
+// Note: Business entity identifiers (id, payment_id, transaction_id, etc.) are explicitly excluded to protect data integrity.
 var IdempotencyBodyFieldNames = []string{
-	"id",
 	"event_id",
 	"idempotency_key",
 	"idempotencyKey",
 	"nonce",
 	"request_id",
 	"requestId",
-	"tx_id",
-	"transaction_id",
-	"payment_id",
-	"paymentId",
-	"conversation_id",
-	"conversationId",
 }
 
 // MutationResult contains the mutated headers, payload, and a log of replaced keys.

@@ -102,14 +102,14 @@ func (s *ReplayService) ExecuteReplay(ctx context.Context, params ExecuteReplayP
 
 	jobIdStr := uuid.UUID(job.ID.Bytes).String()
 
-	// 4. Prepare Outbound Payload & Headers
+	// 4. Prepare Outbound Payload & Headers (Prioritize MaskedBody over RawBody for PII safety)
 	var rawPayloadBytes []byte
-	if reqRecord.RawBody.Valid && len(reqRecord.RawBody.String) > 0 {
-		rawPayloadBytes = []byte(reqRecord.RawBody.String)
-	} else if reqRecord.MaskedBody.Valid && len(reqRecord.MaskedBody.String) > 0 {
+	if reqRecord.MaskedBody.Valid && len(reqRecord.MaskedBody.String) > 0 {
 		rawPayloadBytes = []byte(reqRecord.MaskedBody.String)
 	} else if len(reqRecord.ParsedJson) > 0 {
 		rawPayloadBytes = reqRecord.ParsedJson
+	} else if reqRecord.RawBody.Valid && len(reqRecord.RawBody.String) > 0 {
+		rawPayloadBytes = []byte(reqRecord.RawBody.String)
 	}
 
 	var headers map[string]interface{}
@@ -172,8 +172,15 @@ func (s *ReplayService) ExecuteReplay(ctx context.Context, params ExecuteReplayP
 	} else {
 		respStatus = resp.StatusCode
 		defer resp.Body.Close()
-		bodyBytes, _ := io.ReadAll(resp.Body)
+		// Limit response body reading to 1 MB to prevent unbounded memory consumption
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
 		respBodyStr = string(bodyBytes)
+	}
+
+	// Truncate DB stored response body to 64 KB
+	dbRespBody := respBodyStr
+	if len(dbRespBody) > 65536 {
+		dbRespBody = dbRespBody[:65536] + "... [TRUNCATED]"
 	}
 
 	// 6. Update Replay Job with Results
@@ -182,7 +189,7 @@ func (s *ReplayService) ExecuteReplay(ctx context.Context, params ExecuteReplayP
 		ID:             job.ID,
 		Status:         status,
 		ResponseStatus: pgtype.Int4{Int32: int32(respStatus), Valid: true},
-		ResponseBody:   pgtype.Text{String: respBodyStr, Valid: true},
+		ResponseBody:   pgtype.Text{String: dbRespBody, Valid: true},
 		LatencyMs:      int32(latencyMs),
 		CompletedAt:    pgtype.Timestamptz{Time: now, Valid: true},
 	})

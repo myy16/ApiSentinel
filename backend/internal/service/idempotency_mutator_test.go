@@ -36,15 +36,17 @@ func TestMutateIdempotencyKeys_HeadersAndBody(t *testing.T) {
 		t.Errorf("Content-Type should remain unchanged, got: %s", result.Headers["Content-Type"])
 	}
 
-	// 2. Payload body should be mutated
+	// 2. Payload body: idempotency/event fields mutated, business identifiers preserved
 	var parsed map[string]interface{}
 	if err := json.Unmarshal(result.PayloadBytes, &parsed); err != nil {
 		t.Fatalf("Failed to parse mutated payload JSON: %v", err)
 	}
 
-	if parsed["id"] == "evt_123456789" {
-		t.Errorf("Root id was not mutated")
+	// Business entity "id" should be PRESERVED
+	if parsed["id"] != "evt_123456789" {
+		t.Errorf("Business ID should be preserved, got: %v", parsed["id"])
 	}
+	// Event/idempotency key should be MUTATED
 	if parsed["event_id"] == "evt_abc_999" {
 		t.Errorf("event_id was not mutated")
 	}
@@ -53,8 +55,9 @@ func TestMutateIdempotencyKeys_HeadersAndBody(t *testing.T) {
 	if !ok {
 		t.Fatalf("data object missing in mutated payload")
 	}
-	if dataMap["payment_id"] == "pi_3Mtw" {
-		t.Errorf("Nested payment_id was not mutated")
+	// Business entity "payment_id" should be PRESERVED
+	if dataMap["payment_id"] != "pi_3Mtw" {
+		t.Errorf("payment_id should be preserved as business data, got: %v", dataMap["payment_id"])
 	}
 	if dataMap["customer"] != "cus_123" {
 		t.Errorf("customer field should not be mutated, got: %v", dataMap["customer"])
@@ -63,8 +66,8 @@ func TestMutateIdempotencyKeys_HeadersAndBody(t *testing.T) {
 		t.Errorf("amount field should remain 5000, got: %v", dataMap["amount"])
 	}
 
-	// 3. Replacements map check
-	if len(result.Replacements) < 4 {
-		t.Errorf("Expected at least 4 replacements recorded, got %d: %v", len(result.Replacements), result.Replacements)
+	// 3. Replacements map check (headers + body event_id)
+	if len(result.Replacements) < 3 {
+		t.Errorf("Expected at least 3 replacements recorded, got %d: %v", len(result.Replacements), result.Replacements)
 	}
 }

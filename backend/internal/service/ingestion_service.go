@@ -395,18 +395,16 @@ func (s *IngestionService) ProcessWebhook(
 		}, nil
 	}
 
-	// 13b. Duplicate Idempotency Guard — block forwarding for duplicate webhooks (#2)
+	// 13b. Duplicate Idempotency Guard — acknowledge duplicate webhook with 200 OK but skip forwarding (#2)
 	if isDuplicate {
 		return &IngestionResult{
-			StatusCode: http.StatusConflict,
+			StatusCode: http.StatusOK,
 			RequestID:  requestId,
 			Action:     "DUPLICATE",
 			ResponseBody: map[string]interface{}{
-				"error": map[string]interface{}{
-					"code":      "DUPLICATE_REQUEST",
-					"message":   "Bu webhook daha önce işlendi. Tekrar iletim engellendi.",
-					"requestId": requestId,
-				},
+				"status":    "DUPLICATE_ACCEPTED",
+				"message":   "Bu webhook daha önce işlendi. Tekrar iletim engellendi.",
+				"requestId": requestId,
 			},
 		}, nil
 	}

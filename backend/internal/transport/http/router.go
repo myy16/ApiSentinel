@@ -182,10 +182,11 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 
 			// Delivery Control Plane (Milestone 3 & Faz 1 & Milestone 15)
 			if h.DeliveryHandler != nil {
+				deliveryGuard := middleware.RequireDeliveryJobOwnership(queries, "id")
 				protected.With(tenantGuard, endpointGuard).Get("/endpoints/{endpointId}/deliveries", h.DeliveryHandler.ListByEndpoint)
-				protected.With(tenantGuard).Get("/deliveries/{id}/timeline", h.DeliveryHandler.GetTimeline)
-				protected.With(tenantGuard, requireDeveloper).Post("/deliveries/{id}/replay", h.DeliveryHandler.Replay)
-				protected.With(tenantGuard).Post("/deliveries/{id}/ai-explain", h.DeliveryHandler.AIExplain)
+				protected.With(tenantGuard, deliveryGuard).Get("/deliveries/{id}/timeline", h.DeliveryHandler.GetTimeline)
+				protected.With(tenantGuard, deliveryGuard, requireDeveloper).Post("/deliveries/{id}/replay", h.DeliveryHandler.Replay)
+				protected.With(tenantGuard, deliveryGuard).Post("/deliveries/{id}/ai-explain", h.DeliveryHandler.AIExplain)
 				protected.With(tenantGuard, projectGuard).Get("/projects/{projectId}/delivery-kpis", h.DeliveryHandler.GetKPIs)
 				protected.With(tenantGuard, projectGuard).Get("/projects/{projectId}/audit-logs", h.DeliveryHandler.ListAuditLogs)
 			}

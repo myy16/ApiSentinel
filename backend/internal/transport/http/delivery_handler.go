@@ -367,11 +367,15 @@ func (h *DeliveryHandler) AIExplain(w http.ResponseWriter, r *http.Request) {
 		latestAttempt = attempts[len(attempts)-1]
 	}
 
-	// 3. Organization AI Settings & Custom Redaction Keys
+	// 3. Organization AI Settings & Opt-in Guard
 	var customRedactKeys []string
 	orgID := middleware.GetOrganizationID(r.Context())
 	if orgID.Valid {
 		if orgSettings, orgErr := h.queries.GetOrganizationAISettings(r.Context(), orgID); orgErr == nil {
+			if !orgSettings.AiEnabled {
+				writeError(w, http.StatusForbidden, "AI_DISABLED", "Bu organizasyon için AI analizi devre dışı bırakılmıştır")
+				return
+			}
 			if len(orgSettings.AiCustomRedactionPatterns) > 0 {
 				_ = json.Unmarshal(orgSettings.AiCustomRedactionPatterns, &customRedactKeys)
 			}
