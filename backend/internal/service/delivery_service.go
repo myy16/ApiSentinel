@@ -13,6 +13,7 @@ import (
 	"github.com/apisentinel/apisentinel/internal/database"
 	"github.com/apisentinel/apisentinel/internal/delivery"
 	"github.com/apisentinel/apisentinel/internal/forwarding"
+	"github.com/apisentinel/apisentinel/internal/security/envelope"
 	"github.com/apisentinel/apisentinel/internal/security/redaction"
 	"github.com/apisentinel/apisentinel/internal/security/ssrf"
 	"github.com/apisentinel/apisentinel/internal/worker"
@@ -34,6 +35,7 @@ type DeliveryService struct {
 	maxPerEndpoint int
 	alertService   *AlertService
 	stopPoller     chan struct{}
+	triggerPoller  chan struct{}
 }
 
 func (s *DeliveryService) SetAlertService(alertService *AlertService) {
@@ -58,6 +60,7 @@ func NewDeliveryService(
 		encryptionKey:  encryptionKey,
 		endpointSem:    make(map[string]chan struct{}),
 		maxPerEndpoint: 5, // Fair scheduling: max 5 concurrent outbound requests per endpoint
+		triggerPoller:  make(chan struct{}, 100),
 	}
 
 	// Startup Crash Recovery
@@ -207,13 +210,25 @@ func (s *DeliveryService) ExecuteJob(ctx context.Context, job database.DeliveryJ
 		return &attempt, ssrfErr
 	}
 
-	// 2. Prepare Outbound Request
+	// 2. Prepare Outbound Request with Dynamic Timeout & Decrypted Custom Headers
 	timeout := 10 * time.Second
+	var customHeaders map[string]string
+	if cfg, cfgErr := s.queries.GetForwardingConfigByEndpoint(ctx, job.EndpointID); cfgErr == nil {
+		if cfg.TimeoutMs > 0 {
+			timeout = time.Duration(cfg.TimeoutMs) * time.Millisecond
+		}
+		customHeaders = s.resolveCustomHeaders(cfg)
+	}
+
 	attemptCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	// Safe Header Sanitization for request
 	safeHeaders := forwarding.FilterHeaders(headers)
+	for k, v := range customHeaders {
+		safeHeaders[k] = v
+	}
+
 	cleanPayload := bodyBytes
 	if job.PayloadMode != "RAW" {
 		masked, _ := redaction.Payload(bodyBytes)
@@ -383,10 +398,22 @@ func (s *DeliveryService) PollAndProcessQueue(ctx context.Context, batchSize int
 	return len(jobs), nil
 }
 
+// TriggerQueue sends an immediate non-blocking notification to the queue poller
+// to claim and process pending delivery jobs without waiting for the next ticker tick.
+func (s *DeliveryService) TriggerQueue() {
+	if s.triggerPoller != nil {
+		select {
+		case s.triggerPoller <- struct{}{}:
+		default:
+			// Poller is already triggered or processing; skip
+		}
+	}
+}
+
 // StartQueuePoller starts a background goroutine that periodically polls for
 // PENDING/RETRY_WAIT delivery jobs whose next_retry_at has passed.
-// This ensures jobs that weren't picked up by the initial worker pool dispatch
-// (e.g., due to pool saturation) are eventually processed.
+// All delivery jobs are claimed atomically via FOR UPDATE SKIP LOCKED to guarantee
+// no double delivery race conditions.
 func (s *DeliveryService) StartQueuePoller(ctx context.Context, interval time.Duration, batchSize int32) {
 	if interval <= 0 {
 		interval = 15 * time.Second
@@ -413,12 +440,27 @@ func (s *DeliveryService) StartQueuePoller(ctx context.Context, interval time.Du
 			case <-s.stopPoller:
 				log.Info().Msg("Delivery queue poller stopped (explicit stop)")
 				return
+			case <-s.triggerPoller:
+				for {
+					processed, err := s.PollAndProcessQueue(ctx, batchSize)
+					if err != nil {
+						log.Warn().Err(err).Msg("Delivery queue triggered poll failed")
+						break
+					}
+					if processed < int(batchSize) {
+						break
+					}
+				}
 			case <-ticker.C:
-				processed, err := s.PollAndProcessQueue(ctx, batchSize)
-				if err != nil {
-					log.Warn().Err(err).Msg("Delivery queue poll cycle failed")
-				} else if processed > 0 {
-					log.Info().Int("processed", processed).Msg("Delivery queue poller picked up jobs")
+				for {
+					processed, err := s.PollAndProcessQueue(ctx, batchSize)
+					if err != nil {
+						log.Warn().Err(err).Msg("Delivery queue periodic poll cycle failed")
+						break
+					}
+					if processed == 0 || processed < int(batchSize) {
+						break
+					}
 				}
 			}
 		}
@@ -430,4 +472,45 @@ func (s *DeliveryService) StopQueuePoller() {
 	if s.stopPoller != nil {
 		close(s.stopPoller)
 	}
+}
+
+// resolveCustomHeaders decrypts stored headers if encrypted, or unmarshals JSON directly
+func (s *DeliveryService) resolveCustomHeaders(cfg database.ForwardingConfig) map[string]string {
+	if len(cfg.CustomHeaders) == 0 {
+		return nil
+	}
+
+	// 1. Check for encrypted JSON envelope {"_encrypted": "..."}
+	var env map[string]string
+	if err := json.Unmarshal(cfg.CustomHeaders, &env); err == nil {
+		if encVal, ok := env["_encrypted"]; ok && encVal != "" {
+			if s.encryptionKey != "" {
+				decrypted, dErr := envelope.Decrypt(s.encryptionKey, encVal)
+				if dErr == nil && decrypted != "" {
+					var headers map[string]string
+					if err := json.Unmarshal([]byte(decrypted), &headers); err == nil {
+						return headers
+					}
+				}
+			}
+		} else {
+			// Direct unencrypted map
+			return env
+		}
+	}
+
+	// 2. Direct string decrypt fallback
+	if s.encryptionKey != "" {
+		decrypted, err := envelope.Decrypt(s.encryptionKey, string(cfg.CustomHeaders))
+		if err == nil && decrypted != "" {
+			var headers map[string]string
+			if err := json.Unmarshal([]byte(decrypted), &headers); err == nil {
+				return headers
+			}
+		}
+	}
+
+	var headers map[string]string
+	_ = json.Unmarshal(cfg.CustomHeaders, &headers)
+	return headers
 }

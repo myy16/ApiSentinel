@@ -39,6 +39,19 @@ func (h *ReplayHandler) Execute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Enforce Owner Authorization & Justification for Idempotency Override
+	if req.OverrideIdempotency {
+		userRole := middleware.GetRole(r.Context())
+		if userRole != "OWNER" {
+			writeError(w, http.StatusForbidden, "ROLE_UNAUTHORIZED", "Yalnızca organizasyon OWNER rolü idempotency override ile replay yapabilir")
+			return
+		}
+		if req.Justification == "" {
+			writeError(w, http.StatusBadRequest, "JUSTIFICATION_REQUIRED", "Idempotency override edilirken bir gerekçe (justification) belirtilmesi zorunludur")
+			return
+		}
+	}
+
 	userID, _ := r.Context().Value(middleware.UserIDKey).(string)
 
 	clientIP := r.RemoteAddr

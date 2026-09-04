@@ -74,6 +74,23 @@ func (s *TestSuiteService) CreateSuite(ctx context.Context, params CreateTestSui
 		return nil, errors.New("geçersiz proje ID formatı")
 	}
 
+	targetProjPG := pgtype.UUID{Bytes: projUUID, Valid: true}
+
+	// Verify all requestIDs belong to this project
+	for _, reqIDStr := range params.RequestIDs {
+		reqUUID, err := uuid.Parse(reqIDStr)
+		if err != nil {
+			return nil, fmt.Errorf("geçersiz istek ID formatı: %s", reqIDStr)
+		}
+		reqRecord, err := s.queries.GetCapturedRequestByID(ctx, pgtype.UUID{Bytes: reqUUID, Valid: true})
+		if err != nil {
+			return nil, fmt.Errorf("istek bulunamadı: %s", reqIDStr)
+		}
+		if reqRecord.ProjectID != targetProjPG {
+			return nil, fmt.Errorf("seçilen istek (%s) bu projeye ait değil", reqIDStr)
+		}
+	}
+
 	reqIDsJSON, _ := json.Marshal(params.RequestIDs)
 	customHeadersJSON, _ := json.Marshal(params.CustomHeaders)
 
@@ -82,7 +99,7 @@ func (s *TestSuiteService) CreateSuite(ctx context.Context, params CreateTestSui
 	}
 
 	suite, err := s.queries.CreateReplayTestSuite(ctx, database.CreateReplayTestSuiteParams{
-		ProjectID:         pgtype.UUID{Bytes: projUUID, Valid: true},
+		ProjectID:         targetProjPG,
 		Name:              params.Name,
 		Description:       pgtype.Text{String: params.Description, Valid: params.Description != ""},
 		RequestIds:        reqIDsJSON,
@@ -183,7 +200,28 @@ func (s *TestSuiteService) RunSuite(ctx context.Context, suiteID, userID, client
 	for idx, reqID := range reqIDs {
 		targetURL := suite.TargetUrl.String
 		if targetURL == "" {
-			targetURL = "https://httpbin.org/post"
+			reqUUID, parseErr := uuid.Parse(reqID)
+			if parseErr == nil {
+				if reqRec, reqErr := s.queries.GetCapturedRequestByID(ctx, pgtype.UUID{Bytes: reqUUID, Valid: true}); reqErr == nil {
+					if ep, epErr := s.queries.GetEndpointByIDOnly(ctx, reqRec.EndpointID); epErr == nil && ep.UpstreamUrl.Valid && ep.UpstreamUrl.String != "" {
+						targetURL = ep.UpstreamUrl.String
+					}
+				}
+			}
+		}
+
+		stepRes := TestSuiteStepResult{
+			StepIndex: idx + 1,
+			RequestID: reqID,
+			TargetURL: targetURL,
+		}
+
+		if targetURL == "" {
+			stepRes.Status = "FAILED"
+			stepRes.ErrorMessage = "Hedef URL belirtilmemiş ve istek için endpoint upstream URL bulunamadı"
+			failedSteps++
+			stepResults = append(stepResults, stepRes)
+			continue
 		}
 
 		replayRes, replayErr := s.replayService.ExecuteReplay(ctx, ExecuteReplayParams{
@@ -197,12 +235,6 @@ func (s *TestSuiteService) RunSuite(ctx context.Context, suiteID, userID, client
 			UserID:              userID,
 			ClientIP:            clientIP,
 		})
-
-		stepRes := TestSuiteStepResult{
-			StepIndex: idx + 1,
-			RequestID: reqID,
-			TargetURL: targetURL,
-		}
 
 		if replayErr != nil || replayRes.Status == "FAILED" {
 			stepRes.Status = "FAILED"

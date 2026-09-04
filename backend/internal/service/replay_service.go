@@ -12,20 +12,27 @@ import (
 
 	"github.com/apisentinel/apisentinel/internal/database"
 	"github.com/apisentinel/apisentinel/internal/security/ssrf"
+	"github.com/apisentinel/apisentinel/internal/security/envelope"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/rs/zerolog/log"
 )
 
 type ReplayService struct {
-	queries    *database.Queries
-	httpClient *http.Client
+	queries       *database.Queries
+	httpClient    *http.Client
+	encryptionKey string
 }
 
-func NewReplayService(queries *database.Queries) *ReplayService {
+func NewReplayService(queries *database.Queries, encryptionKey ...string) *ReplayService {
+	var key string
+	if len(encryptionKey) > 0 {
+		key = encryptionKey[0]
+	}
 	return &ReplayService{
-		queries:    queries,
-		httpClient: ssrf.NewSafeHTTPClient(10 * time.Second),
+		queries:       queries,
+		httpClient:    ssrf.NewSafeHTTPClient(10 * time.Second),
+		encryptionKey: key,
 	}
 }
 
@@ -85,7 +92,21 @@ func (s *ReplayService) ExecuteReplay(ctx context.Context, params ExecuteReplayP
 		return nil, errors.New("kayıtlı istek bulunamadı")
 	}
 
-	customHeadersJSON, _ := json.Marshal(params.CustomHeaders)
+	var customHeadersJSON []byte
+	if len(params.CustomHeaders) > 0 {
+		rawJSON, _ := json.Marshal(params.CustomHeaders)
+		if s.encryptionKey != "" {
+			if encVal, encErr := envelope.Encrypt(s.encryptionKey, string(rawJSON)); encErr == nil {
+				customHeadersJSON, _ = json.Marshal(map[string]string{"_encrypted": encVal})
+			} else {
+				customHeadersJSON = rawJSON
+			}
+		} else {
+			customHeadersJSON = rawJSON
+		}
+	} else {
+		customHeadersJSON = []byte("{}")
+	}
 
 	// 3. Create initial Replay Job
 	job, err := s.queries.CreateReplayJob(ctx, database.CreateReplayJobParams{
@@ -213,6 +234,11 @@ func (s *ReplayService) ExecuteReplay(ctx context.Context, params ExecuteReplayP
 		originalStatus = reqRecord.ResponseStatus.Int32
 	}
 
+	action := "REPLAY_LAB_EXECUTED"
+	if params.OverrideIdempotency {
+		action = "REPLAY_IDEMPOTENCY_OVERRIDDEN"
+	}
+
 	metaJSON, _ := json.Marshal(map[string]interface{}{
 		"targetUrl":              params.TargetURL,
 		"environment":            params.Environment,
@@ -221,6 +247,8 @@ func (s *ReplayService) ExecuteReplay(ctx context.Context, params ExecuteReplayP
 		"latencyMs":              latencyMs,
 		"status":                 status,
 		"replayedFrom":           "REPLAY_LAB",
+		"overrideIdempotency":    params.OverrideIdempotency,
+		"renewIdempotency":       params.RenewIdempotency,
 	})
 
 	var pgUserId pgtype.UUID
@@ -234,7 +262,7 @@ func (s *ReplayService) ExecuteReplay(ctx context.Context, params ExecuteReplayP
 		OrganizationID: orgID,
 		ProjectID:      reqRecord.ProjectID,
 		UserID:         pgUserId,
-		Action:         "REPLAY_LAB_EXECUTED",
+		Action:         action,
 		ResourceType:   "CAPTURED_REQUEST",
 		ResourceID:     reqRecord.RequestID,
 		Justification:  pgtype.Text{String: justificationText, Valid: true},
@@ -298,8 +326,7 @@ func (s *ReplayService) ListReplayJobs(ctx context.Context, projectId string, li
 			respBody = j.ResponseBody.String
 		}
 
-		var customH map[string]string
-		_ = json.Unmarshal(j.CustomHeaders, &customH)
+		customH := s.resolveAndMaskCustomHeaders(j.CustomHeaders)
 
 		res = append(res, map[string]interface{}{
 			"id":                     uuid.UUID(j.ID.Bytes).String(),
@@ -333,8 +360,7 @@ func (s *ReplayService) GetReplayJob(ctx context.Context, replayId string) (map[
 		return nil, errors.New("replay kaydı bulunamadı")
 	}
 
-	var customH map[string]string
-	_ = json.Unmarshal(job.CustomHeaders, &customH)
+	customH := s.resolveAndMaskCustomHeaders(job.CustomHeaders)
 
 	return map[string]interface{}{
 		"id":                     uuid.UUID(job.ID.Bytes).String(),
@@ -354,4 +380,40 @@ func (s *ReplayService) GetReplayJob(ctx context.Context, replayId string) (map[
 		"originalPayload":        string(job.OriginalPayload),
 		"createdAt":              job.CreatedAt.Time.Format(time.RFC3339),
 	}, nil
+}
+
+// resolveAndMaskCustomHeaders decrypts custom headers if encrypted, then masks sensitive tokens
+func (s *ReplayService) resolveAndMaskCustomHeaders(raw []byte) map[string]string {
+	if len(raw) == 0 {
+		return make(map[string]string)
+	}
+
+	var headers map[string]string
+	var env map[string]string
+
+	if err := json.Unmarshal(raw, &env); err == nil {
+		if encVal, ok := env["_encrypted"]; ok && encVal != "" {
+			if s.encryptionKey != "" {
+				if dec, dErr := envelope.Decrypt(s.encryptionKey, encVal); dErr == nil && dec != "" {
+					_ = json.Unmarshal([]byte(dec), &headers)
+				}
+			}
+		} else {
+			headers = env
+		}
+	} else if s.encryptionKey != "" {
+		if dec, err := envelope.Decrypt(s.encryptionKey, string(raw)); err == nil && dec != "" {
+			_ = json.Unmarshal([]byte(dec), &headers)
+		}
+	}
+
+	if headers == nil {
+		_ = json.Unmarshal(raw, &headers)
+	}
+
+	masked := make(map[string]string)
+	for k, v := range headers {
+		masked[k] = envelope.MaskHeaderValue(k, v)
+	}
+	return masked
 }

@@ -96,15 +96,17 @@ func NewExplainer(apiKey string) *Explainer {
 }
 
 // ExplainFinding generates a structured remediation report using Groq/OpenAI with fallback to local rulebook.
-// All evidence and message strings are strictly sanitized before passing to any cloud LLM.
-func (e *Explainer) ExplainFinding(ctx context.Context, category, findingType, severity, maskedEvidence, message string, customRedactKeys ...string) (*Explanation, error) {
+// If privacyLevel is "FULL_LOCAL", all external cloud LLM calls are strictly blocked, ensuring 100% offline local processing.
+func (e *Explainer) ExplainFinding(ctx context.Context, category, findingType, severity, maskedEvidence, message string, privacyLevel string, customRedactKeys ...string) (*Explanation, error) {
 	// Strict Zero-Leakage Privacy & Prompt Injection Protection
 	sanitizedEv := SanitizeForAI(maskedEvidence, customRedactKeys)
 	sanitizedMsg := SanitizeForAI(message, customRedactKeys)
 	safeEvidence := InspectAndNeutralizePrompt(sanitizedEv.CleanText).CleanedPrompt
 	safeMessage := InspectAndNeutralizePrompt(sanitizedMsg.CleanText).CleanedPrompt
 
-	if e.provider == "groq" || e.provider == "openai" {
+	isFullLocal := strings.EqualFold(privacyLevel, "FULL_LOCAL")
+
+	if !isFullLocal && (e.provider == "groq" || e.provider == "openai") {
 		exp, err := e.callLLM(ctx, category, findingType, severity, safeEvidence, safeMessage)
 		if err == nil && exp != nil {
 			exp.Provider = fmt.Sprintf("%s (%s)", strings.ToUpper(e.provider), e.model)
@@ -113,10 +115,14 @@ func (e *Explainer) ExplainFinding(ctx context.Context, category, findingType, s
 		log.Warn().Err(err).Str("provider", e.provider).Msg("LLM call failed, seamlessly falling back to internal security knowledgebase")
 	}
 
-	// Fallback to local expert rulebook
+	// Fallback or explicit local expert rulebook
 	localExp, err := e.localRulebook(category, findingType, severity, safeEvidence, safeMessage)
 	if localExp != nil {
-		localExp.Provider = "Dahili Güvenlik Kural Motoru"
+		if isFullLocal {
+			localExp.Provider = "Dahili Güvenlik Kural Motoru (Tam Yerel / Offline)"
+		} else {
+			localExp.Provider = "Dahili Güvenlik Kural Motoru"
+		}
 	}
 	return localExp, err
 }
@@ -131,6 +137,7 @@ type DeliveryIncidentInput struct {
 	ResponseBody     string            `json:"responseBody"`
 	LatencyMs        int64             `json:"latencyMs"`
 	AttemptCount     int               `json:"attemptCount"`
+	PrivacyLevel     string            `json:"privacyLevel,omitempty"` // "FULL_LOCAL", "MASKED_CLOUD", "FULL_CLOUD"
 	CustomRedactKeys []string          `json:"customRedactKeys,omitempty"`
 }
 
@@ -148,6 +155,7 @@ type IncidentAnalysis struct {
 }
 
 // ExplainDeliveryIncident provides actionable root cause analysis for failed deliveries & DLQ jobs.
+// If PrivacyLevel is "FULL_LOCAL", all external cloud LLM calls are strictly blocked.
 func (e *Explainer) ExplainDeliveryIncident(ctx context.Context, input DeliveryIncidentInput) (*IncidentAnalysis, error) {
 	// 1. Sanitize request and response bodies
 	sanReq := SanitizeForAI(input.RequestBody, input.CustomRedactKeys)
@@ -159,8 +167,9 @@ func (e *Explainer) ExplainDeliveryIncident(ctx context.Context, input DeliveryI
 	safeErr := InspectAndNeutralizePrompt(sanErr.CleanText).CleanedPrompt
 
 	totalRedactions := sanReq.RedactionCount + sanResp.RedactionCount + sanErr.RedactionCount
+	isFullLocal := strings.EqualFold(input.PrivacyLevel, "FULL_LOCAL")
 
-	if e.provider == "groq" || e.provider == "openai" {
+	if !isFullLocal && (e.provider == "groq" || e.provider == "openai") {
 		analysis, err := e.callIncidentLLM(ctx, input, safeReq, safeResp, safeErr)
 		if err == nil && analysis != nil {
 			analysis.Provider = fmt.Sprintf("%s (%s)", strings.ToUpper(e.provider), e.model)
@@ -172,7 +181,11 @@ func (e *Explainer) ExplainDeliveryIncident(ctx context.Context, input DeliveryI
 
 	// Local rule-based incident diagnosis
 	localAnalysis := e.localIncidentRulebook(input, safeReq, safeResp, safeErr)
-	localAnalysis.Provider = "Dahili Hata Teşhis Motoru"
+	if isFullLocal {
+		localAnalysis.Provider = "Dahili Hata Teşhis Motoru (Tam Yerel / Offline)"
+	} else {
+		localAnalysis.Provider = "Dahili Hata Teşhis Motoru"
+	}
 	localAnalysis.WasSanitized = true
 	localAnalysis.RedactionCount = totalRedactions
 	return localAnalysis, nil

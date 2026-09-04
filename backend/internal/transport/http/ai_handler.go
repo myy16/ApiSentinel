@@ -37,7 +37,10 @@ func (h *AIHandler) ExplainFinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Enforce Organization AI Opt-in Policy
+	// Enforce Organization AI Opt-in & Privacy Policy
+	privacyLevel := "MASKED_CLOUD"
+	var customRedactKeys []string
+
 	if h.queries != nil {
 		orgID := middleware.GetOrganizationID(r.Context())
 		if orgID.Valid {
@@ -45,6 +48,12 @@ func (h *AIHandler) ExplainFinding(w http.ResponseWriter, r *http.Request) {
 				if !orgSettings.AiEnabled {
 					writeError(w, http.StatusForbidden, "AI_DISABLED", "Bu organizasyon için AI analizi devre dışı bırakılmıştır")
 					return
+				}
+				if orgSettings.AiDataSharingLevel != "" {
+					privacyLevel = orgSettings.AiDataSharingLevel
+				}
+				if len(orgSettings.AiCustomRedactionPatterns) > 0 {
+					_ = json.Unmarshal(orgSettings.AiCustomRedactionPatterns, &customRedactKeys)
 				}
 			}
 		}
@@ -57,6 +66,8 @@ func (h *AIHandler) ExplainFinding(w http.ResponseWriter, r *http.Request) {
 		req.Severity,
 		req.MaskedEvidence,
 		req.Message,
+		privacyLevel,
+		customRedactKeys...,
 	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "AI_ERROR", err.Error())

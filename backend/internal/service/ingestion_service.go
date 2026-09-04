@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/apisentinel/apisentinel/internal/database"
+	"github.com/apisentinel/apisentinel/internal/delivery"
 	"github.com/apisentinel/apisentinel/internal/forwarding"
 	"github.com/apisentinel/apisentinel/internal/id"
 	"github.com/apisentinel/apisentinel/internal/policy"
@@ -27,10 +28,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog/log"
 )
 
 type IngestionService struct {
+	dbPool         *pgxpool.Pool
 	queries        *database.Queries
 	valkeyClient   *valkey.Client
 	rateLimiter    *ratelimit.Limiter
@@ -48,6 +51,7 @@ func NewIngestionService(
 	forwardingSvc *ForwardingService,
 	deliverySvc *DeliveryService,
 	workerPool *worker.Pool,
+	dbPool ...*pgxpool.Pool,
 ) *IngestionService {
 	if workerPool == nil {
 		workerPool = worker.NewPool(10, 2000)
@@ -56,7 +60,12 @@ func NewIngestionService(
 	if valkeyClient != nil {
 		limiter = ratelimit.NewLimiter(valkeyClient)
 	}
+	var pool *pgxpool.Pool
+	if len(dbPool) > 0 {
+		pool = dbPool[0]
+	}
 	return &IngestionService{
+		dbPool:         pool,
 		queries:        queries,
 		valkeyClient:   valkeyClient,
 		rateLimiter:    limiter,
@@ -66,6 +75,10 @@ func NewIngestionService(
 		deliverySvc:    deliverySvc,
 		workerPool:     workerPool,
 	}
+}
+
+func (s *IngestionService) SetDBPool(pool *pgxpool.Pool) {
+	s.dbPool = pool
 }
 
 type IngestionResult struct {
@@ -315,60 +328,209 @@ func (s *IngestionService) ProcessWebhook(
 		action = "BLOCK"
 	}
 
-	// 10. Persist only redacted payload data to PostgreSQL.
-	captured, err := s.queries.CreateCapturedRequest(ctx, database.CreateCapturedRequestParams{
-		EndpointID:       endpoint.ID,
-		RequestID:        requestId,
-		HttpMethod:       httpMethod,
-		Headers:          headersBytes,
-		QueryParams:      queryBytes,
-		RawBody:          pgtype.Text{},
-		MaskedBody:       pgMaskedBody,
-		ParsedJson:       parsedJson,
-		ClientIp:         parseClientIP(clientIP),
-		ResponseStatus:   pgtype.Int4{Int32: responseStatus, Valid: true},
-		ProcessingStatus: "RECEIVED",
-	})
-	if err != nil {
-		log.Error().Err(err).Str("requestId", requestId).Msg("Failed to persist captured request")
-		return &IngestionResult{
-			StatusCode: http.StatusInternalServerError,
-			RequestID:  requestId,
-			Action:     action,
-			ResponseBody: map[string]interface{}{
-				"error": map[string]interface{}{
-					"code":      "PERSISTENCE_FAILED",
-					"message":   "Failed to persist captured request",
-					"requestId": requestId,
-				},
-			},
-		}, fmt.Errorf("failed to persist captured request: %w", err)
+	// 10. Resolve Forwarding Target & Settings (ahead of persistence for atomic transactional outbox)
+	endpointIdStr = uuid.UUID(endpoint.ID.Bytes).String()
+	targetURL := ""
+	maxRetries := 3
+	payloadMode := "REDACTED"
+
+	if s.forwardingSvc != nil {
+		if cfg, cfgErr := s.forwardingSvc.GetConfig(ctx, endpointIdStr); cfgErr == nil && cfg.IsEnabled && cfg.TargetUrl != "" {
+			targetURL = cfg.TargetUrl
+			maxRetries = int(cfg.MaxRetries)
+			if cfg.PayloadMode != "" {
+				payloadMode = cfg.PayloadMode
+			}
+		}
+	}
+	if targetURL == "" && endpoint.UpstreamUrl.Valid && endpoint.UpstreamUrl.String != "" {
+		targetURL = endpoint.UpstreamUrl.String
 	}
 
-	// Persist Schema Drift Event if detected
-	if activeBaseline != nil && driftReport != nil {
-		diffJSON, _ := json.Marshal(driftReport)
-		_, _ = s.queries.CreateSchemaDriftEvent(ctx, database.CreateSchemaDriftEventParams{
+	shouldCreateDeliveryJob := (action != "BLOCK" && endpoint.Mode != "MOCK" && !isDuplicate && targetURL != "")
+
+	// 11. Atomic Transactional Persistence (captured_requests + schema_drift + delivery_jobs)
+	var captured database.CapturedRequest
+	var createdJob *database.DeliveryJob
+
+	if s.dbPool != nil {
+		tx, txErr := s.dbPool.Begin(ctx)
+		if txErr != nil {
+			log.Error().Err(txErr).Str("requestId", requestId).Msg("Failed to begin DB transaction for ingestion")
+			return &IngestionResult{
+				StatusCode: http.StatusInternalServerError,
+				RequestID:  requestId,
+				Action:     action,
+				ResponseBody: map[string]interface{}{
+					"error": map[string]interface{}{
+						"code":      "PERSISTENCE_FAILED",
+						"message":   "Veritabanı işlemi başlatılamadı",
+						"requestId": requestId,
+					},
+				},
+			}, txErr
+		}
+		defer tx.Rollback(ctx)
+
+		qtx := s.queries.WithTx(tx)
+
+		// 11a. Persist captured request
+		var capErr error
+		captured, capErr = qtx.CreateCapturedRequest(ctx, database.CreateCapturedRequestParams{
 			EndpointID:       endpoint.ID,
-			SchemaBaselineID: activeBaseline.ID,
-			RequestID:        captured.ID,
-			DriftType:        driftReport.Severity,
-			DiffJson:         diffJSON,
-			IsAcknowledged:   false,
+			RequestID:        requestId,
+			HttpMethod:       httpMethod,
+			Headers:          headersBytes,
+			QueryParams:      queryBytes,
+			RawBody:          pgtype.Text{},
+			MaskedBody:       pgMaskedBody,
+			ParsedJson:       parsedJson,
+			ClientIp:         parseClientIP(clientIP),
+			ResponseStatus:   pgtype.Int4{Int32: responseStatus, Valid: true},
+			ProcessingStatus: "RECEIVED",
 		})
+		if capErr != nil {
+			log.Error().Err(capErr).Str("requestId", requestId).Msg("Failed to persist captured request in tx")
+			return &IngestionResult{
+				StatusCode: http.StatusInternalServerError,
+				RequestID:  requestId,
+				Action:     action,
+				ResponseBody: map[string]interface{}{
+					"error": map[string]interface{}{
+						"code":      "PERSISTENCE_FAILED",
+						"message":   "İstek kaydedilemedi",
+						"requestId": requestId,
+					},
+				},
+			}, capErr
+		}
+
+		// 11b. Persist Schema Drift Event if detected
+		if activeBaseline != nil && driftReport != nil {
+			diffJSON, _ := json.Marshal(driftReport)
+			_, _ = qtx.CreateSchemaDriftEvent(ctx, database.CreateSchemaDriftEventParams{
+				EndpointID:       endpoint.ID,
+				SchemaBaselineID: activeBaseline.ID,
+				RequestID:        captured.ID,
+				DriftType:        driftReport.Severity,
+				DiffJson:         diffJSON,
+				IsAcknowledged:   false,
+			})
+		}
+
+		// 11c. Persist Delivery Outbox Job atomically
+		if shouldCreateDeliveryJob && s.deliverySvc != nil {
+			job, jobErr := qtx.CreateDeliveryJob(ctx, database.CreateDeliveryJobParams{
+				EndpointID:     endpoint.ID,
+				RequestID:      captured.ID,
+				TargetUrl:      targetURL,
+				Status:         string(delivery.DeliveryStatePending),
+				MaxRetries:     int32(maxRetries),
+				IdempotencyKey: pgtype.Text{Valid: false},
+				PayloadMode:    payloadMode,
+			})
+			if jobErr != nil {
+				log.Error().Err(jobErr).Str("requestId", requestId).Msg("Failed to persist delivery job in tx — rolling back entire ingestion")
+				return &IngestionResult{
+					StatusCode: http.StatusInternalServerError,
+					RequestID:  requestId,
+					Action:     action,
+					ResponseBody: map[string]interface{}{
+						"error": map[string]interface{}{
+							"code":      "PERSISTENCE_FAILED",
+							"message":   "Teslimat işi oluşturulamadı, işlem geri alındı",
+							"requestId": requestId,
+						},
+					},
+				}, jobErr
+			}
+			createdJob = &job
+		}
+
+		if commitErr := tx.Commit(ctx); commitErr != nil {
+			log.Error().Err(commitErr).Str("requestId", requestId).Msg("Failed to commit ingestion tx")
+			return &IngestionResult{
+				StatusCode: http.StatusInternalServerError,
+				RequestID:  requestId,
+				Action:     action,
+				ResponseBody: map[string]interface{}{
+					"error": map[string]interface{}{
+						"code":      "PERSISTENCE_FAILED",
+						"message":   "Veritabanı işlemi onaylanamadı",
+						"requestId": requestId,
+					},
+				},
+			}, commitErr
+		}
+	} else {
+		// Non-pool fallback (used in isolated unit tests)
+		var capErr error
+		captured, capErr = s.queries.CreateCapturedRequest(ctx, database.CreateCapturedRequestParams{
+			EndpointID:       endpoint.ID,
+			RequestID:        requestId,
+			HttpMethod:       httpMethod,
+			Headers:          headersBytes,
+			QueryParams:      queryBytes,
+			RawBody:          pgtype.Text{},
+			MaskedBody:       pgMaskedBody,
+			ParsedJson:       parsedJson,
+			ClientIp:         parseClientIP(clientIP),
+			ResponseStatus:   pgtype.Int4{Int32: responseStatus, Valid: true},
+			ProcessingStatus: "RECEIVED",
+		})
+		if capErr != nil {
+			return &IngestionResult{
+				StatusCode: http.StatusInternalServerError,
+				RequestID:  requestId,
+				Action:     action,
+				ResponseBody: map[string]interface{}{
+					"error": map[string]interface{}{
+						"code":      "PERSISTENCE_FAILED",
+						"message":   "Failed to persist captured request",
+						"requestId": requestId,
+					},
+				},
+			}, capErr
+		}
+
+		if shouldCreateDeliveryJob && s.deliverySvc != nil {
+			job, jobErr := s.queries.CreateDeliveryJob(ctx, database.CreateDeliveryJobParams{
+				EndpointID:     endpoint.ID,
+				RequestID:      captured.ID,
+				TargetUrl:      targetURL,
+				Status:         string(delivery.DeliveryStatePending),
+				MaxRetries:     int32(maxRetries),
+				IdempotencyKey: pgtype.Text{Valid: false},
+				PayloadMode:    payloadMode,
+			})
+			if jobErr != nil {
+				return &IngestionResult{
+					StatusCode: http.StatusInternalServerError,
+					RequestID:  requestId,
+					Action:     action,
+					ResponseBody: map[string]interface{}{
+						"error": map[string]interface{}{
+							"code":      "PERSISTENCE_FAILED",
+							"message":   "Failed to persist delivery job",
+							"requestId": requestId,
+						},
+					},
+				}, jobErr
+			}
+			createdJob = &job
+		}
 	}
 
 	capturedIdStr := uuid.UUID(captured.ID.Bytes).String()
 	projectIdStr := uuid.UUID(endpoint.ProjectID.Bytes).String()
-	endpointIdStr = uuid.UUID(endpoint.ID.Bytes).String()
 
-	// 11. Async Worker Pool Stream & SSE Publishing
+	// 12. Async Worker Pool Stream & SSE Publishing
 	s.dispatchAsyncEvents(capturedIdStr, projectIdStr, endpointIdStr, requestId, httpMethod, responseStatus, action)
 
-	// 12. Persist Findings & Dispatch Alerts
+	// 13. Persist Findings & Dispatch Alerts
 	s.persistFindingsAndAlerts(ctx, captured, endpoint, findings, action)
 
-	// 13. Policy Block Response
+	// 14. Policy Block Response
 	if action == "BLOCK" {
 		var blockReason string
 		for _, f := range findings {
@@ -395,7 +557,7 @@ func (s *IngestionService) ProcessWebhook(
 		}, nil
 	}
 
-	// 13b. Duplicate Idempotency Guard — acknowledge duplicate webhook with 200 OK but skip forwarding (#2)
+	// 15. Duplicate Idempotency Guard — acknowledge duplicate webhook with 200 OK but skip forwarding (#2)
 	if isDuplicate {
 		return &IngestionResult{
 			StatusCode: http.StatusOK,
@@ -409,8 +571,7 @@ func (s *IngestionService) ProcessWebhook(
 		}, nil
 	}
 
-	// 14. Forwarding to Upstream Target (if configured)
-	// Apply header allowlist to prevent credential leakage (#9)
+	// 16. Outbound Forwarding Dispatch
 	flatHeaders := make(map[string]string)
 	for k, v := range headers {
 		if len(v) > 0 {
@@ -419,53 +580,10 @@ func (s *IngestionService) ProcessWebhook(
 	}
 	safeHeaders := forwarding.FilterHeaders(flatHeaders)
 
-	// 14a. Create delivery job via DeliveryService (new unified delivery pipeline)
-	if s.deliverySvc != nil {
-		targetURL := ""
-		maxRetries := 3
-		payloadMode := "REDACTED"
-
-		if s.forwardingSvc != nil {
-			if cfg, cfgErr := s.forwardingSvc.GetConfig(ctx, endpointIdStr); cfgErr == nil && cfg.IsEnabled && cfg.TargetUrl != "" {
-				targetURL = cfg.TargetUrl
-				maxRetries = int(cfg.MaxRetries)
-				if cfg.PayloadMode != "" {
-					payloadMode = cfg.PayloadMode
-				}
-			}
-		}
-
-		// Fallback to endpoint upstream_url
-		if targetURL == "" {
-			if ep, epErr := s.queries.GetEndpointByIDOnly(ctx, endpoint.ID); epErr == nil && ep.UpstreamUrl.Valid && ep.UpstreamUrl.String != "" {
-				targetURL = ep.UpstreamUrl.String
-			}
-		}
-
-		if targetURL != "" {
-			job, jobErr := s.deliverySvc.CreateJobRecord(ctx, IngestAtomicParams{
-				EndpointID:     endpoint.ID,
-				RequestID:      requestId,
-				HTTPMethod:     httpMethod,
-				HeadersBytes:   headersBytes,
-				QueryParams:    queryBytes,
-				MaskedBody:     pgMaskedBody,
-				ClientIP:       clientIP,
-				ResponseStatus: responseStatus,
-				TargetURL:      targetURL,
-				PayloadMode:    payloadMode,
-				MaxRetries:     maxRetries,
-				RawBody:        rawBody,
-			}, captured.ID)
-
-			if jobErr != nil {
-				log.Error().Err(jobErr).Str("requestId", requestId).Msg("Failed to create delivery job")
-			} else if job != nil {
-				s.deliverySvc.ProcessJobAsync(*job, httpMethod, safeHeaders, rawBody)
-			}
-		}
-	} else if s.forwardingSvc != nil {
-		// Legacy fallback: use old ForwardingService if DeliveryService is not configured
+	if createdJob != nil && s.deliverySvc != nil {
+		s.deliverySvc.TriggerQueue()
+	} else if s.forwardingSvc != nil && targetURL != "" && s.deliverySvc == nil {
+		// Legacy fallback if DeliveryService is not configured
 		s.forwardingSvc.ForwardCleanWebhook(ctx, endpointIdStr, capturedIdStr, httpMethod, safeHeaders, rawBody)
 	}
 

@@ -225,12 +225,8 @@ func (h *DeliveryHandler) Replay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Trigger async immediate dispatch
-	req, _ := h.queries.GetCapturedRequestByID(r.Context(), requeued.RequestID)
-	var headers map[string]string
-	_ = json.Unmarshal(req.Headers, &headers)
-
-	h.deliverySvc.ProcessJobAsync(requeued, req.HttpMethod, headers, []byte(req.MaskedBody.String))
+	// Trigger queue poller for lease-locked atomic execution
+	h.deliverySvc.TriggerQueue()
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
@@ -364,6 +360,7 @@ func (h *DeliveryHandler) AIExplain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 3. Organization AI Settings & Opt-in Guard
+	privacyLevel := "MASKED_CLOUD"
 	var customRedactKeys []string
 	orgID := middleware.GetOrganizationID(r.Context())
 	if orgID.Valid {
@@ -371,6 +368,9 @@ func (h *DeliveryHandler) AIExplain(w http.ResponseWriter, r *http.Request) {
 			if !orgSettings.AiEnabled {
 				writeError(w, http.StatusForbidden, "AI_DISABLED", "Bu organizasyon için AI analizi devre dışı bırakılmıştır")
 				return
+			}
+			if orgSettings.AiDataSharingLevel != "" {
+				privacyLevel = orgSettings.AiDataSharingLevel
 			}
 			if len(orgSettings.AiCustomRedactionPatterns) > 0 {
 				_ = json.Unmarshal(orgSettings.AiCustomRedactionPatterns, &customRedactKeys)
@@ -420,6 +420,7 @@ func (h *DeliveryHandler) AIExplain(w http.ResponseWriter, r *http.Request) {
 		ResponseBody:     responseBody,
 		LatencyMs:        int64(latestAttempt.LatencyMs),
 		AttemptCount:     int(job.Attempts),
+		PrivacyLevel:     privacyLevel,
 		CustomRedactKeys: customRedactKeys,
 	})
 	if err != nil {
