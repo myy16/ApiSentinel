@@ -75,6 +75,10 @@ func main() {
 
 	encryptionKey := os.Getenv("WEBHOOK_SECRET_ENCRYPTION_KEY")
 	if encryptionKey == "" {
+		if env == "production" {
+			log.Fatal().Msg("WEBHOOK_SECRET_ENCRYPTION_KEY must be set in production environment")
+		}
+		log.Warn().Msg("WEBHOOK_SECRET_ENCRYPTION_KEY not set; falling back to JWT_SECRET (acceptable only in development/testing)")
 		encryptionKey = cfg.JWTSecret
 	}
 
@@ -118,7 +122,7 @@ func main() {
 		SSEHandler:             transporthttp.NewSSEHandler(valkeyClient),
 		ReplayHandler:          transporthttp.NewReplayHandler(replayService),
 		MockHandler:            transporthttp.NewMockHandler(mockService),
-		AIHandler:              transporthttp.NewAIHandler(explainer),
+		AIHandler:              transporthttp.NewAIHandler(explainer, queries),
 		AlertHandler:           transporthttp.NewAlertHandler(alertService),
 		ForwardingHandler:      transporthttp.NewForwardingHandler(forwardingService),
 		FindingHandler:         transporthttp.NewFindingHandler(findingService),

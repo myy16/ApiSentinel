@@ -17,6 +17,7 @@ type Querier interface {
 	ClaimPendingOutboxJobs(ctx context.Context, arg ClaimPendingOutboxJobsParams) ([]ForwardingDlq, error)
 	CompleteDeliveryJob(ctx context.Context, id pgtype.UUID) (DeliveryJob, error)
 	CompleteOutboxJob(ctx context.Context, id pgtype.UUID) (ForwardingDlq, error)
+	CountDeliveryJobsByProjectAndStatus(ctx context.Context, projectID pgtype.UUID) ([]CountDeliveryJobsByProjectAndStatusRow, error)
 	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (CreateAPIKeyRow, error)
 	CreateAgentScan(ctx context.Context, arg CreateAgentScanParams) (AgentScan, error)
 	CreateAlertChannel(ctx context.Context, arg CreateAlertChannelParams) (AlertChannel, error)

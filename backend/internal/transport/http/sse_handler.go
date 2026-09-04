@@ -1,6 +1,7 @@
 package http
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -54,7 +55,14 @@ func (h *SSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			fmt.Fprintf(w, "event: request.created\ndata: %s\n\n", msg.Payload)
+			eventType := "request.created"
+			var eventObj struct {
+				Event string `json:"event"`
+			}
+			if err := json.Unmarshal([]byte(msg.Payload), &eventObj); err == nil && eventObj.Event != "" {
+				eventType = eventObj.Event
+			}
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, msg.Payload)
 			flusher.Flush()
 		}
 	}

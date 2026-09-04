@@ -46,6 +46,9 @@ func (h *DeliveryHandler) ListByEndpoint(w http.ResponseWriter, r *http.Request)
 	if l := r.URL.Query().Get("limit"); l != "" {
 		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
 			limit = int32(parsed)
+			if limit > 200 {
+				limit = 200
+			}
 		}
 	}
 	if o := r.URL.Query().Get("offset"); o != "" {
@@ -245,35 +248,28 @@ func (h *DeliveryHandler) GetKPIs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Calculate KPIs using captured requests and delivery jobs
-	endpoints, err := h.queries.ListEndpointsByProject(r.Context(), pgtype.UUID{Bytes: projUUID, Valid: true})
+	// Calculate KPIs using CountDeliveryJobsByProjectAndStatus query directly in DB
+	counts, err := h.queries.CountDeliveryJobsByProjectAndStatus(r.Context(), pgtype.UUID{Bytes: projUUID, Valid: true})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", "Failed to load project endpoints")
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", "Failed to compute delivery KPIs")
 		return
 	}
 
-	totalDelivered := 0
-	totalDeadLetter := 0
-	totalPending := 0
-	totalRetryWait := 0
+	totalDelivered := int64(0)
+	totalDeadLetter := int64(0)
+	totalPending := int64(0)
+	totalRetryWait := int64(0)
 
-	for _, ep := range endpoints {
-		jobs, _ := h.queries.ListDeliveryJobsByEndpoint(r.Context(), database.ListDeliveryJobsByEndpointParams{
-			EndpointID: ep.ID,
-			Limit:      1000,
-			Offset:     0,
-		})
-		for _, j := range jobs {
-			switch delivery.DeliveryState(j.Status) {
-			case delivery.DeliveryStateDelivered:
-				totalDelivered++
-			case delivery.DeliveryStateDeadLetter:
-				totalDeadLetter++
-			case delivery.DeliveryStatePending:
-				totalPending++
-			case delivery.DeliveryStateRetryWait:
-				totalRetryWait++
-			}
+	for _, c := range counts {
+		switch delivery.DeliveryState(c.Status) {
+		case delivery.DeliveryStateDelivered:
+			totalDelivered += c.Count
+		case delivery.DeliveryStateDeadLetter:
+			totalDeadLetter += c.Count
+		case delivery.DeliveryStatePending:
+			totalPending += c.Count
+		case delivery.DeliveryStateRetryWait:
+			totalRetryWait += c.Count
 		}
 	}
 

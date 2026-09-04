@@ -108,6 +108,39 @@ func (q *Queries) CompleteDeliveryJob(ctx context.Context, id pgtype.UUID) (Deli
 	return i, err
 }
 
+const countDeliveryJobsByProjectAndStatus = `-- name: CountDeliveryJobsByProjectAndStatus :many
+SELECT dj.status, COUNT(*) as count
+FROM delivery_jobs dj
+JOIN endpoints e ON e.id = dj.endpoint_id
+WHERE e.project_id = $1
+GROUP BY dj.status
+`
+
+type CountDeliveryJobsByProjectAndStatusRow struct {
+	Status string `json:"status"`
+	Count  int64  `json:"count"`
+}
+
+func (q *Queries) CountDeliveryJobsByProjectAndStatus(ctx context.Context, projectID pgtype.UUID) ([]CountDeliveryJobsByProjectAndStatusRow, error) {
+	rows, err := q.db.Query(ctx, countDeliveryJobsByProjectAndStatus, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CountDeliveryJobsByProjectAndStatusRow
+	for rows.Next() {
+		var i CountDeliveryJobsByProjectAndStatusRow
+		if err := rows.Scan(&i.Status, &i.Count); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createDeliveryJob = `-- name: CreateDeliveryJob :one
 INSERT INTO delivery_jobs (
     endpoint_id,

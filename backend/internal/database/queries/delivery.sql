@@ -122,3 +122,10 @@ SET status = 'PENDING',
     updated_at = NOW()
 WHERE id = $1
 RETURNING *;
+
+-- name: CountDeliveryJobsByProjectAndStatus :many
+SELECT dj.status, COUNT(*) as count
+FROM delivery_jobs dj
+JOIN endpoints e ON e.id = dj.endpoint_id
+WHERE e.project_id = $1
+GROUP BY dj.status;
