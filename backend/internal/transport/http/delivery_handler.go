@@ -359,23 +359,28 @@ func (h *DeliveryHandler) AIExplain(w http.ResponseWriter, r *http.Request) {
 		latestAttempt = attempts[len(attempts)-1]
 	}
 
-	// 3. Organization AI Settings & Opt-in Guard
-	privacyLevel := "MASKED_CLOUD"
+	// 3. Organization AI Settings & Opt-in Guard (Fail-Closed)
+	privacyLevel := "FULL_LOCAL"
 	var customRedactKeys []string
 	orgID := middleware.GetOrganizationID(r.Context())
-	if orgID.Valid {
-		if orgSettings, orgErr := h.queries.GetOrganizationAISettings(r.Context(), orgID); orgErr == nil {
-			if !orgSettings.AiEnabled {
-				writeError(w, http.StatusForbidden, "AI_DISABLED", "Bu organizasyon için AI analizi devre dışı bırakılmıştır")
-				return
-			}
-			if orgSettings.AiDataSharingLevel != "" {
-				privacyLevel = orgSettings.AiDataSharingLevel
-			}
-			if len(orgSettings.AiCustomRedactionPatterns) > 0 {
-				_ = json.Unmarshal(orgSettings.AiCustomRedactionPatterns, &customRedactKeys)
-			}
-		}
+	if !orgID.Valid {
+		writeError(w, http.StatusUnauthorized, "ORGANIZATION_REQUIRED", "Organizasyon kimliği bulunamadı")
+		return
+	}
+	orgSettings, orgErr := h.queries.GetOrganizationAISettings(r.Context(), orgID)
+	if orgErr != nil {
+		writeError(w, http.StatusInternalServerError, "AI_POLICY_ERROR", "Organizasyon AI güvenlik ayarları okunamadı")
+		return
+	}
+	if !orgSettings.AiEnabled {
+		writeError(w, http.StatusForbidden, "AI_DISABLED", "Bu organizasyon için AI analizi devre dışı bırakılmıştır")
+		return
+	}
+	if orgSettings.AiDataSharingLevel != "" {
+		privacyLevel = orgSettings.AiDataSharingLevel
+	}
+	if len(orgSettings.AiCustomRedactionPatterns) > 0 {
+		_ = json.Unmarshal(orgSettings.AiCustomRedactionPatterns, &customRedactKeys)
 	}
 
 	rawBody := ""

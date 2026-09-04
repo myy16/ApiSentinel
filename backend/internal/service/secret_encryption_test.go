@@ -251,3 +251,115 @@ func TestEnvelopeMasking_Helpers(t *testing.T) {
 		t.Errorf("Unexpected API Key mask: %s", apiKey)
 	}
 }
+
+func TestSecretEncryption_TestSuiteCustomHeaders(t *testing.T) {
+	cfg := config.Load()
+	ctx := context.Background()
+
+	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	if err != nil {
+		t.Skip("Skipping test: PostgreSQL unavailable")
+		return
+	}
+	defer pool.Close()
+
+	if err := pool.Ping(ctx); err != nil {
+		t.Skip("Skipping test: PostgreSQL ping failed")
+		return
+	}
+
+	_ = database.RunMigrations(ctx, pool)
+	queries := database.New(pool)
+
+	encryptionKey := "test-encryption-key-for-suites-32"
+	authService := NewAuthService(queries, cfg.JWTSecret)
+	projectService := NewProjectService(queries)
+	replayService := NewReplayService(queries, encryptionKey)
+	testSuiteService := NewTestSuiteService(queries, replayService, encryptionKey)
+
+	// Setup Project
+	email := fmt.Sprintf("suite_enc_%d@apisentinel.dev", time.Now().UnixNano())
+	authResp, err := authService.Register(ctx, email, "Password123!", "Suite Enc Org")
+	if err != nil {
+		t.Fatalf("Failed to register: %v", err)
+	}
+	proj, err := projectService.CreateProject(ctx, authResp.Organization.ID, "Suite Enc Proj")
+	if err != nil {
+		t.Fatalf("Failed to create project: %v", err)
+	}
+
+	// Create endpoint & mock captured request
+	endpointService := NewEndpointService(queries)
+	ep, err := endpointService.CreateEndpoint(ctx, CreateEndpointInput{
+		ProjectID: proj.ID,
+		Name:      "Suite Webhook",
+		Slug:      fmt.Sprintf("suite-%d", time.Now().UnixNano()),
+		Mode:      "DEVELOPMENT",
+	})
+	if err != nil {
+		t.Fatalf("Failed to create endpoint: %v", err)
+	}
+
+	epUUID, _ := uuid.Parse(ep.ID)
+	capReq, err := queries.CreateCapturedRequest(ctx, database.CreateCapturedRequestParams{
+		EndpointID:       pgtype.UUID{Bytes: epUUID, Valid: true},
+		RequestID:        fmt.Sprintf("req_suite_%d", time.Now().UnixNano()),
+		HttpMethod:       "POST",
+		Headers:          []byte(`{}`),
+		QueryParams:      []byte(`{}`),
+		RawBody:          pgtype.Text{String: `{"test":true}`, Valid: true},
+		MaskedBody:       pgtype.Text{String: `{"test":true}`, Valid: true},
+		ParsedJson:       []byte(`{}`),
+		ResponseStatus:   pgtype.Int4{Int32: 200, Valid: true},
+		ProcessingStatus: "PENDING",
+	})
+	if err != nil {
+		t.Fatalf("Failed to create captured request: %v", err)
+	}
+
+	reqIDStr := uuid.UUID(capReq.ID.Bytes).String()
+	rawSecretHeader := "Bearer sk-secret-suite-token-12345"
+
+	// 1. Create Test Suite with sensitive custom header
+	suite, err := testSuiteService.CreateSuite(ctx, CreateTestSuiteParams{
+		ProjectID:   proj.ID,
+		Name:        "Encrypted Header Suite",
+		Description: "Testing header encryption in suite",
+		RequestIDs:  []string{reqIDStr},
+		CustomHeaders: map[string]string{
+			"Authorization": rawSecretHeader,
+			"X-Custom-Env":  "Staging",
+		},
+		TargetEnvironment: "STAGING",
+		TargetURL:         "https://example.com/webhook",
+	})
+	if err != nil {
+		t.Fatalf("CreateSuite failed: %v", err)
+	}
+
+	// 2. Returned suite should have MASKED headers (not plaintext, not encrypted envelope)
+	var returnedHeaders map[string]string
+	_ = json.Unmarshal(suite.CustomHeaders, &returnedHeaders)
+	if returnedHeaders["Authorization"] == rawSecretHeader {
+		t.Fatalf("Custom header Authorization was not masked in CreateSuite response!")
+	}
+	if !strings.HasPrefix(returnedHeaders["Authorization"], "Bearer sk-") || !strings.HasSuffix(returnedHeaders["Authorization"], "********") {
+		t.Fatalf("Custom header Authorization mask format incorrect: %s", returnedHeaders["Authorization"])
+	}
+
+	// 3. Database record should store ENCRYPTED headers
+	suiteUUID := uuid.UUID(suite.ID.Bytes)
+	dbRecord, err := queries.GetReplayTestSuiteByID(ctx, pgtype.UUID{Bytes: suiteUUID, Valid: true})
+	if err != nil {
+		t.Fatalf("Failed to fetch suite from DB: %v", err)
+	}
+	if strings.Contains(string(dbRecord.CustomHeaders), rawSecretHeader) {
+		t.Fatalf("PostgreSQL contains plaintext secret in replay_test_suites.custom_headers!")
+	}
+
+	// 4. Decrypt method should recover original secret
+	resolved := testSuiteService.resolveCustomHeaders(dbRecord.CustomHeaders)
+	if resolved["Authorization"] != rawSecretHeader {
+		t.Fatalf("resolveCustomHeaders failed: expected %s, got %s", rawSecretHeader, resolved["Authorization"])
+	}
+}

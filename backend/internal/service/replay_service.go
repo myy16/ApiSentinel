@@ -96,11 +96,11 @@ func (s *ReplayService) ExecuteReplay(ctx context.Context, params ExecuteReplayP
 	if len(params.CustomHeaders) > 0 {
 		rawJSON, _ := json.Marshal(params.CustomHeaders)
 		if s.encryptionKey != "" {
-			if encVal, encErr := envelope.Encrypt(s.encryptionKey, string(rawJSON)); encErr == nil {
-				customHeadersJSON, _ = json.Marshal(map[string]string{"_encrypted": encVal})
-			} else {
-				customHeadersJSON = rawJSON
+			encVal, encErr := envelope.Encrypt(s.encryptionKey, string(rawJSON))
+			if encErr != nil {
+				return nil, fmt.Errorf("custom headers could not be encrypted: %w", encErr)
 			}
+			customHeadersJSON, _ = json.Marshal(map[string]string{"_encrypted": encVal})
 		} else {
 			customHeadersJSON = rawJSON
 		}

@@ -42,6 +42,7 @@ type IngestionService struct {
 	forwardingSvc  *ForwardingService
 	deliverySvc    *DeliveryService
 	workerPool     *worker.Pool
+	encryptionKey  string
 }
 
 func NewIngestionService(
@@ -51,7 +52,8 @@ func NewIngestionService(
 	forwardingSvc *ForwardingService,
 	deliverySvc *DeliveryService,
 	workerPool *worker.Pool,
-	dbPool ...*pgxpool.Pool,
+	dbPool *pgxpool.Pool,
+	encryptionKey ...string,
 ) *IngestionService {
 	if workerPool == nil {
 		workerPool = worker.NewPool(10, 2000)
@@ -60,12 +62,12 @@ func NewIngestionService(
 	if valkeyClient != nil {
 		limiter = ratelimit.NewLimiter(valkeyClient)
 	}
-	var pool *pgxpool.Pool
-	if len(dbPool) > 0 {
-		pool = dbPool[0]
+	key := ""
+	if len(encryptionKey) > 0 {
+		key = encryptionKey[0]
 	}
 	return &IngestionService{
-		dbPool:         pool,
+		dbPool:         dbPool,
 		queries:        queries,
 		valkeyClient:   valkeyClient,
 		rateLimiter:    limiter,
@@ -74,11 +76,16 @@ func NewIngestionService(
 		forwardingSvc:  forwardingSvc,
 		deliverySvc:    deliverySvc,
 		workerPool:     workerPool,
+		encryptionKey:  key,
 	}
 }
 
 func (s *IngestionService) SetDBPool(pool *pgxpool.Pool) {
 	s.dbPool = pool
+}
+
+func (s *IngestionService) SetEncryptionKey(key string) {
+	s.encryptionKey = key
 }
 
 type IngestionResult struct {
@@ -618,7 +625,11 @@ func (s *IngestionService) verifyWebhookHMAC(
 ) error {
 	configured, err := s.queries.GetEndpointWebhookSecurity(ctx, endpoint.ID)
 	if err == nil {
-		secret, decryptErr := envelope.Decrypt(os.Getenv("WEBHOOK_SECRET_ENCRYPTION_KEY"), configured.EncryptedSecret)
+		encKey := s.encryptionKey
+		if encKey == "" {
+			encKey = os.Getenv("WEBHOOK_SECRET_ENCRYPTION_KEY")
+		}
+		secret, decryptErr := envelope.Decrypt(encKey, configured.EncryptedSecret)
 		if decryptErr != nil {
 			return fmt.Errorf("webhook signature configuration unavailable")
 		}

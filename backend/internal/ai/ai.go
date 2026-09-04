@@ -95,8 +95,14 @@ func NewExplainer(apiKey string) *Explainer {
 	return e
 }
 
+// isCloudAllowed returns true ONLY when privacyLevel is explicitly configured for cloud sharing.
+func isCloudAllowed(privacyLevel string) bool {
+	upper := strings.ToUpper(strings.TrimSpace(privacyLevel))
+	return upper == "SANITIZED" || upper == "MASKED_CLOUD" || upper == "FULL_CLOUD"
+}
+
 // ExplainFinding generates a structured remediation report using Groq/OpenAI with fallback to local rulebook.
-// If privacyLevel is "FULL_LOCAL", all external cloud LLM calls are strictly blocked, ensuring 100% offline local processing.
+// Cloud LLM calls are strictly blocked unless privacyLevel is explicitly SANITIZED, MASKED_CLOUD or FULL_CLOUD.
 func (e *Explainer) ExplainFinding(ctx context.Context, category, findingType, severity, maskedEvidence, message string, privacyLevel string, customRedactKeys ...string) (*Explanation, error) {
 	// Strict Zero-Leakage Privacy & Prompt Injection Protection
 	sanitizedEv := SanitizeForAI(maskedEvidence, customRedactKeys)
@@ -104,9 +110,9 @@ func (e *Explainer) ExplainFinding(ctx context.Context, category, findingType, s
 	safeEvidence := InspectAndNeutralizePrompt(sanitizedEv.CleanText).CleanedPrompt
 	safeMessage := InspectAndNeutralizePrompt(sanitizedMsg.CleanText).CleanedPrompt
 
-	isFullLocal := strings.EqualFold(privacyLevel, "FULL_LOCAL")
+	cloudAllowed := isCloudAllowed(privacyLevel)
 
-	if !isFullLocal && (e.provider == "groq" || e.provider == "openai") {
+	if cloudAllowed && (e.provider == "groq" || e.provider == "openai") {
 		exp, err := e.callLLM(ctx, category, findingType, severity, safeEvidence, safeMessage)
 		if err == nil && exp != nil {
 			exp.Provider = fmt.Sprintf("%s (%s)", strings.ToUpper(e.provider), e.model)
@@ -118,7 +124,7 @@ func (e *Explainer) ExplainFinding(ctx context.Context, category, findingType, s
 	// Fallback or explicit local expert rulebook
 	localExp, err := e.localRulebook(category, findingType, severity, safeEvidence, safeMessage)
 	if localExp != nil {
-		if isFullLocal {
+		if !cloudAllowed {
 			localExp.Provider = "Dahili Güvenlik Kural Motoru (Tam Yerel / Offline)"
 		} else {
 			localExp.Provider = "Dahili Güvenlik Kural Motoru"
@@ -137,7 +143,7 @@ type DeliveryIncidentInput struct {
 	ResponseBody     string            `json:"responseBody"`
 	LatencyMs        int64             `json:"latencyMs"`
 	AttemptCount     int               `json:"attemptCount"`
-	PrivacyLevel     string            `json:"privacyLevel,omitempty"` // "FULL_LOCAL", "MASKED_CLOUD", "FULL_CLOUD"
+	PrivacyLevel     string            `json:"privacyLevel,omitempty"` // "FULL_LOCAL", "NONE", "SANITIZED", "MASKED_CLOUD", "FULL_CLOUD"
 	CustomRedactKeys []string          `json:"customRedactKeys,omitempty"`
 }
 
@@ -155,7 +161,7 @@ type IncidentAnalysis struct {
 }
 
 // ExplainDeliveryIncident provides actionable root cause analysis for failed deliveries & DLQ jobs.
-// If PrivacyLevel is "FULL_LOCAL", all external cloud LLM calls are strictly blocked.
+// Cloud LLM calls are strictly blocked unless privacyLevel is explicitly allowed for cloud.
 func (e *Explainer) ExplainDeliveryIncident(ctx context.Context, input DeliveryIncidentInput) (*IncidentAnalysis, error) {
 	// 1. Sanitize request and response bodies
 	sanReq := SanitizeForAI(input.RequestBody, input.CustomRedactKeys)
@@ -167,9 +173,9 @@ func (e *Explainer) ExplainDeliveryIncident(ctx context.Context, input DeliveryI
 	safeErr := InspectAndNeutralizePrompt(sanErr.CleanText).CleanedPrompt
 
 	totalRedactions := sanReq.RedactionCount + sanResp.RedactionCount + sanErr.RedactionCount
-	isFullLocal := strings.EqualFold(input.PrivacyLevel, "FULL_LOCAL")
+	cloudAllowed := isCloudAllowed(input.PrivacyLevel)
 
-	if !isFullLocal && (e.provider == "groq" || e.provider == "openai") {
+	if cloudAllowed && (e.provider == "groq" || e.provider == "openai") {
 		analysis, err := e.callIncidentLLM(ctx, input, safeReq, safeResp, safeErr)
 		if err == nil && analysis != nil {
 			analysis.Provider = fmt.Sprintf("%s (%s)", strings.ToUpper(e.provider), e.model)
@@ -181,7 +187,7 @@ func (e *Explainer) ExplainDeliveryIncident(ctx context.Context, input DeliveryI
 
 	// Local rule-based incident diagnosis
 	localAnalysis := e.localIncidentRulebook(input, safeReq, safeResp, safeErr)
-	if isFullLocal {
+	if !cloudAllowed {
 		localAnalysis.Provider = "Dahili Hata Teşhis Motoru (Tam Yerel / Offline)"
 	} else {
 		localAnalysis.Provider = "Dahili Hata Teşhis Motoru"

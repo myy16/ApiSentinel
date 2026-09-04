@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/apisentinel/apisentinel/internal/database"
+	"github.com/apisentinel/apisentinel/internal/security/envelope"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/rs/zerolog/log"
@@ -16,12 +17,18 @@ import (
 type TestSuiteService struct {
 	queries       *database.Queries
 	replayService *ReplayService
+	encryptionKey string
 }
 
-func NewTestSuiteService(queries *database.Queries, replayService *ReplayService) *TestSuiteService {
+func NewTestSuiteService(queries *database.Queries, replayService *ReplayService, encryptionKey ...string) *TestSuiteService {
+	key := ""
+	if len(encryptionKey) > 0 {
+		key = encryptionKey[0]
+	}
 	return &TestSuiteService{
 		queries:       queries,
 		replayService: replayService,
+		encryptionKey: key,
 	}
 }
 
@@ -93,6 +100,16 @@ func (s *TestSuiteService) CreateSuite(ctx context.Context, params CreateTestSui
 
 	reqIDsJSON, _ := json.Marshal(params.RequestIDs)
 	customHeadersJSON, _ := json.Marshal(params.CustomHeaders)
+	if s.encryptionKey != "" && len(params.CustomHeaders) > 0 {
+		encVal, encErr := envelope.Encrypt(s.encryptionKey, string(customHeadersJSON))
+		if encErr != nil {
+			return nil, fmt.Errorf("custom headers could not be encrypted: %w", encErr)
+		}
+		if encVal != "" {
+			envelopePayload, _ := json.Marshal(map[string]string{"_encrypted": encVal})
+			customHeadersJSON = envelopePayload
+		}
+	}
 
 	if params.TargetEnvironment == "" {
 		params.TargetEnvironment = "STAGING"
@@ -112,6 +129,7 @@ func (s *TestSuiteService) CreateSuite(ctx context.Context, params CreateTestSui
 		return nil, fmt.Errorf("test paketi kaydedilemedi: %w", err)
 	}
 
+	suite.CustomHeaders = s.maskedHeadersJSON(suite.CustomHeaders)
 	return &suite, nil
 }
 
@@ -121,7 +139,14 @@ func (s *TestSuiteService) ListSuites(ctx context.Context, projectID string) ([]
 		return nil, errors.New("geçersiz proje ID formatı")
 	}
 
-	return s.queries.ListReplayTestSuitesByProject(ctx, pgtype.UUID{Bytes: projUUID, Valid: true})
+	suites, err := s.queries.ListReplayTestSuitesByProject(ctx, pgtype.UUID{Bytes: projUUID, Valid: true})
+	if err != nil {
+		return nil, err
+	}
+	for i := range suites {
+		suites[i].CustomHeaders = s.maskedHeadersJSON(suites[i].CustomHeaders)
+	}
+	return suites, nil
 }
 
 func (s *TestSuiteService) GetSuite(ctx context.Context, suiteID string) (*database.ReplayTestSuite, []database.ReplayTestRun, error) {
@@ -136,6 +161,7 @@ func (s *TestSuiteService) GetSuite(ctx context.Context, suiteID string) (*datab
 	}
 
 	runs, _ := s.queries.ListReplayTestRunsBySuite(ctx, pgtype.UUID{Bytes: sUUID, Valid: true})
+	suite.CustomHeaders = s.maskedHeadersJSON(suite.CustomHeaders)
 
 	return &suite, runs, nil
 }
@@ -156,6 +182,55 @@ func (s *TestSuiteService) DeleteSuite(ctx context.Context, suiteID, projectID s
 	})
 }
 
+func (s *TestSuiteService) resolveCustomHeaders(raw []byte) map[string]string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var envelopeMap map[string]string
+	if err := json.Unmarshal(raw, &envelopeMap); err == nil {
+		if encVal, ok := envelopeMap["_encrypted"]; ok && encVal != "" {
+			if s.encryptionKey != "" {
+				if dec, dErr := envelope.Decrypt(s.encryptionKey, encVal); dErr == nil && dec != "" {
+					var origHeaders map[string]string
+					if jErr := json.Unmarshal([]byte(dec), &origHeaders); jErr == nil {
+						return origHeaders
+					}
+				}
+			}
+			return nil
+		}
+	}
+	if s.encryptionKey != "" {
+		if dec, err := envelope.Decrypt(s.encryptionKey, string(raw)); err == nil && dec != "" {
+			var origHeaders map[string]string
+			if jErr := json.Unmarshal([]byte(dec), &origHeaders); jErr == nil {
+				return origHeaders
+			}
+		}
+	}
+	var plainHeaders map[string]string
+	if err := json.Unmarshal(raw, &plainHeaders); err == nil {
+		return plainHeaders
+	}
+	return nil
+}
+
+func (s *TestSuiteService) maskedHeadersJSON(raw []byte) []byte {
+	headers := s.resolveCustomHeaders(raw)
+	if len(headers) == 0 {
+		return []byte("{}")
+	}
+	masked := make(map[string]string, len(headers))
+	for k, v := range headers {
+		masked[k] = envelope.MaskHeaderValue(k, v)
+	}
+	maskedJSON, err := json.Marshal(masked)
+	if err != nil {
+		return []byte("{}")
+	}
+	return maskedJSON
+}
+
 func (s *TestSuiteService) RunSuite(ctx context.Context, suiteID, userID, clientIP string) (*TestSuiteRunReport, error) {
 	sUUID, err := uuid.Parse(suiteID)
 	if err != nil {
@@ -172,8 +247,7 @@ func (s *TestSuiteService) RunSuite(ctx context.Context, suiteID, userID, client
 		return nil, errors.New("test paketinde yürütülecek istek bulunamadı")
 	}
 
-	var customHeaders map[string]string
-	_ = json.Unmarshal(suite.CustomHeaders, &customHeaders)
+	customHeaders := s.resolveCustomHeaders(suite.CustomHeaders)
 
 	totalSteps := len(reqIDs)
 

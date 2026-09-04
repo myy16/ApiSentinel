@@ -140,8 +140,8 @@ func (s *DeliveryService) CreateJobRecord(ctx context.Context, params IngestAtom
 	return &job, nil
 }
 
-// ProcessJobAsync dispatches a delivery job to the worker pool.
-func (s *DeliveryService) ProcessJobAsync(job database.DeliveryJob, method string, headers map[string]string, body []byte) {
+// ProcessJobAsync dispatches a delivery job to the worker pool. Returns error if worker pool is saturated.
+func (s *DeliveryService) ProcessJobAsync(job database.DeliveryJob, method string, headers map[string]string, body []byte) error {
 	task := func(taskCtx context.Context) {
 		bgCtx := taskCtx
 		if bgCtx == nil {
@@ -152,9 +152,11 @@ func (s *DeliveryService) ProcessJobAsync(job database.DeliveryJob, method strin
 
 	if s.workerPool != nil {
 		if err := s.workerPool.Submit(task); err != nil {
-			log.Warn().Err(err).Msg("Worker pool saturated; job remains PENDING for queue worker pickup")
+			log.Warn().Err(err).Str("jobId", uuid.UUID(job.ID.Bytes).String()).Msg("Worker pool saturated; rejecting task")
+			return err
 		}
 	}
+	return nil
 }
 
 // acquireEndpointSemaphore enforces fair scheduling across endpoints so one slow upstream doesn't block others.
@@ -385,6 +387,8 @@ func (s *DeliveryService) PollAndProcessQueue(ctx context.Context, batchSize int
 		// Fetch request details
 		req, reqErr := s.queries.GetCapturedRequestByID(ctx, jobCopy.RequestID)
 		if reqErr != nil {
+			log.Error().Err(reqErr).Str("jobId", uuid.UUID(jobCopy.ID.Bytes).String()).Msg("Failed to load captured request for delivery job; releasing back to queue")
+			_, _ = s.queries.RequeueDeliveryJob(ctx, jobCopy.ID)
 			continue
 		}
 
@@ -392,7 +396,10 @@ func (s *DeliveryService) PollAndProcessQueue(ctx context.Context, batchSize int
 		_ = json.Unmarshal(req.Headers, &headers)
 
 		body := []byte(req.MaskedBody.String)
-		s.ProcessJobAsync(jobCopy, req.HttpMethod, headers, body)
+		if submitErr := s.ProcessJobAsync(jobCopy, req.HttpMethod, headers, body); submitErr != nil {
+			log.Warn().Err(submitErr).Str("jobId", uuid.UUID(jobCopy.ID.Bytes).String()).Msg("Worker pool rejected job; releasing back to PENDING")
+			_, _ = s.queries.RequeueDeliveryJob(ctx, jobCopy.ID)
+		}
 	}
 
 	return len(jobs), nil
@@ -452,6 +459,10 @@ func (s *DeliveryService) StartQueuePoller(ctx context.Context, interval time.Du
 					}
 				}
 			case <-ticker.C:
+				// Periodic crash & stale processing recovery (releases jobs locked > 2 min)
+				if recErr := s.queries.RecoverStaleDeliveryJobs(ctx); recErr != nil {
+					log.Warn().Err(recErr).Msg("Periodic delivery stale recovery cycle failed")
+				}
 				for {
 					processed, err := s.PollAndProcessQueue(ctx, batchSize)
 					if err != nil {

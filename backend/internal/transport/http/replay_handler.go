@@ -24,6 +24,7 @@ type ExecuteReplayRequest struct {
 	CustomHeaders       map[string]string `json:"customHeaders,omitempty"`
 	Justification       string            `json:"justification,omitempty"`
 	OverrideIdempotency bool              `json:"overrideIdempotency"`
+	RenewIdempotency    bool              `json:"renewIdempotency"`
 }
 
 func (h *ReplayHandler) Execute(w http.ResponseWriter, r *http.Request) {
@@ -63,6 +64,7 @@ func (h *ReplayHandler) Execute(w http.ResponseWriter, r *http.Request) {
 		CustomHeaders:       req.CustomHeaders,
 		Justification:       req.Justification,
 		OverrideIdempotency: req.OverrideIdempotency,
+		RenewIdempotency:    req.RenewIdempotency,
 		UserID:              userID,
 		ClientIP:            clientIP,
 	})

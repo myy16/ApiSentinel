@@ -132,7 +132,10 @@ func (s *AlertService) CreateChannel(ctx context.Context, input CreateAlertChann
 	storedURL := input.WebhookURL
 	if s.encryptionKey != "" {
 		encrypted, err := envelope.Encrypt(s.encryptionKey, input.WebhookURL)
-		if err == nil && encrypted != "" {
+		if err != nil {
+			return nil, fmt.Errorf("webhook URL could not be encrypted: %w", err)
+		}
+		if encrypted != "" {
 			storedURL = encrypted
 		}
 	}

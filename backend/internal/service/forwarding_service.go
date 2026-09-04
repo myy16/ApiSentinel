@@ -74,7 +74,10 @@ func (s *ForwardingService) SaveConfig(ctx context.Context, input SaveForwarding
 	headersJSON, _ := json.Marshal(input.CustomHeaders)
 	if s.encryptionKey != "" && len(input.CustomHeaders) > 0 {
 		encrypted, err := envelope.Encrypt(s.encryptionKey, string(headersJSON))
-		if err == nil && encrypted != "" {
+		if err != nil {
+			return nil, fmt.Errorf("custom headers could not be encrypted: %w", err)
+		}
+		if encrypted != "" {
 			envelopePayload, _ := json.Marshal(map[string]string{"_encrypted": encrypted})
 			headersJSON = envelopePayload
 		}

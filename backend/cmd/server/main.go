@@ -89,7 +89,7 @@ func main() {
 	forwardingService := service.NewForwardingService(queries, workerPool, encryptionKey)
 	deliveryService := service.NewDeliveryService(queries, workerPool, encryptionKey)
 	deliveryService.SetAlertService(alertService)
-	ingestionService := service.NewIngestionService(queries, valkeyClient, alertService, forwardingService, deliveryService, workerPool, dbPool)
+	ingestionService := service.NewIngestionService(queries, valkeyClient, alertService, forwardingService, deliveryService, workerPool, dbPool, encryptionKey)
 	requestService := service.NewRequestService(queries)
 	replayService := service.NewReplayService(queries, encryptionKey)
 	mockService := service.NewMockService(queries)
@@ -110,7 +110,7 @@ func main() {
 	}()
 
 	// 5. HTTP Handlers & Router (Port 3001)
-	testSuiteService := service.NewTestSuiteService(queries, replayService)
+	testSuiteService := service.NewTestSuiteService(queries, replayService, encryptionKey)
 	aiSettingsService := service.NewAISettingsService(queries, explainer)
 
 	handlers := &transporthttp.Handlers{

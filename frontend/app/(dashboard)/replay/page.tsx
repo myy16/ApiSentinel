@@ -139,6 +139,7 @@ export default function ReplayPage() {
       renewIdempotency: boolean;
       customHeaders: Record<string, string>;
       justification: string;
+      overrideIdempotency?: boolean;
     }) =>
       apiFetch<any>(`/api/requests/${vars.requestId}/replay`, {
         method: "POST",
@@ -150,7 +151,7 @@ export default function ReplayPage() {
           renewIdempotency: vars.renewIdempotency,
           customHeaders: vars.customHeaders,
           justification: vars.justification,
-          overrideIdempotency: true,
+          overrideIdempotency: vars.overrideIdempotency ?? false,
         }),
       }),
     onSuccess: (data) => {
