@@ -53,7 +53,7 @@ export function useSSE({
     // Pass token as query parameter (backend SSE endpoint is already auth-protected via middleware).
     const url = `${API_BASE_URL}/api/projects/${projectId}/events/stream?token=${encodeURIComponent(token)}&organizationId=${encodeURIComponent(organizationId)}`;
 
-    const es = new EventSource(url);
+    const es = new EventSource(url, { withCredentials: true });
     eventSourceRef.current = es;
 
     es.addEventListener("connected", () => {

@@ -29,6 +29,10 @@ func Auth(jwtSecret string) func(http.Handler) http.Handler {
 				tokenString = strings.TrimPrefix(authHeader, "Bearer ")
 			} else if cookie, err := r.Cookie("apisentinel_access_token"); err == nil && cookie.Value != "" {
 				tokenString = cookie.Value
+			} else if cookie, err := r.Cookie("auth_token"); err == nil && cookie.Value != "" {
+				tokenString = cookie.Value
+			} else if cookie, err := r.Cookie("access_token"); err == nil && cookie.Value != "" {
+				tokenString = cookie.Value
 			} else if queryToken := r.URL.Query().Get("token"); queryToken != "" {
 				// EventSource / SSE fallback where browser cannot send custom headers
 				tokenString = queryToken
@@ -60,12 +64,19 @@ func Auth(jwtSecret string) func(http.Handler) http.Handler {
 			userId, _ := claims["userId"].(string)
 			ctx := context.WithValue(r.Context(), UserIDKey, userId)
 
-			// Extract organization ID from header or query param
+			// Extract organization ID from header, query param, or cookie
 			orgId := r.Header.Get("x-organization-id")
 			if orgId == "" {
 				orgId = r.URL.Query().Get("orgId")
 				if orgId == "" {
 					orgId = r.URL.Query().Get("organizationId")
+					if orgId == "" {
+						if orgCookie, err := r.Cookie("x-organization-id"); err == nil && orgCookie.Value != "" {
+							orgId = orgCookie.Value
+						} else if orgCookie, err := r.Cookie("organizationId"); err == nil && orgCookie.Value != "" {
+							orgId = orgCookie.Value
+						}
+					}
 				}
 			}
 			if orgId != "" {

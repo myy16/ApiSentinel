@@ -451,12 +451,19 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 	}
 
 	// 18. Create & Run Replay Test Suite (Milestone 12)
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success": true}`))
+	}))
+	defer mockUpstream.Close()
+
 	suiteCreateBody, _ := json.Marshal(map[string]interface{}{
 		"name":              "Checkout Regression Scenario",
 		"description":       "Tests order events with safe idempotency mutation",
 		"requestIds":        []string{reqListRes.Requests[0].ID},
 		"targetEnvironment": "STAGING",
-		"targetUrl":         "https://example.com/webhook",
+		"targetUrl":         mockUpstream.URL,
 		"renewIdempotency":  true,
 		"customHeaders":     map[string]string{"X-Suite-Env": "staging"},
 	})
