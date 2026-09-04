@@ -54,7 +54,7 @@ func NewDeliveryService(
 
 	svc := &DeliveryService{
 		queries:        queries,
-		httpClient:     ssrf.NewSafeHTTPClient(10 * time.Second),
+		httpClient:     &http.Client{Transport: ssrf.NewSafeTransport()},
 		workerPool:     workerPool,
 		workerID:       workerID,
 		encryptionKey:  encryptionKey,

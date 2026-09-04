@@ -41,7 +41,7 @@ func TestTenantIsolation_StrictResourceOwnership(t *testing.T) {
 	endpointService := service.NewEndpointService(queries)
 	alertService := service.NewAlertService(queries, nil)
 	forwardingService := service.NewForwardingService(queries, nil)
-	ingestionService := service.NewIngestionService(queries, nil, alertService, forwardingService, nil, nil, nil)
+	ingestionService := service.NewIngestionService(queries, nil, alertService, forwardingService, nil, nil, pool)
 	requestService := service.NewRequestService(queries)
 	replayService := service.NewReplayService(queries)
 	mockService := service.NewMockService(queries)

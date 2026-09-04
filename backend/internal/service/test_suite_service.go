@@ -75,6 +75,9 @@ func (s *TestSuiteService) CreateSuite(ctx context.Context, params CreateTestSui
 	if len(params.RequestIDs) == 0 {
 		return nil, errors.New("en az bir istek seçilmelidir")
 	}
+	if len(params.RequestIDs) > 50 {
+		return nil, errors.New("bir test paketine en fazla 50 istek eklenebilir")
+	}
 
 	projUUID, err := uuid.Parse(params.ProjectID)
 	if err != nil {
@@ -324,7 +327,7 @@ func (s *TestSuiteService) RunSuite(ctx context.Context, suiteID, userID, client
 			stepRes.Replacements = replayRes.Replacements
 			totalLatencyMs += int(replayRes.LatencyMs)
 
-			if replayRes.ResponseStatus >= 200 && replayRes.ResponseStatus < 500 {
+			if replayRes.ResponseStatus >= 200 && replayRes.ResponseStatus < 400 {
 				stepRes.Status = "PASSED"
 				passedSteps++
 			} else {

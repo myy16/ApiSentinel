@@ -302,22 +302,25 @@ func (s *IngestionService) ProcessWebhook(
 
 	// 7. Idempotency & Duplicate Request Detection (Valkey sliding window)
 	isDuplicate := false
-	if s.valkeyClient != nil && len(rawBody) > 0 {
+	var idempKey string
+	if len(rawBody) > 0 {
 		endpointIdStr := uuid.UUID(endpoint.ID.Bytes).String()
 		payloadHash := duplicate.CalculatePayloadHash(rawBody)
-		idempKey := duplicate.BuildIdempotencyKey(endpointIdStr, payloadHash)
+		idempKey = duplicate.BuildIdempotencyKey(endpointIdStr, payloadHash)
 
-		if isDup, origReqID, err := s.valkeyClient.CheckAndSetIdempotency(ctx, idempKey, requestId, duplicate.DefaultIdempotencyTTL); err == nil && isDup {
-			isDuplicate = true
-			dupFinding := duplicate.CreateDuplicateFinding(origReqID, payloadHash)
-			findings = append(findings, security.Finding{
-				Category:       "DUPLICATE",
-				Type:           dupFinding.Type,
-				Severity:       dupFinding.Severity,
-				Message:        dupFinding.Message,
-				EvidenceMasked: dupFinding.EvidenceMasked,
-				Confidence:     dupFinding.Confidence,
-			})
+		if s.valkeyClient != nil {
+			if isDup, origReqID, err := s.valkeyClient.CheckAndSetIdempotency(ctx, idempKey, requestId, duplicate.DefaultIdempotencyTTL); err == nil && isDup {
+				isDuplicate = true
+				dupFinding := duplicate.CreateDuplicateFinding(origReqID, payloadHash)
+				findings = append(findings, security.Finding{
+					Category:       "DUPLICATE",
+					Type:           dupFinding.Type,
+					Severity:       dupFinding.Severity,
+					Message:        dupFinding.Message,
+					EvidenceMasked: dupFinding.EvidenceMasked,
+					Confidence:     dupFinding.Confidence,
+				})
+			}
 		}
 	}
 
@@ -433,7 +436,7 @@ func (s *IngestionService) ProcessWebhook(
 				TargetUrl:      targetURL,
 				Status:         string(delivery.DeliveryStatePending),
 				MaxRetries:     int32(maxRetries),
-				IdempotencyKey: pgtype.Text{Valid: false},
+				IdempotencyKey: pgtype.Text{String: idempKey, Valid: idempKey != ""},
 				PayloadMode:    payloadMode,
 			})
 			if jobErr != nil {
@@ -500,6 +503,19 @@ func (s *IngestionService) ProcessWebhook(
 			}, capErr
 		}
 
+		// Persist Schema Drift Event if detected
+		if activeBaseline != nil && driftReport != nil {
+			diffJSON, _ := json.Marshal(driftReport)
+			_, _ = s.queries.CreateSchemaDriftEvent(ctx, database.CreateSchemaDriftEventParams{
+				EndpointID:       endpoint.ID,
+				SchemaBaselineID: activeBaseline.ID,
+				RequestID:        captured.ID,
+				DriftType:        driftReport.Severity,
+				DiffJson:         diffJSON,
+				IsAcknowledged:   false,
+			})
+		}
+
 		if shouldCreateDeliveryJob && s.deliverySvc != nil {
 			job, jobErr := s.queries.CreateDeliveryJob(ctx, database.CreateDeliveryJobParams{
 				EndpointID:     endpoint.ID,
@@ -507,7 +523,7 @@ func (s *IngestionService) ProcessWebhook(
 				TargetUrl:      targetURL,
 				Status:         string(delivery.DeliveryStatePending),
 				MaxRetries:     int32(maxRetries),
-				IdempotencyKey: pgtype.Text{Valid: false},
+				IdempotencyKey: pgtype.Text{String: idempKey, Valid: idempKey != ""},
 				PayloadMode:    payloadMode,
 			})
 			if jobErr != nil {
