@@ -83,16 +83,19 @@ func main() {
 	endpointService := service.NewEndpointService(queries)
 	alertService := service.NewAlertService(queries, workerPool, encryptionKey)
 	forwardingService := service.NewForwardingService(queries, workerPool, encryptionKey)
-	ingestionService := service.NewIngestionService(queries, valkeyClient, alertService, forwardingService, workerPool)
+	deliveryService := service.NewDeliveryService(queries, workerPool, encryptionKey)
+	deliveryService.SetAlertService(alertService)
+	ingestionService := service.NewIngestionService(queries, valkeyClient, alertService, forwardingService, deliveryService, workerPool)
 	requestService := service.NewRequestService(queries)
 	replayService := service.NewReplayService(queries)
 	mockService := service.NewMockService(queries)
 	findingService := service.NewFindingService(queries)
 	apiKeyService := service.NewAPIKeyService(queries)
 	webhookSecurityService := service.NewWebhookSecurityService(queries, encryptionKey)
-	deliveryService := service.NewDeliveryService(queries, workerPool, encryptionKey)
-	deliveryService.SetAlertService(alertService)
 	explainer := ai.NewExplainer("")
+
+	// Start delivery queue poller for PENDING/RETRY_WAIT jobs
+	deliveryService.StartQueuePoller(ctx, 15*time.Second, 10)
 
 	// 4. gRPC Server (Port 50051) with Token Auth Interceptor & TLS
 	grpcServer := transportgrpc.NewServer(queries, cfg.GRPCPort, cfg.JWTSecret, os.Getenv("TLS_CERT_FILE"), os.Getenv("TLS_KEY_FILE"), valkeyClient)
@@ -153,7 +156,7 @@ func main() {
 	log.Info().Msg("Received termination signal. Initiating cascade graceful shutdown...")
 
 	// 1. Stop HTTP Gateway (stop accepting new requests, drain in-flight)
-	log.Info().Msg("[1/4] Shutting down HTTP Gateway...")
+	log.Info().Msg("[1/5] Shutting down HTTP Gateway...")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -164,17 +167,21 @@ func main() {
 	}
 
 	// 2. Stop gRPC Server (graceful stop for connected agents)
-	log.Info().Msg("[2/4] Stopping gRPC Agent Server...")
+	log.Info().Msg("[2/5] Stopping gRPC Agent Server...")
 	grpcServer.Stop()
 
-	// 3. Drain Background Worker Pool
-	log.Info().Msg("[3/4] Draining background Worker Pool tasks...")
+	// 3. Stop Delivery Queue Poller
+	log.Info().Msg("[3/5] Stopping Delivery Queue Poller...")
+	deliveryService.StopQueuePoller()
+
+	// 4. Drain Background Worker Pool
+	log.Info().Msg("[4/5] Draining background Worker Pool tasks...")
 	if err := workerPool.Stop(5 * time.Second); err != nil {
 		log.Error().Err(err).Msg("Worker pool shutdown timeout")
 	}
 
-	// 4. Close database and Valkey connections
-	log.Info().Msg("[4/4] Closing database & cache connection pools...")
+	// 5. Close database and Valkey connections
+	log.Info().Msg("[5/5] Closing database & cache connection pools...")
 	if valkeyClient != nil {
 		_ = valkeyClient.Close()
 	}

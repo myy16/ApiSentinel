@@ -41,3 +41,10 @@ SELECT * FROM replay_test_runs
 WHERE suite_id = $1
 ORDER BY created_at DESC
 LIMIT 20;
+
+-- name: VerifyTestSuiteOwnership :one
+SELECT ts.id
+FROM replay_test_suites ts
+JOIN projects p ON p.id = ts.project_id
+WHERE ts.id = $1 AND p.organization_id = $2
+LIMIT 1;

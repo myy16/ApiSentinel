@@ -33,3 +33,12 @@ FROM replay_jobs rj
 JOIN captured_requests cr ON rj.source_request_id = cr.id
 JOIN endpoints e ON cr.endpoint_id = e.id
 WHERE rj.id = $1;
+
+-- name: VerifyReplayJobOwnership :one
+SELECT rj.id
+FROM replay_jobs rj
+JOIN captured_requests cr ON rj.source_request_id = cr.id
+JOIN endpoints e ON cr.endpoint_id = e.id
+JOIN projects p ON p.id = e.project_id
+WHERE rj.id = $1 AND p.organization_id = $2
+LIMIT 1;

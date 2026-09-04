@@ -264,3 +264,23 @@ func (q *Queries) UpdateReplayTestRunResult(ctx context.Context, arg UpdateRepla
 	)
 	return i, err
 }
+
+const verifyTestSuiteOwnership = `-- name: VerifyTestSuiteOwnership :one
+SELECT ts.id
+FROM replay_test_suites ts
+JOIN projects p ON p.id = ts.project_id
+WHERE ts.id = $1 AND p.organization_id = $2
+LIMIT 1
+`
+
+type VerifyTestSuiteOwnershipParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+func (q *Queries) VerifyTestSuiteOwnership(ctx context.Context, arg VerifyTestSuiteOwnershipParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, verifyTestSuiteOwnership, arg.ID, arg.OrganizationID)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}

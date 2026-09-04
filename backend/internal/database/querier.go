@@ -119,7 +119,9 @@ type Querier interface {
 	VerifyDLQRecordOwnership(ctx context.Context, arg VerifyDLQRecordOwnershipParams) (pgtype.UUID, error)
 	VerifyDeliveryJobOwnership(ctx context.Context, arg VerifyDeliveryJobOwnershipParams) (pgtype.UUID, error)
 	VerifyProjectOwnership(ctx context.Context, arg VerifyProjectOwnershipParams) (pgtype.UUID, error)
+	VerifyReplayJobOwnership(ctx context.Context, arg VerifyReplayJobOwnershipParams) (pgtype.UUID, error)
 	VerifyRequestOwnership(ctx context.Context, arg VerifyRequestOwnershipParams) (pgtype.UUID, error)
+	VerifyTestSuiteOwnership(ctx context.Context, arg VerifyTestSuiteOwnershipParams) (pgtype.UUID, error)
 }
 
 var _ Querier = (*Queries)(nil)

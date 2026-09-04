@@ -37,6 +37,7 @@ type IngestionService struct {
 	securityEngine *security.Engine
 	alertService   *AlertService
 	forwardingSvc  *ForwardingService
+	deliverySvc    *DeliveryService
 	workerPool     *worker.Pool
 }
 
@@ -45,6 +46,7 @@ func NewIngestionService(
 	valkeyClient *valkey.Client,
 	alertService *AlertService,
 	forwardingSvc *ForwardingService,
+	deliverySvc *DeliveryService,
 	workerPool *worker.Pool,
 ) *IngestionService {
 	if workerPool == nil {
@@ -61,6 +63,7 @@ func NewIngestionService(
 		securityEngine: security.NewEngine(),
 		alertService:   alertService,
 		forwardingSvc:  forwardingSvc,
+		deliverySvc:    deliverySvc,
 		workerPool:     workerPool,
 	}
 }
@@ -410,14 +413,61 @@ func (s *IngestionService) ProcessWebhook(
 
 	// 14. Forwarding to Upstream Target (if configured)
 	// Apply header allowlist to prevent credential leakage (#9)
-	if s.forwardingSvc != nil {
-		flatHeaders := make(map[string]string)
-		for k, v := range headers {
-			if len(v) > 0 {
-				flatHeaders[k] = v[0]
+	flatHeaders := make(map[string]string)
+	for k, v := range headers {
+		if len(v) > 0 {
+			flatHeaders[k] = v[0]
+		}
+	}
+	safeHeaders := forwarding.FilterHeaders(flatHeaders)
+
+	// 14a. Create delivery job via DeliveryService (new unified delivery pipeline)
+	if s.deliverySvc != nil {
+		targetURL := ""
+		maxRetries := 3
+		payloadMode := "REDACTED"
+
+		if s.forwardingSvc != nil {
+			if cfg, cfgErr := s.forwardingSvc.GetConfig(ctx, endpointIdStr); cfgErr == nil && cfg.IsEnabled && cfg.TargetUrl != "" {
+				targetURL = cfg.TargetUrl
+				maxRetries = int(cfg.MaxRetries)
+				if cfg.PayloadMode != "" {
+					payloadMode = cfg.PayloadMode
+				}
 			}
 		}
-		safeHeaders := forwarding.FilterHeaders(flatHeaders)
+
+		// Fallback to endpoint upstream_url
+		if targetURL == "" {
+			if ep, epErr := s.queries.GetEndpointByIDOnly(ctx, endpoint.ID); epErr == nil && ep.UpstreamUrl.Valid && ep.UpstreamUrl.String != "" {
+				targetURL = ep.UpstreamUrl.String
+			}
+		}
+
+		if targetURL != "" {
+			job, jobErr := s.deliverySvc.CreateJobRecord(ctx, IngestAtomicParams{
+				EndpointID:     endpoint.ID,
+				RequestID:      requestId,
+				HTTPMethod:     httpMethod,
+				HeadersBytes:   headersBytes,
+				QueryParams:    queryBytes,
+				MaskedBody:     pgMaskedBody,
+				ClientIP:       clientIP,
+				ResponseStatus: responseStatus,
+				TargetURL:      targetURL,
+				PayloadMode:    payloadMode,
+				MaxRetries:     maxRetries,
+				RawBody:        rawBody,
+			}, captured.ID)
+
+			if jobErr != nil {
+				log.Error().Err(jobErr).Str("requestId", requestId).Msg("Failed to create delivery job")
+			} else if job != nil {
+				s.deliverySvc.ProcessJobAsync(*job, httpMethod, safeHeaders, rawBody)
+			}
+		}
+	} else if s.forwardingSvc != nil {
+		// Legacy fallback: use old ForwardingService if DeliveryService is not configured
 		s.forwardingSvc.ForwardCleanWebhook(ctx, endpointIdStr, capturedIdStr, httpMethod, safeHeaders, rawBody)
 	}
 

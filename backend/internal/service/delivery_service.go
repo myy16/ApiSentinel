@@ -33,6 +33,7 @@ type DeliveryService struct {
 	endpointSemMu  sync.Mutex
 	maxPerEndpoint int
 	alertService   *AlertService
+	stopPoller     chan struct{}
 }
 
 func (s *DeliveryService) SetAlertService(alertService *AlertService) {
@@ -380,4 +381,53 @@ func (s *DeliveryService) PollAndProcessQueue(ctx context.Context, batchSize int
 	}
 
 	return len(jobs), nil
+}
+
+// StartQueuePoller starts a background goroutine that periodically polls for
+// PENDING/RETRY_WAIT delivery jobs whose next_retry_at has passed.
+// This ensures jobs that weren't picked up by the initial worker pool dispatch
+// (e.g., due to pool saturation) are eventually processed.
+func (s *DeliveryService) StartQueuePoller(ctx context.Context, interval time.Duration, batchSize int32) {
+	if interval <= 0 {
+		interval = 15 * time.Second
+	}
+	if batchSize <= 0 {
+		batchSize = 10
+	}
+
+	s.stopPoller = make(chan struct{})
+	ticker := time.NewTicker(interval)
+
+	go func() {
+		defer ticker.Stop()
+		log.Info().
+			Dur("interval", interval).
+			Int32("batchSize", batchSize).
+			Msg("Delivery queue poller started")
+
+		for {
+			select {
+			case <-ctx.Done():
+				log.Info().Msg("Delivery queue poller stopped (context cancelled)")
+				return
+			case <-s.stopPoller:
+				log.Info().Msg("Delivery queue poller stopped (explicit stop)")
+				return
+			case <-ticker.C:
+				processed, err := s.PollAndProcessQueue(ctx, batchSize)
+				if err != nil {
+					log.Warn().Err(err).Msg("Delivery queue poll cycle failed")
+				} else if processed > 0 {
+					log.Info().Int("processed", processed).Msg("Delivery queue poller picked up jobs")
+				}
+			}
+		}
+	}()
+}
+
+// StopQueuePoller signals the background queue poller goroutine to stop.
+func (s *DeliveryService) StopQueuePoller() {
+	if s.stopPoller != nil {
+		close(s.stopPoller)
+	}
 }

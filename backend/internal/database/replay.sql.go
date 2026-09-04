@@ -263,3 +263,25 @@ func (q *Queries) UpdateReplayJobResult(ctx context.Context, arg UpdateReplayJob
 	)
 	return i, err
 }
+
+const verifyReplayJobOwnership = `-- name: VerifyReplayJobOwnership :one
+SELECT rj.id
+FROM replay_jobs rj
+JOIN captured_requests cr ON rj.source_request_id = cr.id
+JOIN endpoints e ON cr.endpoint_id = e.id
+JOIN projects p ON p.id = e.project_id
+WHERE rj.id = $1 AND p.organization_id = $2
+LIMIT 1
+`
+
+type VerifyReplayJobOwnershipParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+func (q *Queries) VerifyReplayJobOwnership(ctx context.Context, arg VerifyReplayJobOwnershipParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, verifyReplayJobOwnership, arg.ID, arg.OrganizationID)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}

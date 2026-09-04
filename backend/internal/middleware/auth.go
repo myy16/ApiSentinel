@@ -175,6 +175,30 @@ func RequireDLQRecordOwnership(queries *database.Queries, param string) func(htt
 	})
 }
 
+// RequireDeliveryJobOwnership verifies delivery job -> endpoint -> project -> organization ownership.
+func RequireDeliveryJobOwnership(queries *database.Queries, param string) func(http.Handler) http.Handler {
+	return requireResourceOwnership(param, func(ctx context.Context, id, orgID pgtype.UUID) error {
+		_, err := queries.VerifyDeliveryJobOwnership(ctx, database.VerifyDeliveryJobOwnershipParams{ID: id, OrganizationID: orgID})
+		return err
+	})
+}
+
+// RequireReplayJobOwnership verifies replay job -> captured_request -> endpoint -> project -> organization ownership.
+func RequireReplayJobOwnership(queries *database.Queries, param string) func(http.Handler) http.Handler {
+	return requireResourceOwnership(param, func(ctx context.Context, id, orgID pgtype.UUID) error {
+		_, err := queries.VerifyReplayJobOwnership(ctx, database.VerifyReplayJobOwnershipParams{ID: id, OrganizationID: orgID})
+		return err
+	})
+}
+
+// RequireTestSuiteOwnership verifies test suite -> project -> organization ownership.
+func RequireTestSuiteOwnership(queries *database.Queries, param string) func(http.Handler) http.Handler {
+	return requireResourceOwnership(param, func(ctx context.Context, id, orgID pgtype.UUID) error {
+		_, err := queries.VerifyTestSuiteOwnership(ctx, database.VerifyTestSuiteOwnershipParams{ID: id, OrganizationID: orgID})
+		return err
+	})
+}
+
 type ownershipCheck func(context.Context, pgtype.UUID, pgtype.UUID) error
 
 func requireResourceOwnership(param string, check ownershipCheck) func(http.Handler) http.Handler {
