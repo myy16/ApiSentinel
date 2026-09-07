@@ -52,14 +52,14 @@ func DiagnoseAttempt(statusCode int, netErr error, targetURL, respSnippet string
 		errStr = strings.ToLower(netErr.Error())
 	}
 
-	// 1. SSRF or Private IP Blocking
-	if strings.Contains(errStr, "ssrf") || strings.Contains(errStr, "private ip") || strings.Contains(errStr, "loopback") {
+	// 1. SSRF or Private IP Blocking or Invalid Scheme
+	if strings.Contains(errStr, "ssrf") || strings.Contains(errStr, "private ip") || strings.Contains(errStr, "loopback") || strings.Contains(errStr, "only http and https") {
 		return DiagnosticResult{
 			Category:        DiagSSRFBlocked,
 			Severity:        "CRITICAL",
-			Title:           "SSRF / Özel Ağ Engeli",
-			RootCause:       fmt.Sprintf("Hedef URL (%s) özel IP / localhost aralığında olduğu için güvenlik kalkanı tarafından engellendi.", targetURL),
-			SuggestedAction: "İletim hedefini genel erişime açık (public domain) bir HTTPS adresine güncelleyin veya yerel test için ApiSentinel CLI tünelini kullanın.",
+			Title:           "Geçersiz Şema / SSRF Özel Ağ Engeli",
+			RootCause:       fmt.Sprintf("Hedef URL (%s) geçerli bir http/https protokolü içermiyor veya özel IP / localhost aralığında olduğu için güvenlik kalkanı tarafından engellendi.", targetURL),
+			SuggestedAction: "İletim hedefini geçerli 'https://' protokolüyle başlayan genel erişime açık (public domain) bir adrese güncelleyin.",
 			DocLink:         "https://apisentinel.dev/docs/security/ssrf-protection",
 		}
 	}

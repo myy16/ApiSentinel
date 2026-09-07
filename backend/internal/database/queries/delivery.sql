@@ -103,6 +103,10 @@ SELECT * FROM delivery_attempts
 WHERE job_id = $1
 ORDER BY attempt_number ASC;
 
+-- name: CountDeliveryAttemptsByJobID :one
+SELECT COUNT(*)::int as count FROM delivery_attempts
+WHERE job_id = $1;
+
 -- name: VerifyDeliveryJobOwnership :one
 SELECT j.id
 FROM delivery_jobs j
@@ -114,7 +118,7 @@ LIMIT 1;
 -- name: RequeueDeliveryJob :one
 UPDATE delivery_jobs
 SET status = 'PENDING',
-    attempts = 0,
+    max_retries = GREATEST(max_retries, attempts + 3),
     locked_at = NULL,
     locked_by = NULL,
     next_retry_at = NOW(),

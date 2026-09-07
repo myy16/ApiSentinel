@@ -108,6 +108,18 @@ func (q *Queries) CompleteDeliveryJob(ctx context.Context, id pgtype.UUID) (Deli
 	return i, err
 }
 
+const countDeliveryAttemptsByJobID = `-- name: CountDeliveryAttemptsByJobID :one
+SELECT COUNT(*)::int as count FROM delivery_attempts
+WHERE job_id = $1
+`
+
+func (q *Queries) CountDeliveryAttemptsByJobID(ctx context.Context, jobID pgtype.UUID) (int32, error) {
+	row := q.db.QueryRow(ctx, countDeliveryAttemptsByJobID, jobID)
+	var count int32
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countDeliveryJobsByProjectAndStatus = `-- name: CountDeliveryJobsByProjectAndStatus :many
 SELECT dj.status, COUNT(*) as count
 FROM delivery_jobs dj
@@ -483,7 +495,7 @@ func (q *Queries) RecoverStaleDeliveryJobs(ctx context.Context) error {
 const requeueDeliveryJob = `-- name: RequeueDeliveryJob :one
 UPDATE delivery_jobs
 SET status = 'PENDING',
-    attempts = 0,
+    max_retries = GREATEST(max_retries, attempts + 3),
     locked_at = NULL,
     locked_by = NULL,
     next_retry_at = NOW(),

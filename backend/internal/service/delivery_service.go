@@ -185,7 +185,8 @@ func (s *DeliveryService) ExecuteJob(ctx context.Context, job database.DeliveryJ
 	// 1. Validate Target URL via SSRF Guard
 	_, ssrfErr := ssrf.ValidateURL(job.TargetUrl)
 	if ssrfErr != nil {
-		attemptNum := job.Attempts + 1
+		existingCount, _ := s.queries.CountDeliveryAttemptsByJobID(ctx, job.ID)
+		attemptNum := int32(existingCount) + 1
 		reqHeadersJSON, _ := json.Marshal(delivery.RedactHeaderMap(headers))
 
 		attempt, _ := s.queries.RecordDeliveryAttempt(ctx, database.RecordDeliveryAttemptParams{
@@ -202,11 +203,18 @@ func (s *DeliveryService) ExecuteJob(ctx context.Context, job database.DeliveryJ
 			ResponseBodySnippet:     pgtype.Text{Valid: false},
 		})
 
-		_, _ = s.queries.FailDeliveryJob(ctx, database.FailDeliveryJobParams{
+		// Mark delivery job as DEAD_LETTER immediately and atomically release locks
+		bgCtx := context.Background()
+		_, _ = s.queries.FailDeliveryJob(bgCtx, database.FailDeliveryJobParams{
 			ID:          job.ID,
 			Status:      string(delivery.DeliveryStateDeadLetter),
 			LastError:   pgtype.Text{String: "SSRF Guard blocked upstream URL: " + ssrfErr.Error(), Valid: true},
 			NextRetryAt: pgtype.Timestamptz{Time: time.Now().Add(24 * time.Hour), Valid: true},
+		})
+
+		_ = s.queries.UpdateRequestProcessingStatus(bgCtx, database.UpdateRequestProcessingStatusParams{
+			ID:               job.RequestID,
+			ProcessingStatus: string(delivery.DeliveryStateDeadLetter),
 		})
 
 		return &attempt, ssrfErr
@@ -305,9 +313,13 @@ func (s *DeliveryService) ExecuteJob(ctx context.Context, job database.DeliveryJ
 		pgRespSnippet = pgtype.Text{String: respBodySnippet, Valid: true}
 	}
 
+	// Count actual recorded attempts to guarantee monotonic sequence across retries and replays
+	existingAttemptsCount, _ := s.queries.CountDeliveryAttemptsByJobID(ctx, job.ID)
+	attemptNum := int32(existingAttemptsCount) + 1
+
 	attempt, err := s.queries.RecordDeliveryAttempt(ctx, database.RecordDeliveryAttemptParams{
 		JobID:                   job.ID,
-		AttemptNumber:           job.Attempts + 1,
+		AttemptNumber:           attemptNum,
 		StartedAt:               pgtype.Timestamptz{Time: startTime, Valid: true},
 		FinishedAt:              pgtype.Timestamptz{Time: finishedTime, Valid: true},
 		LatencyMs:               int32(latency),

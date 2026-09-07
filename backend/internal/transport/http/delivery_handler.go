@@ -112,7 +112,7 @@ func (h *DeliveryHandler) GetTimeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var latestDiagnostic *delivery.DiagnosticResult
-	for _, a := range attempts {
+	for i, a := range attempts {
 		status := "SUCCESS"
 		var netErr error
 		if a.ErrorMessage.Valid && a.ErrorMessage.String != "" && (!a.ResponseStatusCode.Valid || a.ResponseStatusCode.Int32 == 0) {
@@ -127,16 +127,17 @@ func (h *DeliveryHandler) GetTimeline(w http.ResponseWriter, r *http.Request) {
 			latestDiagnostic = &diagCopy
 		}
 
+		attemptNum := int32(i + 1)
 		timelineSteps = append(timelineSteps, map[string]interface{}{
 			"step":        "ATTEMPT",
-			"attempt":     a.AttemptNumber,
+			"attempt":     attemptNum,
 			"status":      status,
 			"statusCode":  a.ResponseStatusCode.Int32,
 			"latencyMs":   a.LatencyMs,
 			"error":       a.ErrorMessage.String,
 			"startedAt":   a.StartedAt,
 			"finishedAt":  a.FinishedAt,
-			"description": "Forwarding attempt " + strconv.Itoa(int(a.AttemptNumber)),
+			"description": "İletim Denemesi #" + strconv.Itoa(int(attemptNum)),
 			"diagnostic":  diag,
 		})
 	}

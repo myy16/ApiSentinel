@@ -204,6 +204,17 @@ func (e *Explainer) localIncidentRulebook(input DeliveryIncidentInput, safeReq, 
 	var steps []string
 
 	switch {
+	case strings.Contains(strings.ToLower(safeErr), "only http and https") || strings.Contains(strings.ToLower(safeErr), "ssrf") || strings.Contains(strings.ToLower(safeErr), "private ip"):
+		summary = "Geçersiz URL Şeması / SSRF Güvenlik Kalkanı Engeli"
+		rootCause = fmt.Sprintf("Hedef URL geçerli bir 'http://' veya 'https://' protokolü içermiyor ya da yerel/özel ağ (SSRF) korumasına takıldı: %s", safeErr)
+		isUpstream = false
+		canReplay = false
+		fix = "Endpoint yapılandırmasındaki Upstream URL adresini kontrol edin. Adresin başında 'https://' veya 'http://' olduğundan ve geçerli bir genel alan adı belirttiğinizden emin olun."
+		steps = []string{
+			"Endpoint listesinden ilgili uç noktayı düzenleyin.",
+			"Upstream URL alanında yazım hatası (örn. 'ttps://') olup olmadığını kontrol edin.",
+			"Adresi düzelttikten sonra Replay yapın.",
+		}
 	case status == 401 || status == 403:
 		summary = "Upstream Kimlik Doğrulama / Yetkilendirme Hatası"
 		rootCause = fmt.Sprintf("Hedef sunucu isteği HTTP %d ile yetkisiz bularak reddetti. Webhook secret anahtarı veya header token'ı geçersiz veya süresi dolmuş olabilir.", status)
