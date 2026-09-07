@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../../hooks/useAuth";
+import { useSSE } from "../../../hooks/useSSE";
 import { apiFetch } from "../../../lib/api";
 import { Project, Endpoint, EndpointMode, ProviderTemplate } from "@apisentinel/shared";
 import {
@@ -35,6 +36,8 @@ import {
   Code2,
   Key,
   CheckCircle2,
+  ToggleLeft,
+  ToggleRight,
 } from "lucide-react";
 import Link from "next/link";
 import { useActiveProject } from "../../../contexts/ProjectContext";
@@ -84,6 +87,7 @@ export default function EndpointsPage() {
   const [webhookSecret, setWebhookSecret] = useState("");
   const [requireSignature, setRequireSignature] = useState(true);
   const [webhookSecurityError, setWebhookSecurityError] = useState<string | null>(null);
+  const [securitySuccessMessage, setSecuritySuccessMessage] = useState<string | null>(null);
 
   // Fetch endpoints for active project
   const { data: endpointsData, isLoading } = useQuery({
@@ -96,6 +100,16 @@ export default function EndpointsPage() {
           organizationId: organization?.id,
         }
       ),
+    enabled: !!accessToken && !!activeProjectId,
+  });
+
+  // Real-time SSE push updates for endpoints list and request counts
+  const sseQueryKeys = useMemo(() => [["endpoints", activeProjectId || ""]], [activeProjectId]);
+  useSSE({
+    projectId: activeProjectId,
+    token: accessToken,
+    organizationId: organization?.id ?? null,
+    queryKeys: sseQueryKeys,
     enabled: !!accessToken && !!activeProjectId,
   });
 
@@ -226,6 +240,50 @@ export default function EndpointsPage() {
     },
   });
 
+  // Fast direct toggle for active/passive on the endpoint card
+  const toggleActiveMutation = useMutation({
+    mutationFn: (endpoint: Endpoint) => {
+      const currentActive = Boolean(endpoint.isActive ?? (endpoint as any).is_active);
+      return apiFetch<Endpoint>(`/api/projects/${activeProjectId}/endpoints/${endpoint.id}`, {
+        method: "PUT",
+        token: accessToken,
+        organizationId: organization?.id,
+        body: JSON.stringify({
+          name: endpoint.name,
+          mode: endpoint.mode,
+          isActive: !currentActive,
+          upstreamUrl: endpoint.upstreamUrl || null,
+          maxPayloadSizeBytes: endpoint.maxPayloadSizeBytes,
+          rateLimitRpm: endpoint.rateLimitRpm,
+          burstThreshold: endpoint.burstThreshold,
+        }),
+      });
+    },
+    onMutate: async (endpoint) => {
+      await queryClient.cancelQueries({ queryKey: ["endpoints", activeProjectId] });
+      const previousData = queryClient.getQueryData(["endpoints", activeProjectId]);
+      const currentActive = Boolean(endpoint.isActive ?? (endpoint as any).is_active);
+      queryClient.setQueryData<any>(["endpoints", activeProjectId], (old: any) => {
+        if (!old?.endpoints) return old;
+        return {
+          ...old,
+          endpoints: old.endpoints.map((ep: any) =>
+            ep.id === endpoint.id ? { ...ep, isActive: !currentActive, is_active: !currentActive } : ep
+          ),
+        };
+      });
+      return { previousData };
+    },
+    onError: (_err, _vars, context: any) => {
+      if (context?.previousData) {
+        queryClient.setQueryData(["endpoints", activeProjectId], context.previousData);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["endpoints", activeProjectId] });
+    },
+  });
+
   const { data: webhookSecurity } = useQuery({
     queryKey: ["webhook-security", editingEndpoint?.id],
     queryFn: () =>
@@ -256,6 +314,8 @@ export default function EndpointsPage() {
       queryClient.invalidateQueries({ queryKey: ["webhook-security", editingEndpoint?.id] });
       setWebhookSecret("");
       setWebhookSecurityError(null);
+      setSecuritySuccessMessage("Webhook imza koruması başarıyla kaydedildi.");
+      setTimeout(() => setSecuritySuccessMessage(null), 4000);
     },
     onError: (err: any) => setWebhookSecurityError(err.message || "İmza koruması kaydedilemedi."),
   });
@@ -271,6 +331,9 @@ export default function EndpointsPage() {
       queryClient.invalidateQueries({ queryKey: ["webhook-security", editingEndpoint?.id] });
       setWebhookSecret("");
       setRequireSignature(true);
+      setWebhookSecurityError(null);
+      setSecuritySuccessMessage("Webhook imza koruması başarıyla kaldırıldı.");
+      setTimeout(() => setSecuritySuccessMessage(null), 4000);
     },
   });
 
@@ -358,14 +421,42 @@ export default function EndpointsPage() {
         }),
       });
 
+      // When gateway processes and records the request (200 OK, 401 HMAC fail, 403 Blocked, 429 Rate limited, etc.)
+      const isCaptured = res.status !== 404 && res.status >= 200 && res.status < 600;
+
+      if (isCaptured) {
+        // Instant real-time optimistic counter increment for ALL captured traffic
+        queryClient.setQueryData<any>(["endpoints", activeProjectId], (old: any) => {
+          if (!old?.endpoints) return old;
+          return {
+            ...old,
+            endpoints: old.endpoints.map((ep: any) => {
+              if (ep.slug === slug) {
+                const prevCount = Number(ep.requestCount ?? ep.request_count ?? 0);
+                return {
+                  ...ep,
+                  requestCount: prevCount + 1,
+                  request_count: prevCount + 1,
+                };
+              }
+              return ep;
+            }),
+          };
+        });
+
+        // Background query sync
+        setTimeout(() => {
+          queryClient.invalidateQueries({ queryKey: ["endpoints", activeProjectId] });
+        }, 1200);
+      }
+
       if (res.ok) {
         setTestStatus((prev) => ({ ...prev, [slug]: "success" }));
-        queryClient.invalidateQueries({ queryKey: ["endpoints", activeProjectId] });
       } else {
-        setTestStatus((prev) => ({ ...prev, [slug]: "error" }));
+        setTestStatus((prev) => ({ ...prev, [slug]: `error:${res.status}` }));
       }
     } catch {
-      setTestStatus((prev) => ({ ...prev, [slug]: "error" }));
+      setTestStatus((prev) => ({ ...prev, [slug]: "error:network" }));
     } finally {
       setTimeout(() => {
         setTestStatus((prev) => {
@@ -373,7 +464,7 @@ export default function EndpointsPage() {
           delete next[slug];
           return next;
         });
-      }, 3000);
+      }, 3500);
     }
   };
 
@@ -756,7 +847,45 @@ export default function EndpointsPage() {
                   placeholder="https://api.mycompany.com/webhooks"
                   className="w-full rounded-xl border border-input bg-background/50 px-3 py-2 text-sm focus:border-primary focus:outline-none"
                 />
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Doğrulanan webhook istekleri bu upstream adrese iletilir.
+                </p>
               </div>
+
+              {/* Status Switch Box */}
+              <div className="flex flex-col justify-between rounded-xl border border-border bg-card/60 p-3.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-foreground">Endpoint Çalışma Durumu</span>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${editIsActive ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-rose-500/10 text-rose-400 border border-rose-500/20"}`}>
+                    {editIsActive ? "AKTİF" : "PASİF"}
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted-foreground my-1.5">
+                  {editIsActive ? "Trafik açık. Gelen tüm webhook istekleri kabul ediliyor." : "Trafik kapalı. Bu endpoint'e gelen istekler durdurulur."}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setEditIsActive(!editIsActive)}
+                  className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-bold transition shadow-sm cursor-pointer ${
+                    editIsActive
+                      ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25"
+                      : "bg-rose-500/15 text-rose-400 border border-rose-500/30 hover:bg-rose-500/25"
+                  }`}
+                >
+                  {editIsActive ? (
+                    <>
+                      <ToggleRight className="h-4 w-4 text-emerald-400" />
+                      <span>Aktif (Durdurmak İçin Tıkla)</span>
+                    </>
+                  ) : (
+                    <>
+                      <ToggleLeft className="h-4 w-4 text-rose-400" />
+                      <span>Pasif (Etkinleştirmek İçin Tıkla)</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
 
             {/* Traffic & Payload Protection Edit */}
             <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-3">
@@ -812,20 +941,7 @@ export default function EndpointsPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-3 pt-2">
-              <input
-                type="checkbox"
-                id="editIsActive"
-                checked={editIsActive}
-                onChange={(e) => setEditIsActive(e.target.checked)}
-                className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
-              />
-              <label htmlFor="editIsActive" className="text-xs font-semibold text-foreground cursor-pointer">
-                Endpoint Aktif (İstek Kabul Edilsin)
-              </label>
-            </div>
-            </div>
-
+            {/* Webhook Signature Security */}
             <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 space-y-3">
               <div className="flex items-start gap-2">
                 <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
@@ -834,7 +950,16 @@ export default function EndpointsPage() {
                   <p className="mt-0.5 text-[11px] text-muted-foreground">Secret şifrelenerek saklanır ve kaydedildikten sonra tekrar gösterilmez.</p>
                 </div>
               </div>
+
+              {securitySuccessMessage && (
+                <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs font-semibold text-emerald-400">
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+                  <span>{securitySuccessMessage}</span>
+                </div>
+              )}
+
               {webhookSecurityError && <p className="text-xs text-destructive">{webhookSecurityError}</p>}
+
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">Sağlayıcı</label>
@@ -849,10 +974,14 @@ export default function EndpointsPage() {
               </div>
               <label className="flex items-center gap-2 text-xs text-foreground cursor-pointer"><input type="checkbox" checked={requireSignature} onChange={(e) => setRequireSignature(e.target.checked)} />İmzasız istekleri reddet</label>
               <div className="flex flex-wrap gap-2">
-                <button type="button" disabled={!webhookSecret.trim() || saveWebhookSecurityMutation.isPending} onClick={() => saveWebhookSecurityMutation.mutate({ provider: webhookProvider, secret: webhookSecret, requireSignature })} className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-black transition hover:bg-amber-400 disabled:opacity-50">
+                <button type="button" disabled={!webhookSecret.trim() || saveWebhookSecurityMutation.isPending} onClick={() => saveWebhookSecurityMutation.mutate({ provider: webhookProvider, secret: webhookSecret, requireSignature })} className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-black transition hover:bg-amber-400 disabled:opacity-50 cursor-pointer">
                   {saveWebhookSecurityMutation.isPending ? "Kaydediliyor..." : "İmza Korumasını Kaydet"}
                 </button>
-                {webhookSecurity?.configured && <button type="button" onClick={() => deleteWebhookSecurityMutation.mutate()} className="rounded-lg border border-destructive/40 px-3 py-1.5 text-xs font-semibold text-destructive hover:bg-destructive/10">Koruma Ayarını Kaldır</button>}
+                {webhookSecurity?.configured && (
+                  <button type="button" disabled={deleteWebhookSecurityMutation.isPending} onClick={() => deleteWebhookSecurityMutation.mutate()} className="rounded-lg border border-destructive/40 px-3 py-1.5 text-xs font-semibold text-destructive hover:bg-destructive/10 cursor-pointer">
+                    {deleteWebhookSecurityMutation.isPending ? "Kaldırılıyor..." : "Koruma Ayarını Kaldır"}
+                  </button>
+                )}
               </div>
             </div>
 
@@ -922,6 +1051,8 @@ export default function EndpointsPage() {
             const isCopied = copiedSlug === endpoint.slug;
             const isCurlCopied = copiedCurlSlug === endpoint.slug;
             const status = testStatus[endpoint.slug];
+            const isActive = Boolean(endpoint.isActive ?? (endpoint as any).is_active);
+            const reqCount = Number(endpoint.requestCount ?? (endpoint as any).request_count ?? 0);
 
             return (
               <div
@@ -930,8 +1061,36 @@ export default function EndpointsPage() {
               >
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="space-y-1">
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-2.5">
                       <h3 className="text-base font-bold text-foreground">{endpoint.name}</h3>
+
+                      {/* Direct 1-Click Active/Passive Toggle Switch */}
+                      <button
+                        type="button"
+                        onClick={() => toggleActiveMutation.mutate(endpoint)}
+                        disabled={toggleActiveMutation.isPending}
+                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-bold transition shadow-sm cursor-pointer ${
+                          isActive
+                            ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25"
+                            : "bg-rose-500/15 text-rose-400 border border-rose-500/30 hover:bg-rose-500/25"
+                        }`}
+                        title={isActive ? "Endpoint'i durdurmak (pasife almak) için tıklayın" : "Endpoint'i etkinleştirmek (aktife almak) için tıklayın"}
+                      >
+                        {isActive ? (
+                          <>
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                            <ToggleRight className="h-4 w-4 text-emerald-400" />
+                            <span>AKTİF</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
+                            <ToggleLeft className="h-4 w-4 text-rose-400" />
+                            <span>PASİF</span>
+                          </>
+                        )}
+                      </button>
+
                       <span
                         className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
                           endpoint.mode === EndpointMode.PASS
@@ -951,16 +1110,11 @@ export default function EndpointsPage() {
                       <span className="rounded-full bg-muted/60 border border-border px-2 py-0.5 text-[10px] font-mono text-muted-foreground" title="Dakikalık Hız ve Anlık Spike Eşiği">
                         ⚡ {endpoint.rateLimitRpm || 120} RPM / {endpoint.burstThreshold || 30} Spike
                       </span>
-                      {!Boolean(endpoint.isActive ?? (endpoint as any).is_active) && (
-                        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                          PASİF
-                        </span>
-                      )}
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                       <span>Yakalanan İstek:</span>
-                      <span className="font-bold text-foreground">{endpoint.requestCount}</span>
+                      <span className="font-bold text-foreground font-mono">{reqCount}</span>
                       <span>•</span>
                       {endpoint.upstreamUrl ? (
                         <span className="flex items-center gap-1 font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20 text-[11px] truncate max-w-xs" title={endpoint.upstreamUrl}>
@@ -989,7 +1143,7 @@ export default function EndpointsPage() {
                       </code>
                       <button
                         onClick={() => copyWebhookUrl(endpoint.slug)}
-                        className="flex h-7 w-7 items-center justify-center rounded-lg bg-secondary text-muted-foreground transition hover:text-foreground"
+                        className="flex h-7 w-7 items-center justify-center rounded-lg bg-secondary text-muted-foreground transition hover:text-foreground cursor-pointer"
                         title="URL'i Kopyala"
                       >
                         {isCopied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
@@ -998,7 +1152,7 @@ export default function EndpointsPage() {
 
                     <button
                       onClick={() => copyCurlCmd(endpoint.slug)}
-                      className="flex items-center gap-1 rounded-xl border border-border bg-background px-2.5 py-1.5 text-xs font-semibold text-foreground hover:bg-secondary transition"
+                      className="flex items-center gap-1 rounded-xl border border-border bg-background px-2.5 py-1.5 text-xs font-semibold text-foreground hover:bg-secondary transition cursor-pointer"
                       title="Terminal cURL Test Komutunu Kopyala"
                     >
                       {isCurlCopied ? <Check className="h-3 w-3 text-emerald-400" /> : <Terminal className="h-3 w-3 text-primary" />}
@@ -1009,16 +1163,24 @@ export default function EndpointsPage() {
 
                 {/* Bottom Actions Bar: Quick Links + Edit + Delete + Test */}
                 <div className="pt-3 border-t border-border flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       onClick={() => sendTestWebhook(endpoint.slug)}
                       disabled={status === "sending"}
-                      className="flex items-center gap-1.5 rounded-xl border border-border bg-secondary/50 px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-secondary disabled:opacity-50"
+                      className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition cursor-pointer disabled:opacity-50 ${
+                        status === "success"
+                          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
+                          : status?.startsWith("error")
+                          ? "border-rose-500/40 bg-rose-500/10 text-rose-400"
+                          : "border-border bg-secondary/50 text-foreground hover:bg-secondary"
+                      }`}
                     >
                       {status === "sending" ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       ) : status === "success" ? (
                         <Check className="h-3.5 w-3.5 text-emerald-400" />
+                      ) : status?.startsWith("error") ? (
+                        <AlertCircle className="h-3.5 w-3.5 text-rose-400" />
                       ) : (
                         <Send className="h-3.5 w-3.5 text-primary" />
                       )}
@@ -1027,6 +1189,14 @@ export default function EndpointsPage() {
                           ? "Gönderiliyor..."
                           : status === "success"
                           ? "Yakalandı! (200 OK)"
+                          : status === "error:401"
+                          ? "Engellendi: İmzasız İstek (401)"
+                          : status === "error:403"
+                          ? "Engellendi: Politika/Mod (403)"
+                          : status === "error:404"
+                          ? "Hata: Endpoint Bulunamadı (404)"
+                          : status?.startsWith("error:")
+                          ? `Hata (${status.replace("error:", "")})`
                           : "Test Webhook Gönder"}
                       </span>
                     </button>
@@ -1064,7 +1234,7 @@ export default function EndpointsPage() {
                       href={`/requests?endpointId=${endpoint.id}`}
                       className="flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
                     >
-                      <span>İstekler ({endpoint.requestCount})</span>
+                      <span>İstekler ({reqCount})</span>
                       <ArrowRight className="h-3 w-3" />
                     </Link>
 
