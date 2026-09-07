@@ -269,11 +269,11 @@ export default function ReplayPage() {
               <Repeat className="h-5 w-5" />
             </div>
             <h1 className="text-xl font-bold tracking-tight text-foreground">
-              Replay Laboratuvarı & Test Paketleri
+              Replay Lab & Test Suites
             </h1>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Idempotency korumalı tekli replay yönlendirici ve sıralı test senaryoları çalıştırıcısı
+            Idempotency-Safe tekli replay yönlendirici ve sıralı test senaryoları çalıştırıcısı
           </p>
         </div>
 
@@ -389,7 +389,7 @@ export default function ReplayPage() {
                 {/* Hedef Ortam */}
                 <div>
                   <label className="block text-xs font-bold text-foreground mb-2">
-                    2. Hedef Ortam:
+                    2. Hedef Ortam (Target Environment):
                   </label>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                     {(["STAGING", "DEV", "LOCAL", "CUSTOM"] as ReplayEnvironment[]).map((env) => (

@@ -281,7 +281,7 @@ export default function DeliveriesPage() {
         <div>
           <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary mb-2">
             <SendHorizonal className="h-3.5 w-3.5" />
-            <span>Teslimat Kontrol Paneli</span>
+            <span>Delivery Control Plane</span>
           </div>
           <h1 className="text-2xl font-extrabold tracking-tight">Webhook Teslimat Yönetimi</h1>
           <p className="text-xs md:text-sm text-muted-foreground">
@@ -316,7 +316,7 @@ export default function DeliveriesPage() {
 
         <div className="rounded-2xl border border-border bg-card/60 p-4 backdrop-blur shadow-sm">
           <div className="flex items-center justify-between text-muted-foreground mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider">DLQ Kuyruğu</span>
+            <span className="text-xs font-bold uppercase tracking-wider">DLQ Backlog</span>
             <AlertOctagon className={`h-4 w-4 ${(kpisData?.dlqBacklog || 0) > 0 ? "text-rose-400" : "text-emerald-400"}`} />
           </div>
           <div className="text-2xl font-black text-foreground">
@@ -329,7 +329,7 @@ export default function DeliveriesPage() {
 
         <div className="rounded-2xl border border-border bg-card/60 p-4 backdrop-blur shadow-sm">
           <div className="flex items-center justify-between text-muted-foreground mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider">Yeniden Denenenler</span>
+            <span className="text-xs font-bold uppercase tracking-wider">Retry In-Flight</span>
             <Clock className="h-4 w-4 text-amber-400" />
           </div>
           <div className="text-2xl font-black text-foreground">
@@ -342,7 +342,7 @@ export default function DeliveriesPage() {
 
         <div className="rounded-2xl border border-border bg-card/60 p-4 backdrop-blur shadow-sm">
           <div className="flex items-center justify-between text-muted-foreground mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider">Aktif Uç Noktalar</span>
+            <span className="text-xs font-bold uppercase tracking-wider">Aktif Endpoint'ler</span>
             <Globe className="h-4 w-4 text-primary" />
           </div>
           <div className="text-2xl font-black text-foreground">
@@ -363,7 +363,7 @@ export default function DeliveriesPage() {
             onChange={(e) => setSelectedEndpointId(e.target.value)}
             className="rounded-xl border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
           >
-            <option value="ALL">Tüm Uç Noktalar ({endpoints.length})</option>
+            <option value="ALL">Tüm Endpoint'ler ({endpoints.length})</option>
             {endpoints.map((ep) => (
               <option key={ep.id} value={ep.id}>
                 {ep.name} (/{ep.slug})
@@ -390,7 +390,7 @@ export default function DeliveriesPage() {
           <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
           <input
             type="text"
-            placeholder="Hedef URL, İstek ID veya Idempotency Anahtarı..."
+            placeholder="Target URL, Request ID veya Idempotency Key..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full rounded-xl border border-border bg-card pl-9 pr-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
@@ -468,7 +468,7 @@ export default function DeliveriesPage() {
                           }}
                           className="px-2.5 py-1 rounded-lg border border-border bg-card hover:bg-muted text-xs font-semibold text-foreground transition"
                         >
-                          Zaman Çizelgesi
+                          Timeline
                         </button>
                         <button
                           onClick={(e) => {
@@ -478,7 +478,7 @@ export default function DeliveriesPage() {
                           className="px-2.5 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold transition flex items-center gap-1"
                         >
                           <RotateCcw className="h-3 w-3" />
-                          <span>Yeniden İlet</span>
+                          <span>Replay</span>
                         </button>
                       </div>
                     </div>
@@ -496,7 +496,7 @@ export default function DeliveriesPage() {
               <div className="flex items-center justify-between pb-3 border-b border-border">
                 <div className="flex items-center gap-2">
                   <Activity className="h-4 w-4 text-primary" />
-                  <h2 className="text-sm font-bold text-foreground">Teslimat Zaman Çizelgesi & Deneme Telemetrisi</h2>
+                  <h2 className="text-sm font-bold text-foreground">Delivery Timeline & Attempt Telemetry</h2>
                 </div>
                 <button
                   onClick={() => setSelectedJobId(null)}
@@ -831,10 +831,10 @@ export default function DeliveriesPage() {
                 Bu webhook isteği tekrar upstream sunucusuna gönderilmek üzere kuyruğa eklenecektir.
               </p>
               <div className="p-3 rounded-xl bg-muted/40 border border-border font-mono space-y-1">
-                <div><strong className="text-foreground">Hedef URL:</strong> {replayModalJob.targetUrl}</div>
-                <div><strong className="text-foreground">İstek ID:</strong> {replayModalJob.requestId}</div>
+                <div><strong className="text-foreground">Target URL:</strong> {replayModalJob.targetUrl}</div>
+                <div><strong className="text-foreground">Request ID:</strong> {replayModalJob.requestId}</div>
                 {replayModalJob.idempotencyKey && (
-                  <div><strong className="text-foreground">Idempotency Anahtarı:</strong> {replayModalJob.idempotencyKey}</div>
+                  <div><strong className="text-foreground">Idempotency Key:</strong> {replayModalJob.idempotencyKey}</div>
                 )}
               </div>
             </div>

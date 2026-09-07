@@ -371,7 +371,7 @@ export default function RequestsPage() {
                     }`}
                   >
                     <FileJson className="h-3.5 w-3.5" />
-                    <span>İstek Gövdesi (Payload)</span>
+                    <span>Payload Body</span>
                   </button>
 
                   <button
@@ -383,7 +383,7 @@ export default function RequestsPage() {
                     }`}
                   >
                     <Code className="h-3.5 w-3.5" />
-                    <span>Başlıklar ({Object.keys(selectedRequest.headers || {}).length})</span>
+                    <span>Headers ({Object.keys(selectedRequest.headers || {}).length})</span>
                   </button>
 
                   <button
@@ -395,7 +395,7 @@ export default function RequestsPage() {
                     }`}
                   >
                     <Layers className="h-3.5 w-3.5" />
-                    <span>Sorgu Parametreleri ({Object.keys(selectedRequest.queryParams || {}).length})</span>
+                    <span>Query Params ({Object.keys(selectedRequest.queryParams || {}).length})</span>
                   </button>
                 </div>
 

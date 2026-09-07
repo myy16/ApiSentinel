@@ -36,7 +36,7 @@ export default function Home() {
           <div className="flex flex-col">
             <span className="text-lg font-extrabold tracking-tight">ApiSentinel</span>
             <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">
-              Güvenlik Ağ Geçidi
+              Security Gateway
             </span>
           </div>
         </div>
@@ -74,7 +74,7 @@ export default function Home() {
       <main className="flex flex-1 flex-col items-center justify-center px-6 py-20 md:py-28 text-center max-w-6xl mx-auto">
         <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3.5 py-1 text-xs font-semibold text-primary backdrop-blur mb-6 animate-in fade-in duration-300">
           <Zap className="h-3.5 w-3.5 text-primary" />
-          <span>Go Ingestion Ağ Geçidi + AI İyileştirme 2.0</span>
+          <span>Go Ingestion Gateway + AI Remediation 2.0</span>
         </div>
 
         <h1 className="max-w-4xl text-4xl font-black tracking-tight sm:text-6xl lg:text-7xl leading-tight">
@@ -126,7 +126,7 @@ export default function Home() {
                 POLICY_BLOCKED (403)
               </span>
               <span className="rounded-md bg-purple-500/20 text-purple-400 px-2.5 py-0.5 text-xs font-mono font-bold border border-purple-500/30">
-                AI ile Analiz Edildi
+                AI Explained
               </span>
             </div>
           </div>
@@ -277,7 +277,7 @@ export default function Home() {
               height={20}
               className="h-5 w-5 object-contain"
             />
-            <span>ApiSentinel Geliştirici Güvenlik Konsolu</span>
+            <span>ApiSentinel Developer Security Console</span>
           </div>
           <p>© 2026 ApiSentinel — Tüm hakları saklıdır.</p>
         </div>

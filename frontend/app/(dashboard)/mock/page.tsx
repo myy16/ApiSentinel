@@ -144,10 +144,10 @@ export default function MockPage() {
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <div className="flex items-center gap-2.5">
-            <h1 className="text-2xl font-bold tracking-tight">Mock Laboratuvarı (Simülatör Motoru)</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Mock Lab (Simulator Engine)</h1>
             <span className="flex items-center gap-1 rounded-full bg-purple-500/10 px-2.5 py-0.5 text-xs font-semibold text-purple-400">
               <Sparkles className="h-3 w-3" />
-              Dinamik Simülatör
+              Dynamic Simulator
             </span>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
