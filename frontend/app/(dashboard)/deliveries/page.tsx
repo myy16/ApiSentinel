@@ -592,6 +592,14 @@ export default function DeliveriesPage() {
                         <p className="text-xs text-muted-foreground max-w-xs">
                           Bu iletim hatasını yapay zeka ile analiz ederek anlaşılır Türkçe kök neden ve cURL çözüm rehberi üretin.
                         </p>
+                        {aiExplainMutation.isError && (
+                          <div className="flex items-center gap-2 text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 px-3 py-2 rounded-lg text-center max-w-sm">
+                            <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400" />
+                            <span>
+                              {(aiExplainMutation.error as any)?.message || "Analiz oluşturulurken bir hata oluştu."}
+                            </span>
+                          </div>
+                        )}
                         <button
                           type="button"
                           disabled={aiExplainMutation.isPending}

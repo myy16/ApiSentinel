@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -36,5 +37,17 @@ func TestAIExplainer(t *testing.T) {
 	}
 	if noneExp.Provider != "Dahili Güvenlik Kural Motoru (Tam Yerel / Offline)" {
 		t.Errorf("Expected offline provider for NONE privacy level, got: %s", noneExp.Provider)
+	}
+
+	// 4. Test Email remediation (PII)
+	emailExp, err := explainer.ExplainFinding(context.Background(), "PII", "EMAIL", "INFO", "a***z@example.com", "Personal email address detected", "FULL_LOCAL")
+	if err != nil {
+		t.Fatalf("ExplainFinding for EMAIL failed: %v", err)
+	}
+	if emailExp.FindingType != "EMAIL" || !strings.Contains(emailExp.Title, "E-posta") {
+		t.Errorf("Unexpected EMAIL title: %s", emailExp.Title)
+	}
+	if !strings.Contains(emailExp.CodeSnippet, "maskEmail") {
+		t.Errorf("Expected email masking snippet in remediation, got: %s", emailExp.CodeSnippet)
 	}
 }

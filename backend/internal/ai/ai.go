@@ -549,20 +549,191 @@ func (e *Explainer) localRulebook(category, findingType, severity, maskedEvidenc
 			ConfidenceScore: 0.98,
 		}, nil
 
-	default:
+	case "EMAIL":
 		return &Explanation{
 			FindingType: findingType,
 			Severity:    severity,
-			Title:       strings.ReplaceAll(findingType, "_", " ") + " Güvenlik Tespiti",
-			RootCause:   message,
-			Impact:      "Güvenlik veya veri gizliliği standartlarını ihlal edebilecek şüpheli veya hassas girdi.",
+			Title:       "KVKK / GDPR Uyumsuzluğu: Kişisel E-posta Adresi Maruziyeti",
+			RootCause:   fmt.Sprintf("Webhook veya API gövdesi içerisinde açık metin kişisel e-posta adresi (%s) tespit edildi.", maskedEvidence),
+			Impact:      "Müşteri e-posta adreslerinin yetkisiz loglama sistemlerine veya harici analitik servislerine sızması sonucu KVKK ve GDPR gizlilik ihlali ve spam/oltalama (phishing) riski.",
 			RemediationSteps: []string{
-				"1. Girdiyi şema ve tür doğrulamasından geçirin (Strict Input Validation).",
-				"2. ApiSentinel Policy Engine üzerinden bu uç nokta için MASK veya BLOCK kuralı tanımlayın.",
-				"3. İlgili verinin dış servislerle paylaşılma gerekliliğini gözden geçirin.",
+				"1. Webhook ve API payload'larında doğrudan e-posta iletmek yerine anonim kullanıcı referans ID'si (UUID veya customer_id) kullanın.",
+				"2. E-posta iletiminin zorunlu olduğu entegrasyonlarda ApiSentinel Policy Engine üzerinden MASK kuralı tanımlayarak veriyi a***z@example.com şeklinde maskeleyin.",
+				"3. Uygulama loglarında e-posta alanlarını sanitize ederek log dosyalarında açık metin saklanmasını önleyin.",
 			},
-			CodeSnippet:     "// API girdilerini katı şema kontrolünden geçirin\nconst schema = z.object({\n  data: z.string().max(255)\n});",
-			ConfidenceScore: 0.90,
+			CodeSnippet: `// 1. Kötü Pratik (Açık Kişisel Veri İletimi):
+// { "event": "order.created", "customer_email": "ahmet.yilmaz@example.com" }
+
+// 2. Güvenli Pratik (Referans ID veya Maskeli İletim):
+{
+  "event": "order.created",
+  "customer_id": "cus_9x8f2a1b",
+  "email_masked": "a***z@example.com"
+}
+
+// 3. Node.js / Go Log Maskeleme Yardımcısı:
+function maskEmail(email) {
+  const [user, domain] = email.split('@');
+  if (user.length <= 2) return user[0] + '***@' + domain;
+  return user[0] + '***' + user[user.length - 1] + '@' + domain;
+}`,
+			ConfidenceScore: 0.98,
 		}, nil
+
+	case "IBAN":
+		return &Explanation{
+			FindingType: findingType,
+			Severity:    severity,
+			Title:       "Finansal Veri Güvenliği: IBAN Numarası Maruziyeti",
+			RootCause:   fmt.Sprintf("Girdi yükünde mod97 algoritması doğrulanmış geçerli bir banka hesap numarası (IBAN: %s) tespit edildi.", maskedEvidence),
+			Impact:      "Müşteri veya şirket banka hesap bilgilerinin üçüncü taraflarca ele geçirilmesi ve finansal veri regülasyonlarının ihlali.",
+			RemediationSteps: []string{
+				"1. Webhook ve API mesajlarında tam IBAN taşımak yerine banka hesap ID'si veya token kullanın.",
+				"2. Kullanıcı arayüzü ve entegrasyonlarda IBAN'ın yalnızca son 4 hanesini açıkta bırakın.",
+				"3. ApiSentinel üzerinden bu uç nokta için MASK kuralı aktifleştirin.",
+			},
+			CodeSnippet: `// Güvenli IBAN Gösterimi (Yalnızca ilk 4 ve son 4 hane):
+function maskIBAN(iban) {
+  const clean = iban.replace(/\s+/g, '');
+  return clean.slice(0, 4) + ' **** **** **** **** ' + clean.slice(-4);
+}`,
+			ConfidenceScore: 0.99,
+		}, nil
+
+	case "STRIPE_KEY":
+		return &Explanation{
+			FindingType: findingType,
+			Severity:    severity,
+			Title:       "Kritik Ödeme Gateway Anahtarı Sızıntısı: Stripe Secret Key",
+			RootCause:   fmt.Sprintf("API trafiğinde veya kod bloğunda Stripe gizli anahtarı (%s) tespit edildi.", maskedEvidence),
+			Impact:      "Saldırganlar Stripe hesabınıza tam erişim sağlayabilir; yetkisiz para transferleri, iadeler gerçekleştirebilir ve müşteri finansal verilerini görüntüleyebilir.",
+			RemediationSteps: []string{
+				"1. Stripe Dashboard > Developers > API keys bölümünden bu anahtarı derhal iptal edin (Revoke) ve yeni anahtar üretin.",
+				"2. Stripe Dashboard loglarından bu anahtarla yapılan son işlemleri denetleyin.",
+				"3. Anahtarı asla kodda veya webhook yükünde taşımayın; ortam değişkenleri (process.env.STRIPE_SECRET_KEY) veya HashiCorp Vault / AWS Secrets Manager ile yönetin.",
+			},
+			CodeSnippet: `// Kötü Pratik (Sabit / Hardcoded Anahtar):
+const stripe = require('stripe')('sk_live_...');
+
+// Güvenli Pratik (Ortam Değişkeni & Secrets Manager):
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);`,
+			ConfidenceScore: 0.99,
+		}, nil
+
+	case "JWT", "JWT_TOKEN":
+		return &Explanation{
+			FindingType: findingType,
+			Severity:    severity,
+			Title:       "Oturum ve Yetki Belirteci Maruziyeti: JWT Token",
+			RootCause:   fmt.Sprintf("Webhook gövdesinde açık metin JWT (JSON Web Token: %s) tespit edildi.", maskedEvidence),
+			Impact:      "Yetkisiz kullanıcılar token'ı çalarak kullanıcı veya admin rolünde sistemde oturum açabilir (Session Hijacking / Privilege Escalation).",
+			RemediationSteps: []string{
+				"1. JWT token'ları webhook gövdesi (body) yerine yalnızca Authorization header'ında taşıyın.",
+				"2. Webhook payload'ları için statik JWT yerine HMAC-SHA256 imzası (Signature Verification) kullanın.",
+				"3. Sızan token'ları sunucu tarafında blacklist'e alın ve token geçerlilik sürelerini (expiry) kısa tutun.",
+			},
+			CodeSnippet: `// Webhook Güvenli Doğrulama Pratiği (HMAC İmzası):
+// Body'de JWT göndermek yerine x-signature header'ı ile doğrulayın:
+const signature = req.headers['x-apisentinel-signature'];
+const isValid = crypto.timingSafeEqual(
+  Buffer.from(signature),
+  Buffer.from(crypto.createHmac('sha256', WEBHOOK_SECRET).update(rawBody).digest('hex'))
+);`,
+			ConfidenceScore: 0.97,
+		}, nil
+
+	case "PRIVATE_KEY":
+		return &Explanation{
+			FindingType: findingType,
+			Severity:    severity,
+			Title:       "Kritik Güvenlik Maruziyeti: RSA / Private Key Bloğu",
+			RootCause:   "Açık RSA/EC Özel Anahtar (Private Key) bloğu tespit edildi.",
+			Impact:      "Sistem şifrelemesinin tamamen kırılması, TLS/mTLS oturumlarının deşifre edilmesi veya sistemler arası mTLS kimlik doğrulamasının ele geçirilmesi.",
+			RemediationSteps: []string{
+				"1. İlgili anahtar çiftini derhal geçersiz kılın (Revoke) ve yeni anahtar üretin.",
+				"2. Özel anahtarları asla API yükünde göndermeyin.",
+				"3. Anahtarları HSM (Hardware Security Module) veya güvenli Key Vault içerisinde saklayın.",
+			},
+			CodeSnippet: `// Özel anahtarları kod veya veri akışına asla dahil etmeyin.
+// Dosya izinlerini kısıtlayın:
+// chmod 600 id_rsa / private.key`,
+			ConfidenceScore: 0.99,
+		}, nil
+
+	default:
+		// Akıllı Kategori Fallback'i (Category-based fallback)
+		switch strings.ToUpper(category) {
+		case "PII":
+			return &Explanation{
+				FindingType: findingType,
+				Severity:    severity,
+				Title:       strings.ReplaceAll(findingType, "_", " ") + " Kişisel Veri Tespiti",
+				RootCause:   fmt.Sprintf("API trafiğinde KVKK / GDPR kapsamında korunan hassas kişisel veri (%s) açık olarak iletiliyor. Tespit: %s", maskedEvidence, message),
+				Impact:      "Kişisel verilerin loglarda, harici sistemlerde veya önbelleklerde açık saklanması sonucu yasal uyumluluk cezaları ve gizlilik ihlali.",
+				RemediationSteps: []string{
+					"1. Bu verinin gerçekten dış servis veya webhook ile paylaşılması gerekip gerekmediğini denetleyin (Data Minimization).",
+					"2. İletimi zorunluysa ApiSentinel üzerinden MASK kuralı tanımlayarak veriyi maskeli iletin.",
+					"3. Müşteri veritabanında bu alanı AES-256 ile şifreleyerek saklayın.",
+				},
+				CodeSnippet: `// ApiSentinel Veri Maskeleme & Minimizasyonu:
+// Ham veri yerine maskeli veya hashlenmiş referans kullanın:
+const safePayload = {
+  ...payload,
+  [sensitiveField]: maskSensitive(payload[sensitiveField])
+};`,
+				ConfidenceScore: 0.92,
+			}, nil
+
+		case "SECRET":
+			return &Explanation{
+				FindingType: findingType,
+				Severity:    severity,
+				Title:       strings.ReplaceAll(findingType, "_", " ") + " Gizli Anahtar / Secret Sızıntısı",
+				RootCause:   fmt.Sprintf("Genel trafiğe sızmış gizli kimlik doğrulama anahtarı (%s) tespit edildi. Tespit: %s", maskedEvidence, message),
+				Impact:      "Yetkisiz üçüncü şahısların ilgili API veya bulut servisine erişerek veri sızdırması veya sisteme zarar vermesi.",
+				RemediationSteps: []string{
+					"1. İlgili servis sağlayıcı panelinden bu anahtarı derhal iptal edip (Revoke) yenileyin.",
+					"2. Anahtarı kod tabanından veya webhook gövdesinden çıkararak ortam değişkenine (Environment Variable) taşıyın.",
+					"3. Güvenli bir Secrets Manager (AWS Secrets Manager, HashiCorp Vault) entegrasyonu kurun.",
+				},
+				CodeSnippet: `// Gizli anahtarları asla payload veya kod içinde taşımayın:
+// Çevre değişkeninden okuyun:
+const apiKey = process.env.SERVICE_API_KEY;`,
+				ConfidenceScore: 0.94,
+			}, nil
+
+		case "INJECTION":
+			return &Explanation{
+				FindingType: findingType,
+				Severity:    severity,
+				Title:       strings.ReplaceAll(findingType, "_", " ") + " Enjeksiyon Tehdidi",
+				RootCause:   fmt.Sprintf("Sözdizimini değiştirmeye veya komut çalıştırmaya yönelik şüpheli girdi (%s) tespit edildi. Tespit: %s", maskedEvidence, message),
+				Impact:      "Arka uç veritabanı veya işletim sistemi katmanında yetkisiz kod/sorgu çalıştırılması riski.",
+				RemediationSteps: []string{
+					"1. Girdiyi asla doğrudan sorgu veya komut stringlerine eklemeyin.",
+					"2. Parametreli arayüzler ve güvenli kütüphaneler kullanın.",
+					"3. Giriş parametrelerini katı şema ve tip kontrolünden geçirin.",
+				},
+				CodeSnippet: `// Parametreli ve güvenli veri bağlama (Prepared Statement):
+// Asla string toplama yapmayın!`,
+				ConfidenceScore: 0.93,
+			}, nil
+
+		default:
+			return &Explanation{
+				FindingType: findingType,
+				Severity:    severity,
+				Title:       strings.ReplaceAll(findingType, "_", " ") + " Güvenlik Tespiti",
+				RootCause:   message,
+				Impact:      "Güvenlik veya veri gizliliği standartlarını ihlal edebilecek şüpheli veya hassas girdi.",
+				RemediationSteps: []string{
+					"1. Girdiyi şema ve tür doğrulamasından geçirin (Strict Input Validation).",
+					"2. ApiSentinel Policy Engine üzerinden bu uç nokta için MASK veya BLOCK kuralı tanımlayın.",
+					"3. İlgili verinin dış servislerle paylaşılma gerekliliğini gözden geçirin.",
+				},
+				CodeSnippet:     "// API girdilerini katı şema kontrolünden geçirin\nconst schema = z.object({\n  data: z.string().max(255)\n});",
+				ConfidenceScore: 0.90,
+			}, nil
+		}
 	}
 }

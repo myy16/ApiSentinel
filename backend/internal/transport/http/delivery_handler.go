@@ -373,14 +373,16 @@ func (h *DeliveryHandler) AIExplain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !orgSettings.AiEnabled {
-		writeError(w, http.StatusForbidden, "AI_DISABLED", "Bu organizasyon için AI analizi devre dışı bırakılmıştır")
-		return
-	}
-	if orgSettings.AiDataSharingLevel != "" {
-		privacyLevel = orgSettings.AiDataSharingLevel
-	}
-	if len(orgSettings.AiCustomRedactionPatterns) > 0 {
-		_ = json.Unmarshal(orgSettings.AiCustomRedactionPatterns, &customRedactKeys)
+		// Kurum dışı bulut LLM kapalı olduğunda, veri sızıntısı olmadan
+		// dahili yerel kural motorundan (FULL_LOCAL) kesintisiz rehberlik sağlanır.
+		privacyLevel = "FULL_LOCAL"
+	} else {
+		if orgSettings.AiDataSharingLevel != "" {
+			privacyLevel = orgSettings.AiDataSharingLevel
+		}
+		if len(orgSettings.AiCustomRedactionPatterns) > 0 {
+			_ = json.Unmarshal(orgSettings.AiCustomRedactionPatterns, &customRedactKeys)
+		}
 	}
 
 	rawBody := ""

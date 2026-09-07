@@ -28,7 +28,9 @@ import {
   FileCode,
   Globe,
   Terminal,
+  ExternalLink,
 } from "lucide-react";
+import Link from "next/link";
 
 interface Finding {
   id: string;
@@ -550,6 +552,32 @@ export default function SecurityFindingsPage() {
                           </pre>
                         </div>
                       </>
+                    ) : explainMutation.isError ? (
+                      <div className="flex flex-col items-center justify-center py-6 text-center space-y-3 bg-rose-500/5 rounded-xl border border-rose-500/20 p-4">
+                        <AlertTriangle className="h-6 w-6 text-rose-400" />
+                        <div className="space-y-1">
+                          <p className="text-xs font-semibold text-rose-300">AI Güvenlik Analizi Alınamadı</p>
+                          <p className="text-[11px] text-muted-foreground max-w-md">
+                            {(explainMutation.error as any)?.message || "Analiz oluşturulurken bir hata oluştu. Organizasyon AI ayarlarınızı kontrol edebilirsiniz."}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 pt-1">
+                          <button
+                            onClick={() => explainMutation.mutate(f)}
+                            className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition"
+                          >
+                            <RotateCw className="h-3 w-3" />
+                            <span>Tekrar Dene</span>
+                          </button>
+                          <Link
+                            href="/settings"
+                            className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                            <span>AI Ayarları</span>
+                          </Link>
+                        </div>
+                      </div>
                     ) : null}
                   </div>
                 )}
