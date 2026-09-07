@@ -281,7 +281,7 @@ export default function DeliveriesPage() {
         <div>
           <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary mb-2">
             <SendHorizonal className="h-3.5 w-3.5" />
-            <span>Delivery Control Plane</span>
+            <span>Teslimat Yönetimi</span>
           </div>
           <h1 className="text-2xl font-extrabold tracking-tight">Webhook Teslimat Yönetimi</h1>
           <p className="text-xs md:text-sm text-muted-foreground">
@@ -492,7 +492,7 @@ export default function DeliveriesPage() {
         {/* Timeline & Attempt Inspector Drawer (Right 5 cols) */}
         {selectedJobId && (
           <div className="lg:col-span-5">
-            <div className="rounded-2xl border border-border bg-card/80 p-5 space-y-5 shadow-sm sticky top-6">
+            <div className="rounded-2xl border border-border bg-card/80 p-5 space-y-5 shadow-sm sticky top-6 max-h-[calc(100vh-2rem)] overflow-y-auto scrollbar-thin">
               <div className="flex items-center justify-between pb-3 border-b border-border">
                 <div className="flex items-center gap-2">
                   <Activity className="h-4 w-4 text-primary" />
@@ -692,61 +692,75 @@ export default function DeliveriesPage() {
                     </div>
                   )}
 
-                  {/* Step Timeline */}
-                  <div className="space-y-4">
-                    <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                      Yaşam Döngüsü Adımları
+                  {/* Step Timeline (Scrollable & Color-Mode Adaptive) */}
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                        Yaşam Döngüsü Adımları ({timelineData.timeline.length})
+                      </span>
+                      {timelineData.timeline.length > 5 && (
+                        <span className="text-[10px] text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-md font-medium">
+                          Kaydırılabilir
+                        </span>
+                      )}
                     </div>
 
-                    <div className="space-y-3 relative pl-4 border-l-2 border-border">
-                      {timelineData.timeline.map((step, idx) => (
-                        <div key={idx} className="relative">
-                          <div
-                            className={`absolute -left-[21px] top-1.5 h-3 w-3 rounded-full border-2 bg-background ${
-                              step.status === "COMPLETED" || step.status === "SUCCESS"
-                                ? "border-emerald-500 bg-emerald-500"
-                                : step.status === "FAILED"
-                                ? "border-rose-500 bg-rose-500"
-                                : "border-amber-500 bg-amber-500"
-                            }`}
-                          />
-                          <div className="text-xs font-bold text-foreground">
-                            {step.description}
+                    <div className="max-h-64 overflow-y-auto p-3.5 pr-2 rounded-xl border border-border/70 bg-muted/20 dark:bg-muted/10">
+                      <div className="relative border-l-2 border-border ml-2 pl-4 space-y-3.5">
+                        {timelineData.timeline.map((step, idx) => (
+                          <div key={idx} className="relative">
+                            <div
+                              className={`absolute -left-[23px] top-1 h-3 w-3 rounded-full border-2 bg-background shadow-xs ${
+                                step.status === "COMPLETED" || step.status === "SUCCESS"
+                                  ? "border-emerald-500 bg-emerald-500"
+                                  : step.status === "FAILED"
+                                  ? "border-rose-500 bg-rose-500"
+                                  : "border-amber-500 bg-amber-500"
+                              }`}
+                            />
+                            <div className="text-xs font-bold text-foreground leading-snug">
+                              {step.description}
+                            </div>
+                            <div className="text-[11px] text-muted-foreground flex flex-wrap items-center gap-2 mt-0.5">
+                              {step.timestamp && (
+                                <span>{new Date(step.timestamp).toLocaleTimeString()}</span>
+                              )}
+                              {step.latencyMs !== undefined && (
+                                <span>Gecikme: {step.latencyMs} ms</span>
+                              )}
+                              {step.statusCode !== undefined && (
+                                step.statusCode === 0 ? (
+                                  <span className="text-rose-400 font-mono font-bold bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">
+                                    Ağ Hatası (TCP/EOF)
+                                  </span>
+                                ) : (
+                                  <span className={step.statusCode >= 400 ? "text-rose-400 font-mono font-bold" : "text-emerald-400 font-mono font-bold"}>
+                                    HTTP {step.statusCode}
+                                  </span>
+                                )
+                              )}
+                            </div>
                           </div>
-                          <div className="text-[11px] text-muted-foreground flex items-center gap-2 mt-0.5">
-                            {step.timestamp && (
-                              <span>{new Date(step.timestamp).toLocaleTimeString()}</span>
-                            )}
-                            {step.latencyMs !== undefined && (
-                              <span>Gecikme: {step.latencyMs} ms</span>
-                            )}
-                            {step.statusCode !== undefined && (
-                              step.statusCode === 0 ? (
-                                <span className="text-rose-400 font-mono font-bold bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">
-                                  Ağ Hatası (TCP/EOF)
-                                </span>
-                              ) : (
-                                <span className={step.statusCode >= 400 ? "text-rose-400 font-mono font-bold" : "text-emerald-400 font-mono font-bold"}>
-                                  HTTP {step.statusCode}
-                                </span>
-                              )
-                            )}
-                          </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
                   </div>
 
-                  {/* Attempt Telemetry Tabs */}
+                  {/* Attempt Telemetry Tabs (Horizontal Scroll with Color-Mode Badges) */}
                   {timelineData.attempts && timelineData.attempts.length > 0 && (
-                    <div className="space-y-3 pt-3 border-t border-border">
+                    <div className="space-y-2.5 pt-3 border-t border-border">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
                           Deneme Geçmişi ({timelineData.attempts.length})
                         </span>
+                        {timelineData.attempts.length > 6 && (
+                          <span className="text-[10px] text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-md font-medium">
+                            Yatay Kaydırın &rarr;
+                          </span>
+                        )}
                       </div>
 
-                      <div className="flex gap-1 bg-muted/40 p-1 rounded-xl">
+                      <div className="flex items-center gap-1.5 overflow-x-auto p-1.5 rounded-xl bg-muted/30 border border-border/60 scrollbar-thin">
                         {timelineData.attempts.map((att: any, index) => {
                           const attNumber = index + 1;
                           const statusCode = att.responseStatusCode ?? att.response_status_code;
@@ -755,16 +769,18 @@ export default function DeliveriesPage() {
                             <button
                               key={att.id || index}
                               onClick={() => setActiveAttemptTab(index)}
-                              className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                              className={`shrink-0 px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
                                 activeAttemptTab === index
-                                  ? "bg-card text-foreground shadow-sm"
-                                  : "text-muted-foreground hover:text-foreground"
+                                  ? "bg-card text-foreground shadow-sm ring-1 ring-border"
+                                  : "text-muted-foreground hover:text-foreground hover:bg-card/50"
                               }`}
                             >
                               <span>#{attNumber}</span>
                               <span
-                                className={`text-[10px] ${
-                                  isSuccess ? "text-emerald-400" : "text-rose-400"
+                                className={`text-[10px] font-mono px-1 py-0.5 rounded ${
+                                  isSuccess
+                                    ? "text-emerald-400 bg-emerald-500/15"
+                                    : "text-rose-400 bg-rose-500/15"
                                 }`}
                               >
                                 {statusCode && statusCode > 0 ? `${statusCode}` : "AĞ/ERR"}
@@ -787,7 +803,12 @@ export default function DeliveriesPage() {
                         let parsedHeaders = rawHeaders;
                         if (typeof rawHeaders === "string") {
                           try {
-                            const decoded = atob(rawHeaders);
+                            const binary = atob(rawHeaders);
+                            const bytes = new Uint8Array(binary.length);
+                            for (let i = 0; i < binary.length; i++) {
+                              bytes[i] = binary.charCodeAt(i);
+                            }
+                            const decoded = new TextDecoder("utf-8").decode(bytes);
                             parsedHeaders = JSON.parse(decoded);
                           } catch {
                             try {

@@ -35,7 +35,7 @@ import {
 
 const navItems = [
   { name: "Genel Bakış", href: "/overview", icon: LayoutDashboard },
-  { name: "Delivery Control", href: "/deliveries", icon: SendHorizonal },
+  { name: "Teslimat Yönetimi", href: "/deliveries", icon: SendHorizonal },
   { name: "Endpoints", href: "/endpoints", icon: Globe },
   { name: "Canlı İstekler", href: "/requests", icon: Radio },
   { name: "Güvenlik Bulguları", href: "/security", icon: ShieldAlert },

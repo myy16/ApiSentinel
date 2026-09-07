@@ -104,21 +104,21 @@ export default function OverviewPage() {
               className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground shadow-sm transition hover:bg-primary/90"
             >
               <SendHorizonal className="h-4 w-4" />
-              <span>Delivery Control Plane</span>
+              <span>Teslimat Yönetimi</span>
             </Link>
             <Link
               href="/endpoints"
               className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-2 text-xs font-semibold text-foreground shadow-sm transition hover:bg-secondary"
             >
               <Plus className="h-3.5 w-3.5" />
-              <span>Endpoint Tanımla</span>
+              <span>Endpoints</span>
             </Link>
             <Link
               href="/requests"
               className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-2 text-xs font-semibold text-foreground shadow-sm transition hover:bg-secondary"
             >
               <Radio className="h-3.5 w-3.5 text-emerald-400" />
-              <span>Canlı İstek Akışı</span>
+              <span>Canlı İstekler</span>
             </Link>
           </div>
         </div>
@@ -196,7 +196,7 @@ export default function OverviewPage() {
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <SendHorizonal className="h-5 w-5 text-primary" />
-            <h2 className="text-base font-bold text-foreground">Webhook Delivery Control Plane</h2>
+            <h2 className="text-base font-bold text-foreground">Teslimat Yönetimi</h2>
           </div>
           <p className="text-xs text-muted-foreground">
             Upstream backend teslimatlarınızı, deneme geçmişini ve güvenli tek tıkla Replay işlemlerini yönetin.
@@ -206,7 +206,7 @@ export default function OverviewPage() {
           href="/deliveries"
           className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground shadow transition hover:bg-primary/90 shrink-0 self-start md:self-auto"
         >
-          <span>Teslimat Ekranına Git</span>
+          <span>Teslimat Yönetimi'ne Git</span>
           <ArrowRight className="h-3.5 w-3.5" />
         </Link>
       </div>
@@ -223,8 +223,8 @@ export default function OverviewPage() {
               <SendHorizonal className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="text-xs font-bold text-foreground">Delivery Timeline</h3>
-              <p className="text-[11px] text-muted-foreground">Uçtan uca iletim ve deneme telemetrisi</p>
+              <h3 className="text-xs font-bold text-foreground">Teslimat Yönetimi</h3>
+              <p className="text-[11px] text-muted-foreground">Uçtan uca iletim ve deneme yönetimi</p>
             </div>
           </Link>
 
@@ -236,8 +236,8 @@ export default function OverviewPage() {
               <FileCode className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="text-xs font-bold text-foreground">JSON Schema</h3>
-              <p className="text-[11px] text-muted-foreground">Sözleşme doğrulama kuralları</p>
+              <h3 className="text-xs font-bold text-foreground">Sözleşmeler</h3>
+              <p className="text-[11px] text-muted-foreground">JSON Schema sözleşme doğrulama kuralları</p>
             </div>
           </Link>
 
@@ -262,7 +262,7 @@ export default function OverviewPage() {
               <ShieldCheck className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="text-xs font-bold text-foreground">Alarm Kanalları</h3>
+              <h3 className="text-xs font-bold text-foreground">Bildirim Kanalları</h3>
               <p className="text-[11px] text-muted-foreground">Slack, Discord ve Webhook bildirimleri</p>
             </div>
           </Link>

@@ -114,6 +114,22 @@ const PRESET_GITHUB = {
   required: ["ref", "repository"],
 };
 
+function decodeBase64ToUTF8(str: string): string {
+  try {
+    if (typeof window !== "undefined") {
+      const binary = atob(str);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return new TextDecoder("utf-8").decode(bytes);
+    }
+    return Buffer.from(str, "base64").toString("utf-8");
+  } catch {
+    return str;
+  }
+}
+
 function parseJsonOrBase64<T = any>(raw: any): T | null {
   if (!raw) return null;
   if (typeof raw === "object") return raw as T;
@@ -122,7 +138,7 @@ function parseJsonOrBase64<T = any>(raw: any): T | null {
       return JSON.parse(raw) as T;
     } catch {
       try {
-        const decoded = typeof window !== "undefined" ? atob(raw) : Buffer.from(raw, "base64").toString("utf-8");
+        const decoded = decodeBase64ToUTF8(raw);
         return JSON.parse(decoded) as T;
       } catch {
         return null;
@@ -213,7 +229,7 @@ export default function ContractsPage() {
   });
 
   const drifts = driftsData?.drifts || [];
-  const unacknowledgedDrifts = drifts.filter((d) => !d.isAcknowledged);
+  const unacknowledgedDrifts = drifts.filter((d: any) => !Boolean(d.isAcknowledged ?? d.is_acknowledged));
 
   useEffect(() => {
     if (activeBaseline) {
@@ -878,18 +894,25 @@ export default function ContractsPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {drifts.map((d) => {
-                  const rawDiff = d.diffJson ?? (d as any).diff_json;
+                {drifts.map((d: any) => {
+                  const rawDiff = d.diffJson ?? d.diff_json;
                   const report: DriftReport =
                     parseJsonOrBase64<DriftReport>(rawDiff) || { hasDrift: false, severity: "NONE", changes: [], summary: "Şema sapması" };
+
+                  const driftType = d.driftType || d.drift_type || report.severity || "NON_BREAKING";
+                  const isBreaking = driftType === "BREAKING";
+                  const isAcknowledged = Boolean(d.isAcknowledged ?? d.is_acknowledged);
+                  const monotonicId = d.monotonicRequestId || d.monotonic_request_id || d.request_id || (d.requestId ? String(d.requestId).slice(0, 8) : "webhook");
+                  const rawDate = d.createdAt || d.created_at;
+                  const formattedTime = rawDate && !isNaN(new Date(rawDate).getTime()) ? new Date(rawDate).toLocaleTimeString() : "";
 
                   return (
                     <div
                       key={d.id}
                       className={`rounded-2xl border p-4 space-y-3 transition ${
-                        d.isAcknowledged
+                        isAcknowledged
                           ? "border-border bg-card/40 opacity-70"
-                          : d.driftType === "BREAKING"
+                          : isBreaking
                           ? "border-rose-500/40 bg-rose-500/5 ring-1 ring-rose-500/20"
                           : "border-amber-500/40 bg-amber-500/5 ring-1 ring-amber-500/20"
                       }`}
@@ -899,24 +922,26 @@ export default function ContractsPage() {
                         <div className="flex items-center gap-2">
                           <span
                             className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
-                              d.driftType === "BREAKING"
+                              isBreaking
                                 ? "bg-rose-500/20 text-rose-300 border-rose-500/40"
                                 : "bg-amber-500/20 text-amber-300 border-amber-500/40"
                             }`}
                           >
-                            {d.driftType === "BREAKING" ? "🔴 KIRICI DEĞİŞİKLİK (BREAKING)" : "🟡 GERİYE UYUMLU EKLEME"}
+                            {isBreaking ? "🔴 KIRICI DEĞİŞİKLİK (BREAKING)" : "🟡 GERİYE UYUMLU EKLEME"}
                           </span>
                           <span className="text-xs font-mono text-muted-foreground">
-                            İstek: #{d.monotonicRequestId || "webhook"}
+                            İstek: #{monotonicId}
                           </span>
                         </div>
 
                         <div className="flex items-center gap-2">
-                          <span className="text-[11px] text-muted-foreground">
-                            {new Date(d.createdAt).toLocaleTimeString()}
-                          </span>
+                          {formattedTime && (
+                            <span className="text-[11px] text-muted-foreground">
+                              {formattedTime}
+                            </span>
+                          )}
 
-                          {!d.isAcknowledged && (
+                          {!isAcknowledged && (
                             <>
                               <button
                                 onClick={() => dismissDriftMutation.mutate(d.id)}
