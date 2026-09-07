@@ -263,6 +263,98 @@ func (h *SchemaHandler) ActivateBaseline(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, updated)
 }
 
+// DeactivateBaseline deactivates all schema baselines for an endpoint (leaving no active baseline).
+func (h *SchemaHandler) DeactivateBaseline(w http.ResponseWriter, r *http.Request) {
+	endpointIDStr := getEndpointIDParam(r)
+	endpointUUID, err := uuid.Parse(endpointIDStr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_ENDPOINT_ID", "Invalid endpoint ID format")
+		return
+	}
+
+	if err := h.queries.DeactivateAllSchemaBaselines(r.Context(), pgtype.UUID{Bytes: endpointUUID, Valid: true}); err != nil {
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", "Failed to deactivate schema baselines: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Sözleşme pasife alındı, aktif baseline kalmadı."})
+}
+
+// DeleteBaseline deletes a specific schema baseline version.
+func (h *SchemaHandler) DeleteBaseline(w http.ResponseWriter, r *http.Request) {
+	endpointIDStr := getEndpointIDParam(r)
+	endpointUUID, err := uuid.Parse(endpointIDStr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_ENDPOINT_ID", "Invalid endpoint ID format")
+		return
+	}
+
+	schemaIDStr := chi.URLParam(r, "schemaId")
+	schemaUUID, err := uuid.Parse(schemaIDStr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_SCHEMA_ID", "Invalid schema ID format")
+		return
+	}
+
+	err = h.queries.DeleteSchemaBaseline(r.Context(), database.DeleteSchemaBaselineParams{
+		ID:         pgtype.UUID{Bytes: schemaUUID, Valid: true},
+		EndpointID: pgtype.UUID{Bytes: endpointUUID, Valid: true},
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", "Failed to delete schema baseline: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "Sözleşme sürümü başarıyla silindi",
+	})
+}
+
+type UpdateSchemaInput struct {
+	SchemaJSON string `json:"schemaJson"`
+}
+
+// UpdateBaseline updates the JSON schema content of an existing baseline.
+func (h *SchemaHandler) UpdateBaseline(w http.ResponseWriter, r *http.Request) {
+	endpointIDStr := getEndpointIDParam(r)
+	endpointUUID, err := uuid.Parse(endpointIDStr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_ENDPOINT_ID", "Invalid endpoint ID format")
+		return
+	}
+
+	schemaIDStr := chi.URLParam(r, "schemaId")
+	schemaUUID, err := uuid.Parse(schemaIDStr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_SCHEMA_ID", "Invalid schema ID format")
+		return
+	}
+
+	var input UpdateSchemaInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil || input.SchemaJSON == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_SCHEMA", "JSON schema content is required")
+		return
+	}
+
+	if _, err := schema.NewValidator(input.SchemaJSON); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_SCHEMA_SYNTAX", "Invalid JSON Schema syntax: "+err.Error())
+		return
+	}
+
+	updated, err := h.queries.UpdateSchemaBaselineContent(r.Context(), database.UpdateSchemaBaselineContentParams{
+		ID:         pgtype.UUID{Bytes: schemaUUID, Valid: true},
+		EndpointID: pgtype.UUID{Bytes: endpointUUID, Valid: true},
+		SchemaJson: []byte(input.SchemaJSON),
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", "Failed to update schema baseline: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, updated)
+}
+
 // ListDrifts lists detected schema drift events for an endpoint.
 func (h *SchemaHandler) ListDrifts(w http.ResponseWriter, r *http.Request) {
 	endpointIDStr := getEndpointIDParam(r)

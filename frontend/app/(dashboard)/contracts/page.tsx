@@ -35,6 +35,9 @@ import {
   Eye,
   AlertOctagon,
   RefreshCw,
+  Edit3,
+  ToggleLeft,
+  ToggleRight,
 } from "lucide-react";
 import { useActiveProject } from "../../../contexts/ProjectContext";
 import { useSearchParams } from "next/navigation";
@@ -111,6 +114,33 @@ const PRESET_GITHUB = {
   required: ["ref", "repository"],
 };
 
+function parseJsonOrBase64<T = any>(raw: any): T | null {
+  if (!raw) return null;
+  if (typeof raw === "object") return raw as T;
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      try {
+        const decoded = typeof window !== "undefined" ? atob(raw) : Buffer.from(raw, "base64").toString("utf-8");
+        return JSON.parse(decoded) as T;
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+function decodeAndFormatSchema(raw: any): string {
+  if (!raw) return "";
+  const parsed = parseJsonOrBase64(raw);
+  if (parsed) {
+    return JSON.stringify(parsed, null, 2);
+  }
+  return typeof raw === "string" ? raw : "";
+}
+
 export default function ContractsPage() {
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
@@ -124,6 +154,7 @@ export default function ContractsPage() {
   const [schemaText, setSchemaText] = useState<string>(JSON.stringify(PRESET_STRIPE, null, 2));
   const [syntaxValid, setSyntaxValid] = useState(true);
   const [statusMessage, setStatusMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [editingBaseline, setEditingBaseline] = useState<SchemaBaseline | null>(null);
 
   // Modals state
   const [isInferModalOpen, setIsInferModalOpen] = useState(false);
@@ -167,7 +198,7 @@ export default function ContractsPage() {
   });
 
   const baselines = baselinesData?.baselines || [];
-  const activeBaseline = baselines.find((b) => b.isActive);
+  const activeBaseline = baselines.find((b: any) => Boolean(b.isActive ?? b.is_active));
 
   // 2. Fetch Schema Drift Events for active endpoint
   const { data: driftsData, isLoading: isDriftsLoading } = useQuery({
@@ -186,10 +217,8 @@ export default function ContractsPage() {
 
   useEffect(() => {
     if (activeBaseline) {
-      const formatted =
-        typeof activeBaseline.schemaJson === "string"
-          ? JSON.stringify(JSON.parse(activeBaseline.schemaJson), null, 2)
-          : JSON.stringify(activeBaseline.schemaJson, null, 2);
+      const rawSchema = (activeBaseline as any).schemaJson ?? (activeBaseline as any).schema_json;
+      const formatted = decodeAndFormatSchema(rawSchema);
       setSchemaText(formatted);
       setSyntaxValid(true);
     }
@@ -266,7 +295,7 @@ export default function ContractsPage() {
     },
   });
 
-  // 4. Activate Version Mutation
+  // 4. Activate Version Mutation with Instant Optimistic UI Update
   const activateMutation = useMutation({
     mutationFn: (schemaId: string) =>
       apiFetch<SchemaBaseline>(`/api/endpoints/${activeEndpointId}/schemas/${schemaId}/activate`, {
@@ -274,13 +303,125 @@ export default function ContractsPage() {
         token: accessToken,
         organizationId: organization?.id,
       }),
-    onSuccess: (data) => {
+    onMutate: async (schemaId: string) => {
+      await queryClient.cancelQueries({ queryKey: ["schemaBaselines", activeEndpointId] });
+      const previousData = queryClient.getQueryData<{ baselines: any[] }>(["schemaBaselines", activeEndpointId]);
+      if (previousData) {
+        queryClient.setQueryData(["schemaBaselines", activeEndpointId], {
+          baselines: previousData.baselines.map((b) => ({
+            ...b,
+            isActive: b.id === schemaId,
+            is_active: b.id === schemaId,
+          })),
+        });
+      }
+      return { previousData };
+    },
+    onSuccess: (data, schemaId) => {
+      queryClient.setQueryData(["schemaBaselines", activeEndpointId], (old: any) => {
+        if (!old?.baselines) return old;
+        return {
+          ...old,
+          baselines: old.baselines.map((b: any) => ({
+            ...b,
+            isActive: b.id === schemaId,
+            is_active: b.id === schemaId,
+          })),
+        };
+      });
       queryClient.invalidateQueries({ queryKey: ["schemaBaselines", activeEndpointId] });
       setStatusMessage({ type: "success", text: `Sözleşme v${data.version} aktif baseline olarak ayarlandı.` });
+      setTimeout(() => setStatusMessage(null), 3000);
+    },
+    onError: (err: any, _vars, context: any) => {
+      if (context?.previousData) {
+        queryClient.setQueryData(["schemaBaselines", activeEndpointId], context.previousData);
+      }
+      setStatusMessage({ type: "error", text: err.message || "Aktifleştirilemedi." });
+    },
+  });
+
+  // 4a2. Deactivate Baseline Mutation
+  const deactivateMutation = useMutation({
+    mutationFn: (schemaId: string) =>
+      apiFetch<{ message: string }>(`/api/endpoints/${activeEndpointId}/schemas/${schemaId}/deactivate`, {
+        method: "PUT",
+        token: accessToken,
+        organizationId: organization?.id,
+      }),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ["schemaBaselines", activeEndpointId] });
+      const previousData = queryClient.getQueryData<{ baselines: any[] }>(["schemaBaselines", activeEndpointId]);
+      if (previousData) {
+        queryClient.setQueryData(["schemaBaselines", activeEndpointId], {
+          baselines: previousData.baselines.map((b) => ({
+            ...b,
+            isActive: false,
+            is_active: false,
+          })),
+        });
+      }
+      return { previousData };
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(["schemaBaselines", activeEndpointId], (old: any) => {
+        if (!old?.baselines) return old;
+        return {
+          ...old,
+          baselines: old.baselines.map((b: any) => ({
+            ...b,
+            isActive: false,
+            is_active: false,
+          })),
+        };
+      });
+      queryClient.invalidateQueries({ queryKey: ["schemaBaselines", activeEndpointId] });
+      setStatusMessage({ type: "success", text: data.message || "Sözleşme pasife alındı." });
+      setTimeout(() => setStatusMessage(null), 3000);
+    },
+    onError: (err: any, _vars, context: any) => {
+      if (context?.previousData) {
+        queryClient.setQueryData(["schemaBaselines", activeEndpointId], context.previousData);
+      }
+      setStatusMessage({ type: "error", text: err.message || "Pasife alınamadı." });
+    },
+  });
+
+  // 4b. Update Existing Baseline Mutation
+  const updateMutation = useMutation({
+    mutationFn: (input: { schemaId: string; jsonString: string }) =>
+      apiFetch<SchemaBaseline>(`/api/endpoints/${activeEndpointId}/schemas/${input.schemaId}`, {
+        method: "PUT",
+        token: accessToken,
+        organizationId: organization?.id,
+        body: JSON.stringify({ schemaJson: input.jsonString }),
+      }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["schemaBaselines", activeEndpointId] });
+      setStatusMessage({ type: "success", text: `Sözleşme v${data.version} içeriği başarıyla güncellendi.` });
       setTimeout(() => setStatusMessage(null), 4000);
     },
     onError: (err: any) => {
-      setStatusMessage({ type: "error", text: err.message || "Aktifleştirilemedi." });
+      setStatusMessage({ type: "error", text: err.message || "Sözleşme güncellenemedi." });
+    },
+  });
+
+  // 4c. Delete Baseline Mutation
+  const deleteMutation = useMutation({
+    mutationFn: (schemaId: string) =>
+      apiFetch(`/api/endpoints/${activeEndpointId}/schemas/${schemaId}`, {
+        method: "DELETE",
+        token: accessToken,
+        organizationId: organization?.id,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["schemaBaselines", activeEndpointId] });
+      if (editingBaseline) setEditingBaseline(null);
+      setStatusMessage({ type: "success", text: "Sözleşme sürümü silindi." });
+      setTimeout(() => setStatusMessage(null), 3000);
+    },
+    onError: (err: any) => {
+      setStatusMessage({ type: "error", text: err.message || "Sözleşme silinemedi." });
     },
   });
 
@@ -439,10 +580,22 @@ export default function ContractsPage() {
           {/* Left: JSON Schema Editor */}
           <div className="lg:col-span-7 space-y-4">
             <div className="rounded-2xl border border-border bg-card p-5 space-y-4 shadow-sm">
+              {/* Code Editor Header with Editing State & Presets */}
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
                 <div className="flex items-center gap-2">
                   <Code className="h-4 w-4 text-primary" />
-                  <span className="text-xs font-bold text-foreground">JSON Schema (Draft 2020-12)</span>
+                  <span className="text-xs font-bold text-foreground">
+                    {editingBaseline ? `Sözleşme v${editingBaseline.version} Düzenleniyor` : "JSON Schema (Draft 2020-12)"}
+                  </span>
+                  {editingBaseline && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingBaseline(null)}
+                      className="px-2 py-0.5 rounded bg-muted hover:bg-muted/80 text-[10px] font-bold text-muted-foreground transition"
+                    >
+                      İptal Et
+                    </button>
+                  )}
                 </div>
 
                 {/* Presets */}
@@ -450,21 +603,30 @@ export default function ContractsPage() {
                   <span className="text-[10px] uppercase font-bold text-muted-foreground mr-1">Şablon:</span>
                   <button
                     type="button"
-                    onClick={() => handleSchemaChange(JSON.stringify(PRESET_STRIPE, null, 2))}
+                    onClick={() => {
+                      setEditingBaseline(null);
+                      handleSchemaChange(JSON.stringify(PRESET_STRIPE, null, 2));
+                    }}
                     className="px-2 py-0.5 rounded-md bg-secondary hover:bg-muted text-[11px] font-semibold text-foreground transition"
                   >
                     Stripe
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleSchemaChange(JSON.stringify(PRESET_IYZICO, null, 2))}
+                    onClick={() => {
+                      setEditingBaseline(null);
+                      handleSchemaChange(JSON.stringify(PRESET_IYZICO, null, 2));
+                    }}
                     className="px-2 py-0.5 rounded-md bg-secondary hover:bg-muted text-[11px] font-semibold text-foreground transition"
                   >
                     iyzico
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleSchemaChange(JSON.stringify(PRESET_GITHUB, null, 2))}
+                    onClick={() => {
+                      setEditingBaseline(null);
+                      handleSchemaChange(JSON.stringify(PRESET_GITHUB, null, 2));
+                    }}
                     className="px-2 py-0.5 rounded-md bg-secondary hover:bg-muted text-[11px] font-semibold text-foreground transition"
                   >
                     GitHub
@@ -497,8 +659,34 @@ export default function ContractsPage() {
                 </div>
               </div>
 
-              {/* Save Button */}
-              <div className="flex justify-end pt-2">
+              {/* Save & Update Buttons */}
+              <div className="flex items-center justify-end gap-2 pt-2">
+                {editingBaseline && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateMutation.mutate({
+                        schemaId: editingBaseline.id,
+                        jsonString: schemaText,
+                      })
+                    }
+                    disabled={!syntaxValid || updateMutation.isPending}
+                    className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    {updateMutation.isPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span>Güncelleniyor...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="h-4 w-4" />
+                        <span>v{editingBaseline.version} Sürümünü Güncelle</span>
+                      </>
+                    )}
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={() => saveManualMutation.mutate(schemaText)}
@@ -547,69 +735,115 @@ export default function ContractsPage() {
                 </div>
               ) : (
                 <div className="space-y-2.5">
-                  {baselines.map((b) => (
-                    <div
-                      key={b.id}
-                      className={`p-3.5 rounded-xl border transition flex items-center justify-between ${
-                        b.isActive
-                          ? "border-emerald-500/40 bg-emerald-500/5 ring-1 ring-emerald-500/30"
-                          : "border-border bg-card/60 hover:bg-muted/30"
-                      }`}
-                    >
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-foreground">Sürüm v{b.version}</span>
-                          <span
-                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                              b.source === "OPENAPI"
-                                ? "bg-blue-500/10 text-blue-400 border border-blue-500/30"
-                                : b.source === "INFERRED_PAYLOAD"
-                                ? "bg-purple-500/10 text-purple-400 border border-purple-500/30"
-                                : "bg-muted text-muted-foreground"
-                            }`}
-                          >
-                            {b.source}
-                          </span>
-                          {b.isActive && (
-                            <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded">
-                              AKTİF
+                  {baselines.map((b: any) => {
+                    const isActive = Boolean(b.isActive ?? b.is_active);
+                    return (
+                      <div
+                        key={b.id}
+                        className={`p-3.5 rounded-xl border transition flex items-center justify-between gap-2 ${
+                          isActive
+                            ? "border-emerald-500/40 bg-emerald-500/5 ring-1 ring-emerald-500/30"
+                            : "border-border bg-card/60 hover:bg-muted/30"
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-bold text-foreground">Sürüm v{b.version}</span>
+                            <span
+                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                b.source === "OPENAPI"
+                                  ? "bg-blue-500/10 text-blue-400 border border-blue-500/30"
+                                  : b.source === "INFERRED_PAYLOAD"
+                                  ? "bg-purple-500/10 text-purple-400 border border-purple-500/30"
+                                  : "bg-muted text-muted-foreground"
+                              }`}
+                            >
+                              {b.source}
                             </span>
-                          )}
+                            {isActive ? (
+                              <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                                AKTİF
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-bold text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">
+                                PASİF
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground mt-1">
+                            {new Date(b.createdAt || b.created_at).toLocaleString()}
+                          </div>
                         </div>
-                        <div className="text-[11px] text-muted-foreground mt-1">
-                          {new Date(b.createdAt).toLocaleString()}
-                        </div>
-                      </div>
 
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const formatted =
-                              typeof b.schemaJson === "string"
-                                ? JSON.stringify(JSON.parse(b.schemaJson), null, 2)
-                                : JSON.stringify(b.schemaJson, null, 2);
-                            setSchemaText(formatted);
-                            setSyntaxValid(true);
-                          }}
-                          className="px-2.5 py-1 rounded-lg bg-secondary hover:bg-muted text-xs font-semibold text-foreground transition"
-                        >
-                          Görüntüle
-                        </button>
-
-                        {!b.isActive && (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {/* Edit Button */}
                           <button
                             type="button"
-                            onClick={() => activateMutation.mutate(b.id)}
-                            disabled={activateMutation.isPending}
-                            className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-bold border border-emerald-500/20 transition disabled:opacity-50"
+                            title="Bu sürümü editöre yükle ve düzenle"
+                            onClick={() => {
+                              setEditingBaseline(b);
+                              const rawSchema = b.schemaJson ?? b.schema_json;
+                              const formatted = decodeAndFormatSchema(rawSchema);
+                              setSchemaText(formatted);
+                              setSyntaxValid(true);
+                            }}
+                            className={`p-1.5 rounded-lg border text-xs font-semibold transition flex items-center gap-1 ${
+                              editingBaseline?.id === b.id
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "border-border bg-secondary hover:bg-muted text-foreground"
+                            }`}
                           >
-                            Aktif Yap
+                            <Edit3 className="h-3.5 w-3.5" />
+                            <span className="hidden sm:inline text-[11px]">Düzenle</span>
                           </button>
-                        )}
+
+                          {/* Active/Inactive Toggle Switch */}
+                          <button
+                            type="button"
+                            title={
+                              isActive
+                                ? "Bu sözleşmeyi pasife almak (kapatmak) için tıklayın"
+                                : "Bu sözleşmeyi aktif baseline yapmak için tıklayın"
+                            }
+                            disabled={activateMutation.isPending || deactivateMutation.isPending}
+                            onClick={() => {
+                              if (isActive) {
+                                deactivateMutation.mutate(b.id);
+                              } else {
+                                activateMutation.mutate(b.id);
+                              }
+                            }}
+                            className={`p-1 rounded-lg transition-all flex items-center cursor-pointer hover:scale-110 ${
+                              isActive
+                                ? "text-emerald-400 hover:text-rose-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.35)]"
+                                : "text-rose-400/80 hover:text-emerald-400"
+                            }`}
+                          >
+                            {isActive ? (
+                              <ToggleRight className="h-6 w-6 text-emerald-400 fill-emerald-500/20" />
+                            ) : (
+                              <ToggleLeft className="h-6 w-6 text-rose-400/80 hover:text-emerald-400" />
+                            )}
+                          </button>
+
+                          {/* Delete Button */}
+                          <button
+                            type="button"
+                            title="Bu sürümü sil"
+                            disabled={deleteMutation.isPending}
+                            onClick={() => {
+                              if (window.confirm(`v${b.version} sözleşme sürümünü silmek istediğinize emin misiniz?`)) {
+                                deleteMutation.mutate(b.id);
+                              }
+                            }}
+                            className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 transition"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -645,8 +879,9 @@ export default function ContractsPage() {
             ) : (
               <div className="space-y-4">
                 {drifts.map((d) => {
+                  const rawDiff = d.diffJson ?? (d as any).diff_json;
                   const report: DriftReport =
-                    typeof d.diffJson === "string" ? JSON.parse(d.diffJson) : d.diffJson;
+                    parseJsonOrBase64<DriftReport>(rawDiff) || { hasDrift: false, severity: "NONE", changes: [], summary: "Şema sapması" };
 
                   return (
                     <div

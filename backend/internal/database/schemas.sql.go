@@ -156,6 +156,21 @@ func (q *Queries) DeactivateAllSchemaBaselines(ctx context.Context, endpointID p
 	return err
 }
 
+const deleteSchemaBaseline = `-- name: DeleteSchemaBaseline :exec
+DELETE FROM schema_baselines
+WHERE id = $1 AND endpoint_id = $2
+`
+
+type DeleteSchemaBaselineParams struct {
+	ID         pgtype.UUID `json:"id"`
+	EndpointID pgtype.UUID `json:"endpoint_id"`
+}
+
+func (q *Queries) DeleteSchemaBaseline(ctx context.Context, arg DeleteSchemaBaselineParams) error {
+	_, err := q.db.Exec(ctx, deleteSchemaBaseline, arg.ID, arg.EndpointID)
+	return err
+}
+
 const getActiveSchemaBaseline = `-- name: GetActiveSchemaBaseline :one
 SELECT id, endpoint_id, version, schema_json, source, is_active, created_at, updated_at FROM schema_baselines
 WHERE endpoint_id = $1 AND is_active = TRUE
@@ -277,4 +292,33 @@ func (q *Queries) ListSchemaDriftsByEndpoint(ctx context.Context, endpointID pgt
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateSchemaBaselineContent = `-- name: UpdateSchemaBaselineContent :one
+UPDATE schema_baselines
+SET schema_json = $3, updated_at = NOW()
+WHERE id = $1 AND endpoint_id = $2
+RETURNING id, endpoint_id, version, schema_json, source, is_active, created_at, updated_at
+`
+
+type UpdateSchemaBaselineContentParams struct {
+	ID         pgtype.UUID `json:"id"`
+	EndpointID pgtype.UUID `json:"endpoint_id"`
+	SchemaJson []byte      `json:"schema_json"`
+}
+
+func (q *Queries) UpdateSchemaBaselineContent(ctx context.Context, arg UpdateSchemaBaselineContentParams) (SchemaBaseline, error) {
+	row := q.db.QueryRow(ctx, updateSchemaBaselineContent, arg.ID, arg.EndpointID, arg.SchemaJson)
+	var i SchemaBaseline
+	err := row.Scan(
+		&i.ID,
+		&i.EndpointID,
+		&i.Version,
+		&i.SchemaJson,
+		&i.Source,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

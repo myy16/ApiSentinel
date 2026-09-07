@@ -206,9 +206,12 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 				protected.With(tenantGuard, endpointGuard).Get("/endpoints/{endpointId}/schemas", h.SchemaHandler.ListBaselines)
 				protected.With(tenantGuard, endpointGuard).Get("/endpoints/{endpointId}/schemas/active", h.SchemaHandler.GetActiveBaseline)
 				protected.With(tenantGuard, endpointGuard, requireDeveloper).Post("/endpoints/{endpointId}/schemas", h.SchemaHandler.SaveManual)
+				protected.With(tenantGuard, endpointGuard, requireDeveloper).Put("/endpoints/{endpointId}/schemas/{schemaId}", h.SchemaHandler.UpdateBaseline)
+				protected.With(tenantGuard, endpointGuard, requireDeveloper).Delete("/endpoints/{endpointId}/schemas/{schemaId}", h.SchemaHandler.DeleteBaseline)
 				protected.With(tenantGuard, endpointGuard, requireDeveloper).Post("/endpoints/{endpointId}/schemas/infer", h.SchemaHandler.InferBaseline)
 				protected.With(tenantGuard, endpointGuard, requireDeveloper).Post("/endpoints/{endpointId}/schemas/openapi", h.SchemaHandler.ImportOpenAPI)
 				protected.With(tenantGuard, endpointGuard, requireDeveloper).Put("/endpoints/{endpointId}/schemas/{schemaId}/activate", h.SchemaHandler.ActivateBaseline)
+				protected.With(tenantGuard, endpointGuard, requireDeveloper).Put("/endpoints/{endpointId}/schemas/{schemaId}/deactivate", h.SchemaHandler.DeactivateBaseline)
 
 				// Schema Drift Endpoints (Milestone 10)
 				protected.With(tenantGuard, endpointGuard).Get("/endpoints/{endpointId}/drifts", h.SchemaHandler.ListDrifts)

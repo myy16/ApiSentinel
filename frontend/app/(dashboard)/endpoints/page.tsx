@@ -298,7 +298,7 @@ export default function EndpointsPage() {
     setEditMaxPayloadSize(ep.maxPayloadSizeBytes || 5242880);
     setEditRateLimitRpm(ep.rateLimitRpm || 120);
     setEditBurstThreshold(ep.burstThreshold || 30);
-    setEditIsActive(ep.isActive);
+    setEditIsActive(Boolean(ep.isActive ?? (ep as any).is_active));
     setEditError(null);
     setWebhookSecret("");
     setWebhookSecurityError(null);
@@ -951,7 +951,7 @@ export default function EndpointsPage() {
                       <span className="rounded-full bg-muted/60 border border-border px-2 py-0.5 text-[10px] font-mono text-muted-foreground" title="Dakikalık Hız ve Anlık Spike Eşiği">
                         ⚡ {endpoint.rateLimitRpm || 120} RPM / {endpoint.burstThreshold || 30} Spike
                       </span>
-                      {!endpoint.isActive && (
+                      {!Boolean(endpoint.isActive ?? (endpoint as any).is_active) && (
                         <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
                           PASİF
                         </span>

@@ -49,6 +49,7 @@ type Querier interface {
 	DeleteMockRule(ctx context.Context, arg DeleteMockRuleParams) error
 	DeleteProject(ctx context.Context, arg DeleteProjectParams) error
 	DeleteReplayTestSuite(ctx context.Context, arg DeleteReplayTestSuiteParams) error
+	DeleteSchemaBaseline(ctx context.Context, arg DeleteSchemaBaselineParams) error
 	FailDeliveryJob(ctx context.Context, arg FailDeliveryJobParams) (DeliveryJob, error)
 	FailOutboxJob(ctx context.Context, arg FailOutboxJobParams) (ForwardingDlq, error)
 	GetAPIKeyByPrefixAndHash(ctx context.Context, arg GetAPIKeyByPrefixAndHashParams) (ApiKey, error)
@@ -114,6 +115,7 @@ type Querier interface {
 	UpdateReplayJobResult(ctx context.Context, arg UpdateReplayJobResultParams) (UpdateReplayJobResultRow, error)
 	UpdateReplayTestRunResult(ctx context.Context, arg UpdateReplayTestRunResultParams) (ReplayTestRun, error)
 	UpdateRequestProcessingStatus(ctx context.Context, arg UpdateRequestProcessingStatusParams) error
+	UpdateSchemaBaselineContent(ctx context.Context, arg UpdateSchemaBaselineContentParams) (SchemaBaseline, error)
 	UpsertEndpointSchema(ctx context.Context, arg UpsertEndpointSchemaParams) (EndpointSchema, error)
 	UpsertEndpointWebhookSecurity(ctx context.Context, arg UpsertEndpointWebhookSecurityParams) (EndpointWebhookSecurity, error)
 	UpsertForwardingConfig(ctx context.Context, arg UpsertForwardingConfigParams) (ForwardingConfig, error)

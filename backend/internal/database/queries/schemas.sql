@@ -52,3 +52,13 @@ SET is_acknowledged = TRUE
 WHERE id = $1 AND endpoint_id = $2
 RETURNING *;
 
+-- name: DeleteSchemaBaseline :exec
+DELETE FROM schema_baselines
+WHERE id = $1 AND endpoint_id = $2;
+
+-- name: UpdateSchemaBaselineContent :one
+UPDATE schema_baselines
+SET schema_json = $3, updated_at = NOW()
+WHERE id = $1 AND endpoint_id = $2
+RETURNING *;
+
