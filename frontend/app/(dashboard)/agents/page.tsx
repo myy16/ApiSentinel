@@ -436,7 +436,7 @@ export default function AgentsPage() {
                         {isClean ? (
                           <span className="flex items-center gap-1 text-emerald-400 font-bold">
                             <ShieldCheck className="h-3.5 w-3.5" />
-                            <span>0 Bulgu - Temiz (Clean)</span>
+                            <span>0 Bulgu — Güvenli (Temiz)</span>
                           </span>
                         ) : (
                           <span className="flex items-center gap-1 text-rose-400 font-bold">

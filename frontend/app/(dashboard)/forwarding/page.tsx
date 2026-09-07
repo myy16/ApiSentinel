@@ -295,7 +295,7 @@ export default function ForwardingPage() {
           <div className="flex items-center gap-2.5">
             <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
               <Share2 className="h-6 w-6 text-primary" />
-              Upstream Forwarding & Durable Outbox / DLQ
+              Upstream İleri İletim & Dayanıklı Outbox / DLQ
             </h1>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
@@ -405,7 +405,7 @@ export default function ForwardingPage() {
                   >
                     <div className="flex items-center gap-1.5 font-bold text-xs">
                       <ShieldCheck className="h-4 w-4 text-emerald-400" />
-                      <span>REDACTED (Önerilen)</span>
+                      <span>MASKELİ / REDACTED (Önerilen)</span>
                     </div>
                     <span className="text-[10px] text-muted-foreground mt-1">
                       Hassas verileri (PII/Secret) maskeleyerek iletir.
@@ -424,7 +424,7 @@ export default function ForwardingPage() {
                   >
                     <div className="flex items-center gap-1.5 font-bold text-xs">
                       <ShieldAlert className="h-4 w-4 text-amber-400" />
-                      <span>RAW (Ham Yük)</span>
+                      <span>HAM / RAW (Ham Yük)</span>
                     </div>
                     <span className="text-[10px] text-muted-foreground mt-1">
                       Orijinal gövdeyi doğrudan iletir, audit log tutar.

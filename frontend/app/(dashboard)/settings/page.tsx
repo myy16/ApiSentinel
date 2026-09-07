@@ -338,7 +338,7 @@ export default function SettingsPage() {
                     className="mt-0.5 text-primary focus:ring-primary"
                   />
                   <div className="text-xs">
-                    <span className="font-bold text-foreground">1. Sanitized Mode (Önerilen / Sıfır Sızıntı)</span>
+                    <span className="font-bold text-foreground">1. Maskelenmiş Mod (Sanitized - Önerilen / Sıfır Sızıntı)</span>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
                       Tüm Kredi Kartları, TCKN, IBAN, E-posta, Telefon, API anahtarları ve Bearer token'lar modele gitmeden önce otomatik [REDACTED] ile maskelenir.
                     </p>
@@ -361,7 +361,7 @@ export default function SettingsPage() {
                     className="mt-0.5 text-primary focus:ring-primary"
                   />
                   <div className="text-xs">
-                    <span className="font-bold text-foreground">2. Tamamen Yerel Mod (Zero External Cloud)</span>
+                    <span className="font-bold text-foreground">2. Tamamen Yerel Mod (Dış Bulut Yok)</span>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
                       Hiçbir bulut LLM sağlayıcısına (OpenAI/Groq) veri gönderilmez. Yalnızca ApiSentinel dahili yerel kural motoru çalışır.
                     </p>

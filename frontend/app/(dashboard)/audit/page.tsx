@@ -83,7 +83,7 @@ export default function AuditLogsPage() {
         <div>
           <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary mb-2">
             <History className="h-3.5 w-3.5" />
-            <span>Audit & Compliance Trail</span>
+            <span>Denetim & Uyumluluk İzi</span>
           </div>
           <h1 className="text-2xl font-extrabold tracking-tight">Güvenlik ve Operasyon Denetim Kayıtları</h1>
           <p className="text-xs md:text-sm text-muted-foreground">

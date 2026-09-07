@@ -35,17 +35,17 @@ import {
 
 const navItems = [
   { name: "Genel Bakış", href: "/overview", icon: LayoutDashboard },
-  { name: "Delivery Control", href: "/deliveries", icon: SendHorizonal },
-  { name: "Endpoints", href: "/endpoints", icon: Globe },
+  { name: "Teslimat Kontrolü", href: "/deliveries", icon: SendHorizonal },
+  { name: "Uç Noktalar", href: "/endpoints", icon: Globe },
   { name: "Canlı İstekler", href: "/requests", icon: Radio },
   { name: "Güvenlik Bulguları", href: "/security", icon: ShieldAlert },
   { name: "Bildirim Kanalları", href: "/alerts", icon: BellRing },
-  { name: "Upstream Forwarding", href: "/forwarding", icon: Repeat },
-  { name: "Replay Lab", href: "/replay", icon: Repeat },
-  { name: "Mock Lab", href: "/mock", icon: Sparkles },
+  { name: "İleri İletim", href: "/forwarding", icon: Repeat },
+  { name: "Replay Laboratuvarı", href: "/replay", icon: Repeat },
+  { name: "Mock Laboratuvarı", href: "/mock", icon: Sparkles },
   { name: "Sözleşmeler", href: "/contracts", icon: FileCode },
   { name: "Audit Logları", href: "/audit", icon: History },
-  { name: "Local Agent", href: "/agents", icon: Terminal },
+  { name: "Yerel Ajan", href: "/agents", icon: Terminal },
   { name: "Ayarlar", href: "/settings", icon: Settings },
 ];
 
@@ -346,7 +346,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
               </span>
-              <span className="font-mono">Gateway Active</span>
+              <span className="font-mono">Ağ Geçidi Aktif</span>
             </div>
 
             {/* Theme Toggle (Light / Dark / System) */}
