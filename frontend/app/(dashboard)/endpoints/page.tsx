@@ -392,9 +392,7 @@ export default function EndpointsPage() {
 
   const copyCurlCmd = (slug: string) => {
     const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
-    const curl = `curl -X POST "${backendUrl}/hook/${slug}" \\
-  -H "Content-Type: application/json" \\
-  -d '{"event":"test.ping","timestamp":"${new Date().toISOString()}"}'`;
+    const curl = `curl.exe -X POST "${backendUrl}/hook/${slug}" -H "Content-Type: application/json" -d '{"event":"test.ping","timestamp":"${new Date().toISOString()}"}'`;
 
     navigator.clipboard.writeText(curl);
     setCopiedCurlSlug(slug);

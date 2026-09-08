@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../../hooks/useAuth";
 import { useActiveProject } from "../../../contexts/ProjectContext";
 import { useSSE } from "../../../hooks/useSSE";
 import { apiFetch } from "../../../lib/api";
-import { Project, CapturedRequest } from "@apisentinel/shared";
+import { Project, CapturedRequest, Endpoint } from "@apisentinel/shared";
 import {
   Radio,
   Clock,
@@ -26,20 +27,47 @@ import {
   ArrowRight,
   ShieldAlert,
   SlidersHorizontal,
+  Globe,
 } from "lucide-react";
 
-export default function RequestsPage() {
+function RequestsContent() {
   const { accessToken, organization } = useAuth();
   const { projects, activeProjectId, setActiveProjectId } = useActiveProject();
+  const searchParams = useSearchParams();
 
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"payload" | "headers" | "query">("payload");
   const [searchFilter, setSearchFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "SUCCESS" | "BLOCKED" | "ERROR">("ALL");
+  const [endpointFilter, setEndpointFilter] = useState<string>("ALL");
   const [copiedPayload, setCopiedPayload] = useState(false);
   const [copiedCurl, setCopiedCurl] = useState(false);
 
-  // Fetch requests for active project
+  // Sync endpoint filter from URL query parameter (e.g. /requests?endpointId=...)
+  useEffect(() => {
+    const urlEpId = searchParams.get("endpointId");
+    if (urlEpId) {
+      setEndpointFilter(urlEpId);
+    }
+  }, [searchParams]);
+
+  // Fetch endpoints for active project (for filter dropdown)
+  const { data: endpointsData } = useQuery({
+    queryKey: ["endpoints", activeProjectId],
+    queryFn: () =>
+      apiFetch<{ endpoints: Endpoint[] }>(
+        `/api/projects/${activeProjectId}/endpoints`,
+        {
+          token: accessToken,
+          organizationId: organization?.id,
+        }
+      ),
+    enabled: !!accessToken && !!activeProjectId && !!organization?.id,
+  });
+
+  const endpoints = endpointsData?.endpoints || [];
+
+  // Fetch requests for active project with 3s auto-sync fallback
   const { data: requestsData, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ["requests", activeProjectId],
     queryFn: () =>
@@ -51,7 +79,7 @@ export default function RequestsPage() {
         }
       ),
     enabled: !!accessToken && !!activeProjectId && !!organization?.id,
-    // No polling needed — SSE push handles real-time updates
+    refetchInterval: 3000, // 3-second live sync guarantee in addition to SSE
   });
 
   // Real-time SSE: auto-invalidate the query cache when backend pushes new events
@@ -68,7 +96,16 @@ export default function RequestsPage() {
 
   // Filter requests
   const filteredRequests = requests.filter((r) => {
-    // 1. Search text filter
+    // 1. Endpoint filter
+    if (endpointFilter !== "ALL") {
+      const epId = r.endpointId ?? (r as any).endpoint_id;
+      const epSlug = r.endpoint?.slug;
+      if (epId !== endpointFilter && epSlug !== endpointFilter) {
+        return false;
+      }
+    }
+
+    // 2. Search text filter
     if (searchFilter) {
       const query = searchFilter.toLowerCase();
       const matchSearch =
@@ -79,15 +116,20 @@ export default function RequestsPage() {
       if (!matchSearch) return false;
     }
 
-    // 2. Status code filter
+    // 3. Status code filter (including 401 HMAC & 403 Policy Blocks)
     if (statusFilter === "SUCCESS") {
       return (r.responseStatus ?? 0) >= 200 && (r.responseStatus ?? 0) < 300;
     }
     if (statusFilter === "BLOCKED") {
-      return r.responseStatus === 403;
+      return (
+        r.responseStatus === 403 ||
+        r.responseStatus === 401 ||
+        (r as any).processingStatus === "HMAC_REJECTED" ||
+        (r as any).processing_status === "HMAC_REJECTED"
+      );
     }
     if (statusFilter === "ERROR") {
-      return (r.responseStatus ?? 0) >= 400 && r.responseStatus !== 403;
+      return (r.responseStatus ?? 0) >= 400 && r.responseStatus !== 403 && r.responseStatus !== 401;
     }
 
     return true;
@@ -119,11 +161,11 @@ export default function RequestsPage() {
     if (!selectedRequest) return;
     const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
     const slug = selectedRequest.endpoint?.slug || "endpoint";
-    const body = selectedRequest.maskedBody || selectedRequest.rawBody || "";
+    const body = selectedRequest.maskedBody || selectedRequest.rawBody || "{}";
 
-    const curlCmd = `curl -X ${selectedRequest.httpMethod} "${backendUrl}/hook/${slug}" \\
-  -H "Content-Type: application/json" \\
-  -d '${body.replace(/'/g, "'\\''")}'`;
+    // Format single-line curl.exe command that works seamlessly on Windows PowerShell, CMD, and Linux
+    const cleanBody = body.replace(/\r?\n/g, "").replace(/'/g, "'\\''");
+    const curlCmd = `curl.exe -X ${selectedRequest.httpMethod} "${backendUrl}/hook/${slug}" -H "Content-Type: application/json" -d '${cleanBody}'`;
 
     navigator.clipboard.writeText(curlCmd);
     setCopiedCurl(true);
@@ -155,7 +197,7 @@ export default function RequestsPage() {
             <h1 className="text-2xl font-bold tracking-tight">Canlı İstek Akışı (Live Stream)</h1>
             <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-400">
               <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-              Canlı Dinleniyor (3s Polling)
+              Canlı Dinleniyor (SSE + 3s Sync)
             </span>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
@@ -196,17 +238,36 @@ export default function RequestsPage() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         {/* Left Column: Request List (5 cols) */}
         <div className="space-y-3 lg:col-span-5">
-          {/* Search bar & Status Filter */}
+          {/* Search bar & Endpoint Filter */}
           <div className="space-y-2">
-            <div className="relative flex items-center">
-              <Search className="absolute left-3 h-4 w-4 text-muted-foreground" />
-              <input
-                type="text"
-                value={searchFilter}
-                onChange={(e) => setSearchFilter(e.target.value)}
-                placeholder="İstek ID, method veya endpoint ara..."
-                className="w-full rounded-xl border border-border bg-card py-2 pl-9 pr-3 text-xs placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary"
-              />
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="relative flex-1 flex items-center">
+                <Search className="absolute left-3 h-4 w-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={searchFilter}
+                  onChange={(e) => setSearchFilter(e.target.value)}
+                  placeholder="İstek ID, method veya endpoint ara..."
+                  className="w-full rounded-xl border border-border bg-card py-2 pl-9 pr-3 text-xs placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+
+              {endpoints.length > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <select
+                    value={endpointFilter}
+                    onChange={(e) => setEndpointFilter(e.target.value)}
+                    className="rounded-xl border border-border bg-card px-2.5 py-2 text-xs font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                  >
+                    <option value="ALL">Tüm Endpoint'ler ({requests.length})</option>
+                    {endpoints.map((ep) => (
+                      <option key={ep.id} value={ep.id}>
+                        {ep.name} (/{ep.slug})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             {/* Filter Pills */}
@@ -239,7 +300,7 @@ export default function RequestsPage() {
                     : "bg-secondary/60 text-muted-foreground hover:text-rose-400"
                 }`}
               >
-                403 Engellendi
+                Engellendi (401/403)
               </button>
               <button
                 onClick={() => setStatusFilter("ERROR")}
@@ -461,5 +522,19 @@ export default function RequestsPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function RequestsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-64 items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <RequestsContent />
+    </Suspense>
   );
 }

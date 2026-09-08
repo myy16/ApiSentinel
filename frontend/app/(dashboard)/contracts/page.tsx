@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../../hooks/useAuth";
 import { apiFetch } from "../../../lib/api";
@@ -157,7 +157,7 @@ function decodeAndFormatSchema(raw: any): string {
   return typeof raw === "string" ? raw : "";
 }
 
-export default function ContractsPage() {
+function ContractsContent() {
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const endpointParam = searchParams.get("endpointId");
@@ -643,9 +643,30 @@ export default function ContractsPage() {
                       setEditingBaseline(null);
                       handleSchemaChange(JSON.stringify(PRESET_GITHUB, null, 2));
                     }}
-                    className="px-2 py-0.5 rounded-md bg-secondary hover:bg-muted text-[11px] font-semibold text-foreground transition"
+                    className="px-2 py-0.5 rounded-md bg-secondary hover:bg-muted text-[11px] font-semibold text-foreground transition cursor-pointer"
                   >
                     GitHub
+                  </button>
+
+                  <div className="h-3.5 w-px bg-border mx-1" />
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      try {
+                        const parsed = JSON.parse(schemaText);
+                        setSchemaText(JSON.stringify(parsed, null, 2));
+                        setSyntaxValid(true);
+                      } catch {
+                        // ignore if invalid
+                      }
+                    }}
+                    disabled={!syntaxValid}
+                    className="flex items-center gap-1 px-2.5 py-0.5 rounded-md border border-border bg-background hover:bg-secondary text-[11px] font-semibold text-foreground transition cursor-pointer disabled:opacity-40"
+                    title="JSON Sözdizimini Otomatik Hizala ve Formatla"
+                  >
+                    <Sparkles className="h-3 w-3 text-amber-400" />
+                    <span>JSON Formatla</span>
                   </button>
                 </div>
               </div>
@@ -1147,5 +1168,19 @@ export default function ContractsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function ContractsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-64 items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <ContractsContent />
+    </Suspense>
   );
 }
