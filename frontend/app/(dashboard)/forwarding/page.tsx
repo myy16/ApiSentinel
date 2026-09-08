@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, Suspense } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../../hooks/useAuth";
+import { useSSE } from "../../../hooks/useSSE";
 import { apiFetch } from "../../../lib/api";
 import { Project, Endpoint, PayloadMode } from "@apisentinel/shared";
 import {
@@ -56,7 +57,7 @@ interface DLQRecord {
   last_attempt_at: string;
 }
 
-export default function ForwardingPage() {
+function ForwardingContent() {
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const endpointParam = searchParams.get("endpointId");
@@ -159,9 +160,26 @@ export default function ForwardingPage() {
         organizationId: organization?.id,
       }),
     enabled: !!accessToken && !!activeEndpointId && !!organization?.id,
+    refetchInterval: 3000,
   });
 
   const dlqRecords = dlqData || [];
+
+  // Real-time SSE Integration for Forwarding & DLQ
+  const sseQueryKeys = useMemo(
+    () => [
+      ["dlqRecords", activeEndpointId],
+      ["forwardingConfig", activeEndpointId],
+    ],
+    [activeEndpointId]
+  );
+  useSSE({
+    projectId: activeProjectId,
+    token: accessToken,
+    organizationId: organization?.id ?? null,
+    queryKeys: sseQueryKeys,
+    enabled: !!accessToken && !!activeProjectId,
+  });
 
   // 5. Save Config Mutation
   const saveMutation = useMutation({
@@ -716,5 +734,19 @@ export default function ForwardingPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ForwardingPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-64 items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <ForwardingContent />
+    </Suspense>
   );
 }

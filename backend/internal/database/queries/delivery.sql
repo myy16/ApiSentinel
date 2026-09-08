@@ -62,14 +62,14 @@ RETURNING *;
 
 -- name: FailDeliveryJob :one
 UPDATE delivery_jobs
-SET status = $2,
+SET status = sqlc.arg('status')::varchar,
     attempts = attempts + 1,
     locked_at = NULL,
     locked_by = NULL,
-    last_error = $3,
-    next_retry_at = $4,
+    last_error = $2,
+    next_retry_at = $3,
     updated_at = NOW(),
-    completed_at = CASE WHEN $2 = 'DEAD_LETTER' THEN NOW() ELSE completed_at END
+    completed_at = CASE WHEN sqlc.arg('status')::varchar = 'DEAD_LETTER' THEN NOW() ELSE completed_at END
 WHERE id = $1
 RETURNING *;
 

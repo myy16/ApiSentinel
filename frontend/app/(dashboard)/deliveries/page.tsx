@@ -67,7 +67,7 @@ export default function DeliveriesPage() {
   const [copiedCurl, setCopiedCurl] = useState<boolean>(false);
 
   // 1. Fetch Endpoints for filter
-  const { data: endpointsData } = useQuery({
+  const { data: endpointsData, refetch: refetchEndpoints } = useQuery({
     queryKey: ["endpoints", activeProjectId],
     queryFn: () =>
       apiFetch<{ endpoints: Endpoint[] }>(`/api/projects/${activeProjectId}/endpoints`, {
@@ -75,11 +75,15 @@ export default function DeliveriesPage() {
         organizationId: organization?.id,
       }),
     enabled: !!accessToken && !!activeProjectId && !!organization?.id,
+    refetchInterval: 3000,
   });
   const endpoints = endpointsData?.endpoints || [];
+  const activeEndpointsCount = useMemo(() => {
+    return endpoints.filter((ep: any) => ep.isActive ?? ep.is_active ?? true).length;
+  }, [endpoints]);
 
   // 2. Fetch Delivery KPIs
-  const { data: kpisData, isLoading: isKPIsLoading } = useQuery({
+  const { data: kpisData, isLoading: isKPIsLoading, refetch: refetchKPIs } = useQuery({
     queryKey: ["delivery-kpis", activeProjectId],
     queryFn: () =>
       apiFetch<DeliveryKPIs>(`/api/projects/${activeProjectId}/delivery-kpis`, {
@@ -87,7 +91,7 @@ export default function DeliveriesPage() {
         organizationId: organization?.id,
       }),
     enabled: !!accessToken && !!activeProjectId && !!organization?.id,
-    refetchInterval: 5000,
+    refetchInterval: 3000,
   });
 
   // 3. Fetch Deliveries list for selected endpoint / all
@@ -131,6 +135,7 @@ export default function DeliveriesPage() {
       );
     },
     enabled: !!accessToken && !!activeProjectId && !!organization?.id && endpoints.length > 0,
+    refetchInterval: 3000,
   });
 
   // 4. Real-time SSE Integration
@@ -138,8 +143,9 @@ export default function DeliveriesPage() {
     () => [
       ["deliveries", activeProjectId || "", selectedEndpointId],
       ["delivery-kpis", activeProjectId || ""],
+      ["delivery-timeline", selectedJobId || ""],
     ],
-    [activeProjectId, selectedEndpointId]
+    [activeProjectId, selectedEndpointId, selectedJobId]
   );
   useSSE({
     projectId: activeProjectId,
@@ -158,6 +164,7 @@ export default function DeliveriesPage() {
         organizationId: organization?.id,
       }),
     enabled: !!accessToken && !!selectedJobId,
+    refetchInterval: 3000,
   });
 
   // AI Incident Explainer Mutation (Milestone 15)
@@ -290,7 +297,11 @@ export default function DeliveriesPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => refetchDeliveries()}
+            onClick={() => {
+              refetchDeliveries();
+              refetchEndpoints();
+              refetchKPIs();
+            }}
             className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-card hover:bg-muted text-xs font-semibold transition shadow-sm"
           >
             <RefreshCw className="h-3.5 w-3.5 text-primary" />
@@ -346,10 +357,10 @@ export default function DeliveriesPage() {
             <Globe className="h-4 w-4 text-primary" />
           </div>
           <div className="text-2xl font-black text-foreground">
-            {endpoints.length}
+            {activeEndpointsCount} <span className="text-sm font-semibold text-muted-foreground">/ {endpoints.length}</span>
           </div>
           <p className="text-[11px] text-muted-foreground mt-1">
-            Forwarding devrede olan rotalar
+            Trafik kabul eden aktif rotalar
           </p>
         </div>
       </div>
@@ -379,6 +390,7 @@ export default function DeliveriesPage() {
           >
             <option value="ALL">Tüm Durumlar</option>
             <option value="DELIVERED">DELIVERED (Başarılı)</option>
+            <option value="PROCESSING">PROCESSING (İşleniyor)</option>
             <option value="RETRY_WAIT">RETRY_WAIT (Yeniden Denenecek)</option>
             <option value="DEAD_LETTER">DEAD_LETTER (DLQ)</option>
             <option value="PENDING">PENDING (Kuyrukta)</option>
@@ -400,10 +412,10 @@ export default function DeliveriesPage() {
 
       {/* Deliveries Table & Timeline Split View */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Deliveries List Table (Left 7 cols or full) */}
-        <div className={selectedJobId ? "lg:col-span-7" : "lg:col-span-12"}>
-          <div className="rounded-2xl border border-border bg-card/60 overflow-hidden shadow-sm">
-            <div className="px-4 py-3 border-b border-border bg-card/80 flex items-center justify-between">
+        {/* Deliveries List Table (Left 7 cols on desktop) */}
+        <div className="lg:col-span-7">
+          <div className="rounded-2xl border border-border bg-card/60 overflow-hidden shadow-sm flex flex-col h-[calc(100vh-270px)] min-h-[500px]">
+            <div className="px-4 py-3 border-b border-border bg-card/80 flex items-center justify-between shrink-0">
               <span className="text-xs font-bold text-foreground">
                 Teslimat Olayları ({filteredDeliveries.length})
               </span>
@@ -413,12 +425,12 @@ export default function DeliveriesPage() {
             </div>
 
             {isDeliveriesLoading ? (
-              <div className="p-12 text-center text-muted-foreground flex flex-col items-center gap-2">
+              <div className="p-12 text-center text-muted-foreground flex flex-col items-center justify-center flex-1 gap-2">
                 <Loader2 className="h-6 w-6 animate-spin text-primary" />
                 <span className="text-xs">Teslimat kayıtları yükleniyor...</span>
               </div>
             ) : filteredDeliveries.length === 0 ? (
-              <div className="p-12 text-center text-muted-foreground">
+              <div className="p-12 text-center text-muted-foreground flex flex-col items-center justify-center flex-1">
                 <SendHorizonal className="h-8 w-8 mx-auto text-muted-foreground/40 mb-2" />
                 <p className="text-sm font-semibold">Henüz teslimat kaydı bulunmuyor</p>
                 <p className="text-xs text-muted-foreground mt-1">
@@ -426,7 +438,7 @@ export default function DeliveriesPage() {
                 </p>
               </div>
             ) : (
-              <div className="divide-y divide-border overflow-x-auto">
+              <div className="divide-y divide-border overflow-y-auto flex-1 scrollbar-thin">
                 {filteredDeliveries.map((job) => {
                   const isSelected = selectedJobId === job.id;
                   return (
@@ -490,10 +502,11 @@ export default function DeliveriesPage() {
         </div>
 
         {/* Timeline & Attempt Inspector Drawer (Right 5 cols) */}
-        {selectedJobId && (
-          <div className="lg:col-span-5">
-            <div className="rounded-2xl border border-border bg-card/80 p-5 space-y-5 shadow-sm sticky top-6 max-h-[calc(100vh-2rem)] overflow-y-auto scrollbar-thin">
-              <div className="flex items-center justify-between pb-3 border-b border-border">
+        <div className={`lg:col-span-5 lg:sticky lg:top-6 self-start ${!selectedJobId ? "hidden lg:block" : ""}`}>
+          {selectedJobId ? (
+            <div className="rounded-2xl border border-border bg-card/80 shadow-sm overflow-hidden flex flex-col h-[calc(100vh-270px)] min-h-[500px]">
+              {/* Sticky / Pinned Header */}
+              <div className="flex items-center justify-between p-4 border-b border-border bg-card/90 shrink-0">
                 <div className="flex items-center gap-2">
                   <Activity className="h-4 w-4 text-primary" />
                   <h2 className="text-sm font-bold text-foreground">Teslimat Zaman Çizelgesi & Girişim Detayları</h2>
@@ -501,18 +514,21 @@ export default function DeliveriesPage() {
                 <button
                   onClick={() => setSelectedJobId(null)}
                   className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition"
+                  title="Detayı Kapat"
                 >
                   <X className="h-4 w-4" />
                 </button>
               </div>
 
-              {isTimelineLoading ? (
-                <div className="py-12 text-center text-muted-foreground flex flex-col items-center gap-2">
-                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                  <span className="text-xs">Zaman çizelgesi verisi yükleniyor...</span>
-                </div>
-              ) : timelineData ? (
-                <div className="space-y-6">
+              {/* Scrollable Timeline & Diagnostic Content */}
+              <div className="flex-1 overflow-y-auto p-5 space-y-5 scrollbar-thin">
+                {isTimelineLoading ? (
+                  <div className="py-16 text-center text-muted-foreground flex flex-col items-center justify-center gap-2">
+                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                    <span className="text-xs">Zaman çizelgesi verisi yükleniyor...</span>
+                  </div>
+                ) : timelineData ? (
+                  <div className="space-y-6">
                   {/* Smart Diagnostics & Quick Fix Card */}
                   {timelineData.diagnostic && timelineData.diagnostic.category !== "SUCCESS" && (
                     <div className="rounded-2xl border border-rose-500/30 bg-rose-500/5 p-4 space-y-3">
@@ -871,11 +887,24 @@ export default function DeliveriesPage() {
                     </button>
                   </div>
                 </div>
-              ) : null}
+              ) : (
+                <div className="py-12 text-center text-xs text-muted-foreground">
+                  Zaman çizelgesi verisi bulunamadı.
+                </div>
+              )}
             </div>
+          </div>
+        ) : (
+          <div className="hidden lg:flex h-[calc(100vh-270px)] min-h-[500px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/40 p-12 text-center text-muted-foreground">
+            <Activity className="h-8 w-8 text-muted-foreground/40 mb-3" />
+            <p className="text-sm font-semibold text-foreground">Teslimat Zaman Çizelgesi & Girişim Detayları</p>
+            <p className="text-xs text-muted-foreground mt-1 max-w-xs">
+              Detaylı girişim analizi, hata kök nedenleri ve zaman çizelgesini incelemek için soldaki listeden bir teslimat seçin
+            </p>
           </div>
         )}
       </div>
+    </div>
 
       {/* Safe Replay Modal with Idempotency Guard */}
       {replayModalJob && (

@@ -213,31 +213,31 @@ func (q *Queries) CreateDeliveryJob(ctx context.Context, arg CreateDeliveryJobPa
 
 const failDeliveryJob = `-- name: FailDeliveryJob :one
 UPDATE delivery_jobs
-SET status = $2,
+SET status = $4::varchar,
     attempts = attempts + 1,
     locked_at = NULL,
     locked_by = NULL,
-    last_error = $3,
-    next_retry_at = $4,
+    last_error = $2,
+    next_retry_at = $3,
     updated_at = NOW(),
-    completed_at = CASE WHEN $2 = 'DEAD_LETTER' THEN NOW() ELSE completed_at END
+    completed_at = CASE WHEN $4::varchar = 'DEAD_LETTER' THEN NOW() ELSE completed_at END
 WHERE id = $1
 RETURNING id, endpoint_id, request_id, target_url, status, attempts, max_retries, next_retry_at, locked_at, locked_by, idempotency_key, last_error, payload_mode, created_at, updated_at, completed_at
 `
 
 type FailDeliveryJobParams struct {
 	ID          pgtype.UUID        `json:"id"`
-	Status      string             `json:"status"`
 	LastError   pgtype.Text        `json:"last_error"`
 	NextRetryAt pgtype.Timestamptz `json:"next_retry_at"`
+	Status      string             `json:"status"`
 }
 
 func (q *Queries) FailDeliveryJob(ctx context.Context, arg FailDeliveryJobParams) (DeliveryJob, error) {
 	row := q.db.QueryRow(ctx, failDeliveryJob,
 		arg.ID,
-		arg.Status,
 		arg.LastError,
 		arg.NextRetryAt,
+		arg.Status,
 	)
 	var i DeliveryJob
 	err := row.Scan(
