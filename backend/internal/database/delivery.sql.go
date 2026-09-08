@@ -166,6 +166,7 @@ INSERT INTO delivery_jobs (
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, NOW()
 )
+ON CONFLICT (endpoint_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
 RETURNING id, endpoint_id, request_id, target_url, status, attempts, max_retries, next_retry_at, locked_at, locked_by, idempotency_key, last_error, payload_mode, created_at, updated_at, completed_at
 `
 

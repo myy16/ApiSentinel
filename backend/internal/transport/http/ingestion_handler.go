@@ -50,7 +50,11 @@ func (h *IngestionHandler) HandleWebhook(w http.ResponseWriter, r *http.Request)
 	)
 
 	if err != nil {
-		writeError(w, http.StatusNotFound, "ENDPOINT_NOT_FOUND", err.Error())
+		if err.Error() == "endpoint bulunamadı" || err.Error() == "endpoint pasif durumda" {
+			writeError(w, http.StatusNotFound, "ENDPOINT_NOT_FOUND", err.Error())
+		} else {
+			writeError(w, http.StatusInternalServerError, "INGESTION_ERROR", err.Error())
+		}
 		return
 	}
 

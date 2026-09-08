@@ -440,21 +440,27 @@ func (s *IngestionService) ProcessWebhook(
 				PayloadMode:    payloadMode,
 			})
 			if jobErr != nil {
-				log.Error().Err(jobErr).Str("requestId", requestId).Msg("Failed to persist delivery job in tx — rolling back entire ingestion")
-				return &IngestionResult{
-					StatusCode: http.StatusInternalServerError,
-					RequestID:  requestId,
-					Action:     action,
-					ResponseBody: map[string]interface{}{
-						"error": map[string]interface{}{
-							"code":      "PERSISTENCE_FAILED",
-							"message":   "Teslimat işi oluşturulamadı, işlem geri alındı",
-							"requestId": requestId,
+				if errors.Is(jobErr, pgx.ErrNoRows) {
+					// Duplicate idempotency hit: job already exists, ingestion succeeded
+					log.Info().Str("requestId", requestId).Str("idempKey", idempKey).Msg("Duplicate idempotency key detected — delivery job already registered")
+				} else {
+					log.Error().Err(jobErr).Str("requestId", requestId).Msg("Failed to persist delivery job in tx — rolling back entire ingestion")
+					return &IngestionResult{
+						StatusCode: http.StatusInternalServerError,
+						RequestID:  requestId,
+						Action:     action,
+						ResponseBody: map[string]interface{}{
+							"error": map[string]interface{}{
+								"code":      "PERSISTENCE_FAILED",
+								"message":   "Teslimat işi oluşturulamadı, işlem geri alındı",
+								"requestId": requestId,
+							},
 						},
-					},
-				}, jobErr
+					}, jobErr
+				}
+			} else {
+				createdJob = &job
 			}
-			createdJob = &job
 		}
 
 		if commitErr := tx.Commit(ctx); commitErr != nil {

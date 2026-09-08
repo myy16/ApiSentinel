@@ -11,6 +11,7 @@ INSERT INTO delivery_jobs (
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, NOW()
 )
+ON CONFLICT (endpoint_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
 RETURNING *;
 
 -- name: ClaimPendingDeliveryJobs :many

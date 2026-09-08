@@ -282,6 +282,38 @@ func (s *ForwardingService) ListDLQ(ctx context.Context, endpointID string) ([]d
 		return nil, fmt.Errorf("invalid endpoint ID: %w", err)
 	}
 
+	// 1. Fetch unified delivery_jobs that failed (DEAD_LETTER, RETRY_WAIT, PROCESSING)
+	jobs, err := s.queries.ListDeliveryJobsByEndpoint(ctx, database.ListDeliveryJobsByEndpointParams{
+		EndpointID: pgtype.UUID{Bytes: epUUID, Valid: true},
+		Limit:      50,
+		Offset:     0,
+	})
+	if err == nil && len(jobs) > 0 {
+		var results []database.ForwardingDlq
+		for _, j := range jobs {
+			if j.Status == "DEAD_LETTER" || j.Status == "RETRY_WAIT" || j.Status == "PROCESSING" {
+				lastErr := j.LastError
+				results = append(results, database.ForwardingDlq{
+					ID:            j.ID,
+					EndpointID:    j.EndpointID,
+					RequestID:     j.RequestID,
+					TargetUrl:     j.TargetUrl,
+					Attempts:      j.Attempts,
+					MaxRetries:    j.MaxRetries,
+					LastError:     lastErr,
+					Payload:       pgtype.Text{String: "", Valid: false},
+					PayloadMode:   j.PayloadMode,
+					Status:        j.Status,
+					CreatedAt:     j.CreatedAt,
+					LastAttemptAt: j.UpdatedAt,
+				})
+			}
+		}
+		if len(results) > 0 {
+			return results, nil
+		}
+	}
+
 	return s.queries.ListDLQRecordsByEndpoint(ctx, pgtype.UUID{Bytes: epUUID, Valid: true})
 }
 
@@ -294,6 +326,12 @@ func (s *ForwardingService) RetryDLQRecord(ctx context.Context, dlqID string) er
 
 	record, err := s.queries.GetDLQRecordByID(ctx, pgtype.UUID{Bytes: dlqUUID, Valid: true})
 	if err != nil {
+		// Fallback: check if it's a delivery_job ID
+		job, jobErr := s.queries.GetDeliveryJobByID(ctx, pgtype.UUID{Bytes: dlqUUID, Valid: true})
+		if jobErr == nil {
+			_, reqErr := s.queries.RequeueDeliveryJob(ctx, job.ID)
+			return reqErr
+		}
 		return fmt.Errorf("DLQ record not found: %w", err)
 	}
 
