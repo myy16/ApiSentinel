@@ -23,6 +23,11 @@ import {
   AlertOctagon,
   ShieldAlert,
   FolderGit2,
+  RefreshCw,
+  ChevronDown,
+  ChevronUp,
+  FileCode,
+  AlertTriangle,
 } from "lucide-react";
 
 interface AgentSession {
@@ -62,12 +67,19 @@ export default function AgentsPage() {
   const [copiedCommand, setCopiedCommand] = useState(false);
   const [copiedHookPreCommit, setCopiedHookPreCommit] = useState(false);
   const [copiedHookPrePush, setCopiedHookPrePush] = useState(false);
+  const [copiedCreatedKey, setCopiedCreatedKey] = useState(false);
   const [keyName, setKeyName] = useState("");
   const [isLiveKey, setIsLiveKey] = useState(false);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
+  const [expandedScanId, setExpandedScanId] = useState<string | null>(null);
 
-  // Fetch real connected agents from backend
-  const { data: agentsData, isLoading } = useQuery({
+  // Fetch real connected agents from backend (Live 2s polling for instant UI status update)
+  const {
+    data: agentsData,
+    isLoading,
+    refetch: refetchAgents,
+    isRefetching: isAgentsRefetching,
+  } = useQuery({
     queryKey: ["agents", "sessions", organization?.id],
     queryFn: () =>
       apiFetch<{ agents: AgentSession[]; total: number }>("/api/agents/sessions", {
@@ -75,7 +87,7 @@ export default function AgentsPage() {
         organizationId: organization?.id,
       }),
     enabled: !!accessToken && !!organization?.id,
-    refetchInterval: 10000, // Lightweight poll every 10s for agent status
+    refetchInterval: 2000, // Live poll every 2s for instant agent status without F5
   });
 
   const agents = agentsData?.agents || [];
@@ -101,6 +113,19 @@ export default function AgentsPage() {
   });
 
   const scans = scansData?.scans || [];
+
+  // Fetch all findings for this project to display in expanded scan dropdown
+  const { data: findingsData } = useQuery({
+    queryKey: ["findings", activeProjectId],
+    queryFn: () =>
+      apiFetch<{ findings: any[] }>(`/api/projects/${activeProjectId}/findings?limit=100`, {
+        token: accessToken,
+        organizationId: organization?.id,
+      }),
+    enabled: !!accessToken && !!organization?.id && !!activeProjectId,
+  });
+
+  const allFindings = findingsData?.findings || [];
 
   const createKey = useMutation({
     mutationFn: () =>
@@ -171,6 +196,15 @@ export default function AgentsPage() {
             Geliştirici bilgisayarlarında çalışan ApiSentinel CLI ajanlarını, Pre-Commit / Pre-Push hook'larını ve tarama geçmişini yönetin.
           </p>
         </div>
+
+        <button
+          onClick={() => refetchAgents()}
+          disabled={isAgentsRefetching}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-card hover:bg-muted text-xs font-semibold transition shadow-sm self-start shrink-0 disabled:opacity-60"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 text-primary ${isAgentsRefetching ? "animate-spin" : ""}`} />
+          <span>{isAgentsRefetching ? "Yenileniyor..." : "Yenile"}</span>
+        </button>
       </div>
 
       {/* Connection & Git Hook Commands Grid */}
@@ -286,12 +320,16 @@ export default function AgentsPage() {
           </button>
         </div>
         {createdKey && (
-          <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm animate-in fade-in duration-300">
             <p className="font-semibold text-amber-300">Bu anahtarı şimdi kopyala. Tekrar gösterilmeyecek.</p>
-            <div className="mt-2 flex gap-2">
-              <code className="min-w-0 flex-1 break-all rounded bg-background px-2 py-1 text-xs">{createdKey}</code>
-              <button onClick={() => navigator.clipboard.writeText(createdKey)} className="rounded bg-secondary px-3 py-1 text-xs">
-                Kopyala
+            <div className="mt-2 flex items-center gap-2">
+              <code className="min-w-0 flex-1 break-all rounded bg-background px-2.5 py-1.5 text-xs font-mono text-foreground border border-border">{createdKey}</code>
+              <button
+                onClick={() => copyToClipboard(createdKey, setCopiedCreatedKey)}
+                className="flex items-center gap-1.5 rounded-lg bg-secondary px-3 py-1.5 text-xs font-bold text-foreground transition hover:bg-primary hover:text-primary-foreground shrink-0"
+              >
+                {copiedCreatedKey ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                <span>{copiedCreatedKey ? "Kopyalandı!" : "Kopyala"}</span>
               </button>
             </div>
           </div>
@@ -413,53 +451,154 @@ export default function AgentsPage() {
                   <th className="pb-2">Tarama Tipi</th>
                   <th className="pb-2">Bulgu Durumu</th>
                   <th className="pb-2">Sonuç Kararı</th>
-                  <th className="pb-2 text-right">Tarih</th>
+                  <th className="pb-2">Tarih</th>
+                  <th className="pb-2 text-right">Detay</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border font-mono">
                 {scans.map((sc) => {
                   const isClean = sc.totalFindings === 0;
+                  const isExpanded = expandedScanId === sc.id;
+                  const scanFindings = allFindings.filter((f: any) => f.scanId === sc.id || f.scan_id === sc.id);
 
                   return (
-                    <tr key={sc.id} className="hover:bg-secondary/30 transition">
-                      <td className="py-2.5 font-bold text-foreground flex items-center gap-1.5">
-                        <GitBranch className="h-3.5 w-3.5 text-purple-400" />
-                        <span>{sc.repository}</span>
-                      </td>
-                      <td className="py-2.5 text-muted-foreground">
-                        {sc.branch || "HEAD"} {sc.commitHash ? `(${sc.commitHash.slice(0, 7)})` : ""}
-                      </td>
-                      <td className="py-2.5 text-muted-foreground">
-                        <span className="rounded bg-secondary px-2 py-0.5 text-[10px]">{sc.scanType}</span>
-                      </td>
-                      <td className="py-2.5">
-                        {isClean ? (
-                          <span className="flex items-center gap-1 text-emerald-400 font-bold">
-                            <ShieldCheck className="h-3.5 w-3.5" />
-                            <span>0 Bulgu — Güvenli (Temiz)</span>
+                    <React.Fragment key={sc.id}>
+                      <tr
+                        onClick={() => setExpandedScanId(isExpanded ? null : sc.id)}
+                        className={`transition cursor-pointer ${
+                          isExpanded ? "bg-muted/40" : "hover:bg-secondary/30"
+                        }`}
+                      >
+                        <td className="py-2.5 font-bold text-foreground flex items-center gap-1.5">
+                          <GitBranch className="h-3.5 w-3.5 text-purple-400" />
+                          <span>{sc.repository}</span>
+                        </td>
+                        <td className="py-2.5 text-muted-foreground">
+                          {sc.branch || "HEAD"} {sc.commitHash ? `(${sc.commitHash.slice(0, 7)})` : ""}
+                        </td>
+                        <td className="py-2.5 text-muted-foreground">
+                          <span className="rounded bg-secondary px-2 py-0.5 text-[10px]">{sc.scanType}</span>
+                        </td>
+                        <td className="py-2.5">
+                          {isClean ? (
+                            <span className="flex items-center gap-1 text-emerald-400 font-bold">
+                              <ShieldCheck className="h-3.5 w-3.5" />
+                              <span>0 Bulgu — Güvenli (Temiz)</span>
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-rose-400 font-bold">
+                              <AlertOctagon className="h-3.5 w-3.5" />
+                              <span>{sc.totalFindings} Tehdit Engellendi</span>
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5">
+                          <span
+                            className={`rounded px-2 py-0.5 text-[10px] font-bold ${
+                              sc.action === "BLOCK"
+                                ? "bg-rose-500/20 text-rose-400 border border-rose-500/30"
+                                : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                            }`}
+                          >
+                            {sc.action}
                           </span>
-                        ) : (
-                          <span className="flex items-center gap-1 text-rose-400 font-bold">
-                            <AlertOctagon className="h-3.5 w-3.5" />
-                            <span>{sc.totalFindings} Tehdit Engellendi</span>
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-2.5">
-                        <span
-                          className={`rounded px-2 py-0.5 text-[10px] font-bold ${
-                            sc.action === "BLOCK"
-                              ? "bg-rose-500/20 text-rose-400 border border-rose-500/30"
-                              : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                          }`}
-                        >
-                          {sc.action}
-                        </span>
-                      </td>
-                      <td className="py-2.5 text-right text-muted-foreground">
-                        {new Date(sc.createdAt).toLocaleString("tr-TR")}
-                      </td>
-                    </tr>
+                        </td>
+                        <td className="py-2.5 text-muted-foreground text-[11px]">
+                          {new Date(sc.createdAt).toLocaleString("tr-TR")}
+                        </td>
+                        <td className="py-2.5 text-right">
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 text-xs font-sans text-primary hover:underline"
+                          >
+                            <span>{isExpanded ? "Kapat" : "İncele"}</span>
+                            {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                          </button>
+                        </td>
+                      </tr>
+
+                      {/* Dropdown Faaliyet & Bulgu Detayı */}
+                      {isExpanded && (
+                        <tr>
+                          <td colSpan={7} className="p-4 bg-muted/10 border-b border-border">
+                            <div className="rounded-xl border border-border bg-card p-4 space-y-3 font-sans animate-in fade-in duration-200">
+                              <div className="flex items-center justify-between border-b border-border pb-2">
+                                <div className="flex items-center gap-2">
+                                  <FileCode className="h-4 w-4 text-primary" />
+                                  <span className="text-xs font-bold text-foreground">
+                                    Tarama Faaliyet Raporu & Güvenlik Analizi
+                                  </span>
+                                </div>
+                                <span className="text-[11px] font-mono text-muted-foreground">
+                                  Scan ID: {sc.id} • Ajan: {sc.agentId || "local"}
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                                <div className="p-2.5 rounded-lg bg-background border border-border">
+                                  <span className="text-[10px] uppercase font-bold text-muted-foreground block">Depo / Proje</span>
+                                  <span className="font-mono font-bold text-foreground">{sc.repository}</span>
+                                </div>
+                                <div className="p-2.5 rounded-lg bg-background border border-border">
+                                  <span className="text-[10px] uppercase font-bold text-muted-foreground block">Hedef Dal</span>
+                                  <span className="font-mono font-bold text-foreground">{sc.branch || "HEAD"}</span>
+                                </div>
+                                <div className="p-2.5 rounded-lg bg-background border border-border">
+                                  <span className="text-[10px] uppercase font-bold text-muted-foreground block">Commit Hash</span>
+                                  <span className="font-mono text-foreground">{sc.commitHash ? sc.commitHash.slice(0, 12) : "Uncommitted / Staged"}</span>
+                                </div>
+                                <div className="p-2.5 rounded-lg bg-background border border-border">
+                                  <span className="text-[10px] uppercase font-bold text-muted-foreground block">Sistem Kararı</span>
+                                  <span className={`font-bold ${sc.action === "BLOCK" ? "text-rose-400" : "text-emerald-400"}`}>
+                                    {sc.action === "BLOCK" ? "🚨 Engellendi (Git Aborted)" : "✅ İzin Verildi (Temiz)"}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Findings List or Clean notice */}
+                              {scanFindings.length > 0 ? (
+                                <div className="space-y-2 pt-1">
+                                  <span className="text-xs font-bold text-rose-400 flex items-center gap-1.5">
+                                    <AlertTriangle className="h-3.5 w-3.5" />
+                                    <span>Tespit Edilen Güvenlik İhlalleri ({scanFindings.length}):</span>
+                                  </span>
+                                  <div className="space-y-2">
+                                    {scanFindings.map((f: any) => (
+                                      <div key={f.id} className="p-3 rounded-lg bg-rose-500/5 border border-rose-500/20 text-xs space-y-1">
+                                        <div className="flex items-center justify-between">
+                                          <div className="flex items-center gap-2">
+                                            <span className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 font-bold text-[10px]">
+                                              {f.severity}
+                                            </span>
+                                            <span className="font-bold text-foreground">{f.type || f.category}</span>
+                                          </div>
+                                          <span className="font-mono text-[11px] text-muted-foreground">
+                                            {f.filePath || f.file_path}:{f.lineNumber || f.line_number || 1}
+                                          </span>
+                                        </div>
+                                        <p className="text-muted-foreground text-[11px]">{f.message}</p>
+                                        {(f.evidenceMasked || f.evidence_masked) && (
+                                          <div className="p-1.5 rounded bg-background font-mono text-[11px] text-rose-300 border border-border truncate">
+                                            Kanıt: {f.evidenceMasked || f.evidence_masked}
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs flex items-center gap-2 text-emerald-400">
+                                  <ShieldCheck className="h-4 w-4 shrink-0" />
+                                  <span>
+                                    Bu taramada kod tabanında herhangi bir şifre, gizli anahtar veya hassas veri (PII) sızıntısı tespit edilmemiştir.
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   );
                 })}
               </tbody>

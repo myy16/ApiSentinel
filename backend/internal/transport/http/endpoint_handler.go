@@ -4,16 +4,26 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/apisentinel/apisentinel/internal/database"
+	"github.com/apisentinel/apisentinel/internal/middleware"
 	"github.com/apisentinel/apisentinel/internal/service"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/rs/zerolog/log"
 )
 
 type EndpointHandler struct {
 	endpointService *service.EndpointService
+	queries         *database.Queries
 }
 
-func NewEndpointHandler(endpointService *service.EndpointService) *EndpointHandler {
-	return &EndpointHandler{endpointService: endpointService}
+func NewEndpointHandler(endpointService *service.EndpointService, queries ...*database.Queries) *EndpointHandler {
+	var q *database.Queries
+	if len(queries) > 0 {
+		q = queries[0]
+	}
+	return &EndpointHandler{endpointService: endpointService, queries: q}
 }
 
 type CreateEndpointRequest struct {
@@ -100,6 +110,36 @@ func (h *EndpointHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
 		return
+	}
+
+	// Write Audit Log if Upstream URL is modified
+	if req.UpstreamURL != nil && h.queries != nil {
+		orgID := middleware.GetOrganizationID(r.Context())
+		userID := middleware.GetUserID(r.Context())
+		pUUID, _ := uuid.Parse(projectId)
+		epUUID, _ := uuid.Parse(endpointId)
+
+		metaJSON, _ := json.Marshal(map[string]interface{}{
+			"endpointId":  endpointId,
+			"slug":        ep.Slug,
+			"upstreamUrl": *req.UpstreamURL,
+			"name":        ep.Name,
+		})
+
+		_, auditErr := h.queries.CreateAuditLog(r.Context(), database.CreateAuditLogParams{
+			OrganizationID: orgID,
+			ProjectID:      pgtype.UUID{Bytes: pUUID, Valid: true},
+			UserID:         userID,
+			Action:         "UPSTREAM_URL_CHANGED",
+			ResourceType:   "ENDPOINT",
+			ResourceID:     epUUID.String(),
+			Justification:  pgtype.Text{String: "Endpoint Upstream URL güncellendi", Valid: true},
+			IpAddress:      pgtype.Text{String: r.RemoteAddr, Valid: true},
+			Metadata:       metaJSON,
+		})
+		if auditErr != nil {
+			log.Error().Err(auditErr).Msg("Failed to write audit log for UPSTREAM_URL_CHANGED")
+		}
 	}
 
 	writeJSON(w, http.StatusOK, ep)

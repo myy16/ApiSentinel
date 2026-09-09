@@ -79,6 +79,34 @@ export default function ReplayPage() {
   const [suiteRunReport, setSuiteRunReport] = useState<TestSuiteRunReport | null>(null);
   const [runningSuiteId, setRunningSuiteId] = useState<string | null>(null);
 
+  // Search filter states for request picker
+  const [singleRequestSearch, setSingleRequestSearch] = useState<string>("");
+  const [suiteRequestSearch, setSuiteRequestSearch] = useState<string>("");
+
+  // Helper to parse request_ids whether it's an array, json string, or base64 encoded JSON
+  const parseRequestIds = (val: any): string[] => {
+    if (Array.isArray(val)) return val;
+    if (!val) return [];
+    if (typeof val === "string") {
+      try {
+        const parsed = JSON.parse(val);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {
+        // Might be base64 encoded
+        try {
+          if (typeof window !== "undefined" && window.atob) {
+            const decoded = window.atob(val);
+            const parsed = JSON.parse(decoded);
+            if (Array.isArray(parsed)) return parsed;
+          }
+        } catch {
+          // Ignore
+        }
+      }
+    }
+    return [];
+  };
+
   // 1. Fetch captured requests
   const { data: requestsData } = useQuery({
     queryKey: ["requests", activeProjectId],
@@ -91,6 +119,28 @@ export default function ReplayPage() {
   });
 
   const requests = requestsData?.requests || [];
+
+  // Filtered requests for Single Replay
+  const filteredSingleRequests = requests.filter((r) => {
+    if (!singleRequestSearch.trim()) return true;
+    const term = singleRequestSearch.toLowerCase();
+    const reqId = (r.requestId || "").toString().toLowerCase();
+    const method = (r.httpMethod || "").toLowerCase();
+    const epName = ((r as any).endpointName || (r as any).endpointSlug || "").toLowerCase();
+    const status = (r.responseStatus || "").toString();
+    return reqId.includes(term) || method.includes(term) || epName.includes(term) || status.includes(term);
+  });
+
+  // Filtered requests for Test Suite
+  const filteredSuiteRequests = requests.filter((r) => {
+    if (!suiteRequestSearch.trim()) return true;
+    const term = suiteRequestSearch.toLowerCase();
+    const reqId = (r.requestId || "").toString().toLowerCase();
+    const method = (r.httpMethod || "").toLowerCase();
+    const epName = ((r as any).endpointName || (r as any).endpointSlug || "").toLowerCase();
+    const status = (r.responseStatus || "").toString();
+    return reqId.includes(term) || method.includes(term) || epName.includes(term) || status.includes(term);
+  });
 
   // 2. Fetch past replay jobs
   const { data: replaysData, isLoading: isReplaysLoading } = useQuery({
@@ -105,11 +155,11 @@ export default function ReplayPage() {
 
   const replays = replaysData?.replays || [];
 
-  // 3. Fetch Test Suites
+  // 3. Fetch test suites
   const { data: suitesData, isLoading: isSuitesLoading } = useQuery({
     queryKey: ["test-suites", activeProjectId],
     queryFn: () =>
-      apiFetch<{ suites: any[]; count: number }>(`/api/projects/${activeProjectId}/test-suites`, {
+      apiFetch<{ suites: any[] }>(`/api/projects/${activeProjectId}/test-suites`, {
         token: accessToken,
         organizationId: organization?.id,
       }),
@@ -121,7 +171,7 @@ export default function ReplayPage() {
     projectId: s.project_id || s.projectId,
     name: s.name,
     description: s.description,
-    requestIds: Array.isArray(s.request_ids) ? s.request_ids : JSON.parse(s.request_ids || "[]"),
+    requestIds: parseRequestIds(s.request_ids),
     targetEnvironment: s.target_environment || s.targetEnvironment || "STAGING",
     targetUrl: s.target_url || s.targetUrl,
     renewIdempotency: s.renew_idempotency !== undefined ? s.renew_idempotency : true,
@@ -364,25 +414,52 @@ export default function ReplayPage() {
               <form onSubmit={handleExecuteReplay} className="space-y-5">
                 {/* Kaynak İstek */}
                 <div>
-                  <label className="block text-xs font-bold text-foreground mb-1.5">
-                    1. Kaynak İstek (Canlı Yakalanan Webhook):
-                  </label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-bold text-foreground">
+                      1. Kaynak İstek (Canlı Yakalanan Webhook):
+                    </label>
+                    <span className="text-[11px] text-muted-foreground">
+                      {filteredSingleRequests.length} / {requests.length} istek
+                    </span>
+                  </div>
+
                   {requests.length === 0 ? (
                     <div className="text-xs text-muted-foreground p-3 rounded-xl border border-dashed border-border bg-muted/20">
                       Henüz yakalanmış bir istek bulunamadı.
                     </div>
                   ) : (
-                    <select
-                      value={selectedRequestId}
-                      onChange={(e) => setSelectedRequestId(e.target.value)}
-                      className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    >
-                      {requests.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          #{r.requestId} — [{r.httpMethod}] {new Date(r.createdAt).toLocaleString()} (HTTP {r.responseStatus || 200})
-                        </option>
-                      ))}
-                    </select>
+                    <div className="space-y-2">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                        <input
+                          type="text"
+                          placeholder="İstek ara (ID, metod, endpoint, HTTP kodu)..."
+                          value={singleRequestSearch}
+                          onChange={(e) => {
+                            setSingleRequestSearch(e.target.value);
+                          }}
+                          className="w-full rounded-xl border border-input bg-background/60 pl-8 pr-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary"
+                        />
+                      </div>
+
+                      {filteredSingleRequests.length === 0 ? (
+                        <div className="text-xs text-muted-foreground p-3 rounded-xl border border-border bg-muted/10 text-center">
+                          Arama kriterine uygun istek bulunamadı.
+                        </div>
+                      ) : (
+                        <select
+                          value={selectedRequestId}
+                          onChange={(e) => setSelectedRequestId(e.target.value)}
+                          className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                        >
+                          {filteredSingleRequests.map((r) => (
+                            <option key={r.id} value={r.id}>
+                              #{r.requestId} — [{r.httpMethod}] {(r as any).endpointName ? `(${(r as any).endpointName})` : ""} {new Date(r.createdAt).toLocaleString()} (HTTP {r.responseStatus || 200})
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
                   )}
                 </div>
 
@@ -785,39 +862,65 @@ export default function ReplayPage() {
                 </div>
 
                 {/* Request Selector Table */}
-                <div>
-                  <label className="block text-xs font-bold text-foreground mb-2">
-                    Senaryoya Eklenecek İstekler ({suiteSelectedRequests.length} seçili):
-                  </label>
-                  <div className="max-h-56 overflow-y-auto rounded-xl border border-border divide-y divide-border">
-                    {requests.map((r) => {
-                      const isChecked = suiteSelectedRequests.includes(r.id);
-                      return (
-                        <div
-                          key={r.id}
-                          onClick={() => toggleSuiteRequest(r.id)}
-                          className={`p-2.5 flex items-center justify-between text-xs cursor-pointer transition ${
-                            isChecked ? "bg-primary/10" : "hover:bg-muted/20"
-                          }`}
-                        >
-                          <div className="flex items-center gap-2.5">
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={() => {}}
-                              className="h-3.5 w-3.5 rounded text-primary"
-                            />
-                            <span className="font-mono font-bold text-foreground">#{r.requestId}</span>
-                            <span className="text-muted-foreground font-mono">[{r.httpMethod}]</span>
-                            <span className="text-muted-foreground">{new Date(r.createdAt).toLocaleTimeString()}</span>
-                          </div>
-                          <span className="text-[11px] font-mono text-primary font-bold">
-                            HTTP {r.responseStatus || 200}
-                          </span>
-                        </div>
-                      );
-                    })}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-foreground">
+                      Senaryoya Eklenecek İstekler ({suiteSelectedRequests.length} seçili):
+                    </label>
+                    <span className="text-[11px] text-muted-foreground">
+                      {filteredSuiteRequests.length} / {requests.length} listeleniyor
+                    </span>
                   </div>
+
+                  <div className="relative">
+                    <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                    <input
+                      type="text"
+                      placeholder="İstek ara (ID, metod, endpoint, HTTP kodu)..."
+                      value={suiteRequestSearch}
+                      onChange={(e) => setSuiteRequestSearch(e.target.value)}
+                      className="w-full rounded-xl border border-input bg-background/60 pl-8 pr-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+
+                  {filteredSuiteRequests.length === 0 ? (
+                    <div className="p-4 rounded-xl border border-dashed border-border bg-muted/10 text-center text-xs text-muted-foreground">
+                      Arama kriterine uygun istek bulunamadı.
+                    </div>
+                  ) : (
+                    <div className="max-h-56 overflow-y-auto rounded-xl border border-border divide-y divide-border">
+                      {filteredSuiteRequests.map((r) => {
+                        const isChecked = suiteSelectedRequests.includes(r.id);
+                        return (
+                          <div
+                            key={r.id}
+                            onClick={() => toggleSuiteRequest(r.id)}
+                            className={`p-2.5 flex items-center justify-between text-xs cursor-pointer transition ${
+                              isChecked ? "bg-primary/10" : "hover:bg-muted/20"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => {}}
+                                className="h-3.5 w-3.5 rounded text-primary"
+                              />
+                              <span className="font-mono font-bold text-foreground">#{r.requestId}</span>
+                              <span className="text-muted-foreground font-mono">[{r.httpMethod}]</span>
+                              {(r as any).endpointName && (
+                                <span className="text-muted-foreground text-[11px]">({(r as any).endpointName})</span>
+                              )}
+                              <span className="text-muted-foreground">{new Date(r.createdAt).toLocaleTimeString()}</span>
+                            </div>
+                            <span className="text-[11px] font-mono text-primary font-bold">
+                              HTTP {r.responseStatus || 200}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex justify-end gap-3 pt-2">

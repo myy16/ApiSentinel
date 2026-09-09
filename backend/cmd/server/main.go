@@ -116,7 +116,7 @@ func main() {
 	handlers := &transporthttp.Handlers{
 		AuthHandler:            transporthttp.NewAuthHandler(authService),
 		ProjectHandler:         transporthttp.NewProjectHandler(projectService),
-		EndpointHandler:        transporthttp.NewEndpointHandler(endpointService),
+		EndpointHandler:        transporthttp.NewEndpointHandler(endpointService, queries),
 		IngestionHandler:       transporthttp.NewIngestionHandler(ingestionService),
 		RequestHandler:         transporthttp.NewRequestHandler(requestService),
 		SSEHandler:             transporthttp.NewSSEHandler(valkeyClient),
@@ -128,7 +128,7 @@ func main() {
 		FindingHandler:         transporthttp.NewFindingHandler(findingService),
 		APIKeyHandler:          transporthttp.NewAPIKeyHandler(apiKeyService),
 		AgentHandler:           transporthttp.NewAgentHandler(grpcServer),
-		WebhookSecurityHandler: transporthttp.NewWebhookSecurityHandler(webhookSecurityService),
+		WebhookSecurityHandler: transporthttp.NewWebhookSecurityHandler(webhookSecurityService, queries),
 		DeliveryHandler:        transporthttp.NewDeliveryHandler(queries, deliveryService, explainer),
 		TemplateHandler:        transporthttp.NewTemplateHandler(),
 		SchemaHandler:          transporthttp.NewSchemaHandler(queries),
