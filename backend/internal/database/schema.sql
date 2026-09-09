@@ -148,7 +148,9 @@ CREATE TABLE IF NOT EXISTS mock_rules (
     delay_ms INT NOT NULL DEFAULT 0,
     response_headers JSONB,
     response_body JSONB,
-    enabled BOOLEAN NOT NULL DEFAULT TRUE
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- 11. Replay Jobs

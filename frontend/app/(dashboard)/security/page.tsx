@@ -434,11 +434,24 @@ export default function SecurityFindingsPage() {
                   )}
                 </div>
 
-                {/* Card Footer: Timestamp & Inline AI Button */}
-                <div className="flex items-center justify-between pt-3 border-t border-border">
-                  <span className="text-[11px] text-muted-foreground font-mono">
-                    {new Date(f.createdAt).toLocaleString("tr-TR")}
-                  </span>
+                {/* Card Footer: Timestamp, Request Link & Inline AI Button */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-border">
+                  <div className="flex items-center gap-3">
+                    <span className="text-[11px] text-muted-foreground font-mono">
+                      {new Date(f.createdAt).toLocaleString("tr-TR")}
+                    </span>
+
+                    {f.reqDisplayId && (
+                      <Link
+                        href={`/requests?search=${encodeURIComponent(f.reqDisplayId)}`}
+                        className="inline-flex items-center gap-1 font-mono text-[11px] text-primary hover:underline bg-primary/5 px-2 py-0.5 rounded border border-primary/20 transition"
+                        title="İlgili İsteği Canlı İstekler Sayfasında Görüntüle"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        <span>{f.reqDisplayId}</span>
+                      </Link>
+                    )}
+                  </div>
 
                   <button
                     onClick={() => handleToggleExplain(f)}

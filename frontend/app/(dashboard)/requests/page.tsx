@@ -43,11 +43,19 @@ function RequestsContent() {
   const [copiedPayload, setCopiedPayload] = useState(false);
   const [copiedCurl, setCopiedCurl] = useState(false);
 
-  // Sync endpoint filter from URL query parameter (e.g. /requests?endpointId=...)
+  // Sync endpoint filter and search filter from URL query parameter (e.g. /requests?endpointId=... or /requests?search=...)
   useEffect(() => {
     const urlEpId = searchParams.get("endpointId");
     if (urlEpId) {
       setEndpointFilter(urlEpId);
+    }
+    const urlSearch = searchParams.get("search");
+    if (urlSearch) {
+      setSearchFilter(urlSearch);
+    }
+    const urlReqId = searchParams.get("requestId");
+    if (urlReqId) {
+      setSelectedRequestId(urlReqId);
     }
   }, [searchParams]);
 

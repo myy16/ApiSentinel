@@ -249,6 +249,10 @@ func TestFullHTTPIntegrationFlow(t *testing.T) {
 	req.Header.Set("x-organization-id", orgId)
 	router.ServeHTTP(w, req)
 
+	if w.Code != http.StatusCreated {
+		t.Fatalf("Expected 201 on create mock rule, got %d: %s", w.Code, w.Body.String())
+	}
+
 	// Send request to mock endpoint
 	w = httptest.NewRecorder()
 	req, _ = http.NewRequest("POST", "/hook/"+mockSlug, bytes.NewBuffer([]byte(`{"hello":"world"}`)))

@@ -9,13 +9,20 @@ import { Lock, Mail, Building2, ArrowRight, AlertCircle, Loader2 } from "lucide-
 
 export default function RegisterPage() {
   const router = useRouter();
-  const { register } = useAuth();
+  const { user, isLoading, register } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [orgName, setOrgName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // If user is already logged in, redirect away from register page
+  React.useEffect(() => {
+    if (!isLoading && user) {
+      router.replace("/overview");
+    }
+  }, [user, isLoading, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,6 +44,17 @@ export default function RegisterPage() {
       setIsSubmitting(false);
     }
   };
+
+  if (isLoading || user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          <span className="text-xs text-muted-foreground">Oturum kontrol ediliyor...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6 py-12">

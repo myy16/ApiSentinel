@@ -17,6 +17,7 @@ bin
 *.exe
 .next
 out
+*.tsbuildinfo
 
 # Logs
 logs
@@ -44,4 +45,3 @@ drizzle/meta/
 
 # Local project notes
 project.md
-doit.md

@@ -9,12 +9,19 @@ import { Lock, Mail, ArrowRight, AlertCircle, Loader2 } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login } = useAuth();
+  const { user, isLoading, login } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // If user is already logged in, redirect away from login page
+  React.useEffect(() => {
+    if (!isLoading && user) {
+      router.replace("/overview");
+    }
+  }, [user, isLoading, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,6 +37,17 @@ export default function LoginPage() {
       setIsSubmitting(false);
     }
   };
+
+  if (isLoading || user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          <span className="text-xs text-muted-foreground">Oturum kontrol ediliyor...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6 py-12">
