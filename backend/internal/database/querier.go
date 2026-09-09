@@ -92,6 +92,7 @@ type Querier interface {
 	ListEndpointsByProject(ctx context.Context, projectID pgtype.UUID) ([]ListEndpointsByProjectRow, error)
 	ListFindingsByProject(ctx context.Context, arg ListFindingsByProjectParams) ([]ListFindingsByProjectRow, error)
 	ListMockRulesByEndpoint(ctx context.Context, endpointID pgtype.UUID) ([]MockRule, error)
+	ToggleMockRule(ctx context.Context, arg ToggleMockRuleParams) (MockRule, error)
 	ListProjectsByOrg(ctx context.Context, organizationID pgtype.UUID) ([]Project, error)
 	ListReplayJobsByProject(ctx context.Context, arg ListReplayJobsByProjectParams) ([]ListReplayJobsByProjectRow, error)
 	ListReplayTestRunsBySuite(ctx context.Context, suiteID pgtype.UUID) ([]ReplayTestRun, error)

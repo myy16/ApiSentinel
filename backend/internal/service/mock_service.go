@@ -117,3 +117,55 @@ func (s *MockService) ListRules(ctx context.Context, endpointId string) ([]MockR
 
 	return res, nil
 }
+
+func (s *MockService) DeleteRule(ctx context.Context, ruleId string, endpointId string) error {
+	rUUID, err := uuid.Parse(ruleId)
+	if err != nil {
+		return errors.New("geçersiz rule ID")
+	}
+	epUUID, err := uuid.Parse(endpointId)
+	if err != nil {
+		return errors.New("geçersiz endpoint ID")
+	}
+
+	return s.queries.DeleteMockRule(ctx, database.DeleteMockRuleParams{
+		ID:         pgtype.UUID{Bytes: rUUID, Valid: true},
+		EndpointID: pgtype.UUID{Bytes: epUUID, Valid: true},
+	})
+}
+
+func (s *MockService) ToggleRule(ctx context.Context, ruleId string, endpointId string) (*MockRuleResponse, error) {
+	rUUID, err := uuid.Parse(ruleId)
+	if err != nil {
+		return nil, errors.New("geçersiz rule ID")
+	}
+	epUUID, err := uuid.Parse(endpointId)
+	if err != nil {
+		return nil, errors.New("geçersiz endpoint ID")
+	}
+
+	rule, err := s.queries.ToggleMockRule(ctx, database.ToggleMockRuleParams{
+		ID:         pgtype.UUID{Bytes: rUUID, Valid: true},
+		EndpointID: pgtype.UUID{Bytes: epUUID, Valid: true},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var headers map[string]string
+	json.Unmarshal(rule.ResponseHeaders, &headers)
+
+	var body map[string]interface{}
+	json.Unmarshal(rule.ResponseBody, &body)
+
+	return &MockRuleResponse{
+		ID:              uuid.UUID(rule.ID.Bytes).String(),
+		EndpointID:      endpointId,
+		Name:            rule.Name,
+		StatusCode:      rule.StatusCode,
+		DelayMs:         rule.DelayMs,
+		ResponseHeaders: headers,
+		ResponseBody:    body,
+		Enabled:         rule.Enabled,
+	}, nil
+}

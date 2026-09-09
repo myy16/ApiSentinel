@@ -122,6 +122,8 @@ func SetupRouter(h *Handlers, jwtSecret string, queries *database.Queries, corsO
 			protected.With(tenantGuard, projectGuard, endpointGuard, requireOwner).Delete("/projects/{projectId}/endpoints/{endpointId}", h.EndpointHandler.Delete)
 			protected.With(tenantGuard, endpointGuard).Get("/endpoints/{endpointId}/mocks", h.MockHandler.List)
 			protected.With(tenantGuard, endpointGuard, requireDeveloper).Post("/endpoints/{endpointId}/mocks", h.MockHandler.Create)
+			protected.With(tenantGuard, endpointGuard, requireDeveloper).Delete("/endpoints/{endpointId}/mocks/{ruleId}", h.MockHandler.Delete)
+			protected.With(tenantGuard, endpointGuard, requireDeveloper).Patch("/endpoints/{endpointId}/mocks/{ruleId}/toggle", h.MockHandler.Toggle)
 			protected.With(tenantGuard, endpointGuard, requireDeveloper).Post("/endpoints/{endpointId}/forwarding", h.ForwardingHandler.SaveConfig)
 			protected.With(tenantGuard, endpointGuard).Get("/endpoints/{endpointId}/forwarding", h.ForwardingHandler.GetConfig)
 			protected.With(tenantGuard, endpointGuard).Get("/endpoints/{endpointId}/dlq", h.ForwardingHandler.ListDLQ)

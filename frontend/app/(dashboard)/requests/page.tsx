@@ -362,6 +362,12 @@ function RequestsContent() {
                           {req.responseStatus || 200}
                         </span>
 
+                        {req.processingStatus === "MOCKED" && (
+                          <span className="rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30 px-2 py-0.5 text-[10px] font-bold">
+                            MOCKED
+                          </span>
+                        )}
+
                         <span className="text-xs font-semibold text-foreground truncate max-w-[130px]">
                           {req.endpoint?.name || "Endpoint"}
                         </span>

@@ -781,18 +781,25 @@ func (s *IngestionService) handleMockMode(
 				_ = json.Unmarshal(selectedRule.ResponseHeaders, &mockRespHeaders)
 			}
 
-			_, _ = s.queries.CreateCapturedRequest(ctx, database.CreateCapturedRequestParams{
+			respBytes, _ := json.Marshal(mockRespBody)
+			captured, _ := s.queries.CreateCapturedRequest(ctx, database.CreateCapturedRequestParams{
 				EndpointID:       endpoint.ID,
 				RequestID:        requestId,
 				HttpMethod:       httpMethod,
 				Headers:          headersBytes,
 				QueryParams:      queryBytes,
-				RawBody:          pgRawBody,
-				MaskedBody:       pgRawBody,
+				RawBody:          pgtype.Text{String: string(rawBody), Valid: len(rawBody) > 0},
+				MaskedBody:       pgtype.Text{String: string(respBytes), Valid: len(respBytes) > 0},
 				ParsedJson:       parsedJson,
 				ResponseStatus:   pgtype.Int4{Int32: selectedRule.StatusCode, Valid: true},
 				ProcessingStatus: "MOCKED",
 			})
+
+			// Publish real-time SSE push so /requests and /overview pages update instantly
+			capturedIdStr := uuid.UUID(captured.ID.Bytes).String()
+			projectIdStr := uuid.UUID(endpoint.ProjectID.Bytes).String()
+			endpointIdStr := uuid.UUID(endpoint.ID.Bytes).String()
+			s.dispatchAsyncEvents(capturedIdStr, projectIdStr, endpointIdStr, requestId, httpMethod, selectedRule.StatusCode, "MOCK")
 
 			return &IngestionResult{
 				StatusCode:      int(selectedRule.StatusCode),
@@ -803,6 +810,24 @@ func (s *IngestionService) handleMockMode(
 			}, nil
 		}
 	}
+
+	captured, _ := s.queries.CreateCapturedRequest(ctx, database.CreateCapturedRequestParams{
+		EndpointID:       endpoint.ID,
+		RequestID:        requestId,
+		HttpMethod:       httpMethod,
+		Headers:          headersBytes,
+		QueryParams:      queryBytes,
+		RawBody:          pgRawBody,
+		MaskedBody:       pgRawBody,
+		ParsedJson:       parsedJson,
+		ResponseStatus:   pgtype.Int4{Int32: http.StatusOK, Valid: true},
+		ProcessingStatus: "MOCKED",
+	})
+
+	capturedIdStr := uuid.UUID(captured.ID.Bytes).String()
+	projectIdStr := uuid.UUID(endpoint.ProjectID.Bytes).String()
+	endpointIdStr := uuid.UUID(endpoint.ID.Bytes).String()
+	s.dispatchAsyncEvents(capturedIdStr, projectIdStr, endpointIdStr, requestId, httpMethod, http.StatusOK, "MOCK")
 
 	return &IngestionResult{
 		StatusCode: http.StatusOK,

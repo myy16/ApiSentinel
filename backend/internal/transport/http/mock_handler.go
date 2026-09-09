@@ -47,3 +47,28 @@ func (h *MockHandler) List(w http.ResponseWriter, r *http.Request) {
 		"mocks": rules,
 	})
 }
+
+func (h *MockHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	endpointId := chi.URLParam(r, "endpointId")
+	ruleId := chi.URLParam(r, "ruleId")
+
+	if err := h.mockService.DeleteRule(r.Context(), ruleId, endpointId); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Mock kuralı silindi"})
+}
+
+func (h *MockHandler) Toggle(w http.ResponseWriter, r *http.Request) {
+	endpointId := chi.URLParam(r, "endpointId")
+	ruleId := chi.URLParam(r, "ruleId")
+
+	rule, err := h.mockService.ToggleRule(r.Context(), ruleId, endpointId)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, rule)
+}

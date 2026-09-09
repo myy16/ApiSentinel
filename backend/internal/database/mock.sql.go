@@ -98,7 +98,7 @@ const listMockRulesByEndpoint = `-- name: ListMockRulesByEndpoint :many
 SELECT id, endpoint_id, name, condition, status_code, delay_ms, response_headers, response_body, enabled
 FROM mock_rules
 WHERE endpoint_id = $1
-ORDER BY id ASC
+ORDER BY enabled DESC, created_at DESC
 `
 
 func (q *Queries) ListMockRulesByEndpoint(ctx context.Context, endpointID pgtype.UUID) ([]MockRule, error) {
@@ -129,4 +129,33 @@ func (q *Queries) ListMockRulesByEndpoint(ctx context.Context, endpointID pgtype
 		return nil, err
 	}
 	return items, nil
+}
+
+const toggleMockRule = `-- name: ToggleMockRule :one
+UPDATE mock_rules
+SET enabled = NOT enabled
+WHERE id = $1 AND endpoint_id = $2
+RETURNING id, endpoint_id, name, condition, status_code, delay_ms, response_headers, response_body, enabled
+`
+
+type ToggleMockRuleParams struct {
+	ID         pgtype.UUID `json:"id"`
+	EndpointID pgtype.UUID `json:"endpoint_id"`
+}
+
+func (q *Queries) ToggleMockRule(ctx context.Context, arg ToggleMockRuleParams) (MockRule, error) {
+	row := q.db.QueryRow(ctx, toggleMockRule, arg.ID, arg.EndpointID)
+	var i MockRule
+	err := row.Scan(
+		&i.ID,
+		&i.EndpointID,
+		&i.Name,
+		&i.Condition,
+		&i.StatusCode,
+		&i.DelayMs,
+		&i.ResponseHeaders,
+		&i.ResponseBody,
+		&i.Enabled,
+	)
+	return i, err
 }
