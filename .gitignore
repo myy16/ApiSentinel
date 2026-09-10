@@ -45,3 +45,7 @@ drizzle/meta/
 
 # Local project notes
 project.md
+
+# Temporary & Report documents
+temp_*
+desktop.ini
